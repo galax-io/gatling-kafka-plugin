@@ -1,0 +1,92 @@
+name: Continuous Integration
+
+on:
+  pull_request:
+    branches: ['**']
+  push:
+    branches: ['**']
+    tags: [v*]
+
+jobs:
+  test:
+    name: Test Release
+    runs-on: ubuntu-20.04
+    services:
+      zookeeper:
+        image: wurstmeister/zookeeper
+        env:
+          ZOO_MY_ID: "1"
+          ZOO_PORT: "2181"
+          ZOO_SERVERS: server.1=zoo1:2888:3888
+        ports:
+          - '2181:2181'
+      kafka:
+        image: wurstmeister/kafka:2.13-2.6.3
+        env:
+          KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+          KAFKA_ADVERTISED_HOST_NAME: kafka
+          KAFKA_LISTENERS: BROKER://:9092,EXTERNAL://:9093
+          KAFKA_ADVERTISED_LISTENERS: BROKER://kafka:9092,EXTERNAL://localhost:9093
+          KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: BROKER:PLAINTEXT,EXTERNAL:PLAINTEXT
+          KAFKA_INTER_BROKER_LISTENER_NAME: BROKER
+          KAFKA_BROKER_ID: "1"
+          KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+          KAFKA_CREATE_TOPICS: "myTopic1:1:1, test.t1:1:1, myTopic2:1:1, test.t2:1:1, myTopic3:1:1, test.t3:1:1"
+        ports:
+          - '9092:9092'
+          - '9093:9093'
+      schema-registry:
+        image: confluentinc/cp-schema-registry:7.2.1
+        env:
+          SCHEMA_REGISTRY_HOST_NAME: schema-registry
+          SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: 'kafka:9092,localhost:9093'
+          SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:9094
+        ports:
+          - '9094:9094'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2.4.0
+        with:
+          fetch-depth: 0
+
+      - name: Setup Scala
+        uses: olafurpg/setup-scala@v13
+        with:
+          java-version: openjdk@1.17
+
+      - name: Test Release
+        run: sbt clean scalafmtCheckAll scalafmtSbtCheck compile coverage "Gatling / testOnly io.cosmospf.gatling.kafka.examples.KafkaGatlingTest" test coverageOff
+
+      - name: Test Javaapi Methods
+        run: sbt compile "Gatling / testOnly io.cosmospf.gatling.kafka.examples.KafkaJavaapiMethodsGatlingTest"
+
+      - name: Coverage Report
+        run: sbt coverageReport
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v3
+
+  publish:
+    name: Publish Release
+    needs: [test]
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2.4.0
+        with:
+          fetch-depth: 0
+
+      - name: Setup Scala
+        uses: olafurpg/setup-scala@v13
+        with:
+          java-version: openjdk@1.17
+
+      - name: Publish Release
+        run: sbt ci-release
+        env:
+          PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
+          PGP_SECRET: ${{ secrets.PGP_SECRET }}
+          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
+          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
