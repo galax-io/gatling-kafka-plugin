@@ -1,5 +1,5 @@
 import Dependencies._
-//import io.cosmospf.load.avro.RegistrySubject
+//import org.galaxio.performance.avro.RegistrySubject
 
 val scalaV      = "2.13.10"
 val avroSchemas = Seq() // for example Seq(RegistrySubject("test-hello-schema", 1))

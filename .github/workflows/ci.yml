@@ -56,10 +56,10 @@ jobs:
           java-version: openjdk@1.17
 
       - name: Test Release
-        run: sbt clean scalafmtCheckAll scalafmtSbtCheck compile coverage "Gatling / testOnly io.cosmospf.gatling.kafka.examples.KafkaGatlingTest" test coverageOff
+        run: sbt clean scalafmtCheckAll scalafmtSbtCheck compile coverage "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaGatlingTest" test coverageOff
 
       - name: Test Javaapi Methods
-        run: sbt compile "Gatling / testOnly io.cosmospf.gatling.kafka.examples.KafkaJavaapiMethodsGatlingTest"
+        run: sbt compile "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaJavaapiMethodsGatlingTest"
 
       - name: Coverage Report
         run: sbt coverageReport

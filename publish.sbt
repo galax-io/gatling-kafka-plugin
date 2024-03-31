@@ -1,8 +1,8 @@
-ThisBuild / organization := "io.cosmospf"
+ThisBuild / organization := "org.galaxio"
 ThisBuild / scmInfo      := Some(
   ScmInfo(
-    url("https://github.com/cosmospf/gatling-kafka-plugin"),
-    "git@github.com:cosmospf/gatling-kafka-plugin.git",
+    url("https://github.com/galax-io/gatling-kafka-plugin"),
+    "git@github.com:galax-io/gatling-kafka-plugin.git",
   ),
 )
 
@@ -17,4 +17,4 @@ ThisBuild / developers := List(
 
 ThisBuild / description := "Plugin to support kafka performance testing in Gatling(3.9.x)."
 ThisBuild / licenses += ("Apache-2.0", url("http://www.apache.org/licenses/LICENSE-2.0"))
-ThisBuild / homepage    := Some(url("https://github.com/cosmospf/gatling-kafka-plugin"))
+ThisBuild / homepage    := Some(url("https://github.com/galax-io/gatling-kafka-plugin"))

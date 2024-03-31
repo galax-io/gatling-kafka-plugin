@@ -1,7 +1,7 @@
 # Gatling Kafka Plugin
 
-![Build](https://github.com/cosmospf/gatling-kafka-plugin/workflows/Build/badge.svg) [![Maven Central](https://img.shields.io/maven-central/v/io.cosmospf/gatling-kafka-plugin_2.13.svg?color=success)](https://search.maven.org/search?q=io.cosmospf.gatling-kafka)  [![Scala Steward badge](https://img.shields.io/badge/Scala_Steward-helping-blue.svg?style=flat&logo=data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAQCAMAAAARSr4IAAAAVFBMVEUAAACHjojlOy5NWlrKzcYRKjGFjIbp293YycuLa3pYY2LSqql4f3pCUFTgSjNodYRmcXUsPD/NTTbjRS+2jomhgnzNc223cGvZS0HaSD0XLjbaSjElhIr+AAAAAXRSTlMAQObYZgAAAHlJREFUCNdNyosOwyAIhWHAQS1Vt7a77/3fcxxdmv0xwmckutAR1nkm4ggbyEcg/wWmlGLDAA3oL50xi6fk5ffZ3E2E3QfZDCcCN2YtbEWZt+Drc6u6rlqv7Uk0LdKqqr5rk2UCRXOk0vmQKGfc94nOJyQjouF9H/wCc9gECEYfONoAAAAASUVORK5CYII=)](https://scala-steward.org)
-[![codecov.io](https://codecov.io/github/cosmospf/gatling-kafka-plugin/coverage.svg?branch=master)](https://codecov.io/github/cosmospf/gatling-kafka-plugin?branch=master)
+![Build](https://github.com/galax-io/gatling-kafka-plugin/workflows/Build/badge.svg) [![Maven Central](https://img.shields.io/maven-central/v/org.galaxio/gatling-kafka-plugin_2.13.svg?color=success)](https://search.maven.org/search?q=org.galaxio.gatling-kafka)  [![Scala Steward badge](https://img.shields.io/badge/Scala_Steward-helping-blue.svg?style=flat&logo=data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAQCAMAAAARSr4IAAAAVFBMVEUAAACHjojlOy5NWlrKzcYRKjGFjIbp293YycuLa3pYY2LSqql4f3pCUFTgSjNodYRmcXUsPD/NTTbjRS+2jomhgnzNc223cGvZS0HaSD0XLjbaSjElhIr+AAAAAXRSTlMAQObYZgAAAHlJREFUCNdNyosOwyAIhWHAQS1Vt7a77/3fcxxdmv0xwmckutAR1nkm4ggbyEcg/wWmlGLDAA3oL50xi6fk5ffZ3E2E3QfZDCcCN2YtbEWZt+Drc6u6rlqv7Uk0LdKqqr5rk2UCRXOk0vmQKGfc94nOJyQjouF9H/wCc9gECEYfONoAAAAASUVORK5CYII=)](https://scala-steward.org)
+[![codecov.io](https://codecov.io/github/galax-io/gatling-kafka-plugin/coverage.svg?branch=master)](https://codecov.io/github/galax-io/gatling-kafka-plugin?branch=master)
 
 # Introduction
 
@@ -18,7 +18,7 @@ You may include plugin as dependency in project with your tests. Write
 ### Scala
 
 ```scala
-libraryDependencies += "io.cosmospf" %% "gatling-kafka-plugin" % <version> % Test
+libraryDependencies += "org.galaxio" %% "gatling-kafka-plugin" % <version> % Test
 ```
 
 ### Java
@@ -26,7 +26,7 @@ libraryDependencies += "io.cosmospf" %% "gatling-kafka-plugin" % <version> % Tes
 Write this to your dependencies block in build.gradle:
 
 ```java
-gatling "io.cosmospf:gatling-kafka-plugin_2.13:<version>"
+gatling "org.galaxio:gatling-kafka-plugin_2.13:<version>"
 ```
 
 ### Kotlin
@@ -34,26 +34,26 @@ gatling "io.cosmospf:gatling-kafka-plugin_2.13:<version>"
 Write this to your dependencies block in build.gradle:
 
 ```kotlin
-gatling("io.cosmospf:gatling-kafka-plugin_2.13:<version>")
+gatling("org.galaxio:gatling-kafka-plugin_2.13:<version>")
 ```
 
 ## Example Scenarios
 
 ### Scala
 
-Examples [here](src/test/scala/io/cosmospf/gatling/kafka/examples)
+Examples [here](src/test/scala/org/galaxio/gatling/kafka/examples)
 
 ### Java
 
-Examples [here](src/test/java/io/cosmospf/gatling/kafka/javaapi/examples)
+Examples [here](src/test/java/org/galaxio/gatling/kafka/javaapi/examples)
 
 ### Kotlin
 
-Examples [here](src/test/kotlin/io/cosmospf/gatling/kafka/javaapi/examples)
+Examples [here](src/test/kotlin/org/galaxio/gatling/kafka/javaapi/examples)
 
 ## Download and create Avro schema
 
-Avro schema is downloaded using the plugin [sbt-schema-registry-plugin](https://github.com/cosmospf/sbt-schema-registry-plugin)
+Avro schema is downloaded using the plugin [sbt-schema-registry-plugin](https://github.com/galax-io/sbt-schema-registry-plugin)
 and for that you need to configure schemas and url in `build.sbt` and run the command:
 
 ```bash 
@@ -66,7 +66,7 @@ To run you should create scala object in root project directory and type `sbt ru
 
 ### Example download avro-schema
 
-Example [here](https://github.com/cosmospf/gatling-kafka-plugin/tree/master/src/test/scala/io/cosmospf/gatling/kafka/examples)
+Example [here](https://github.com/galax-io/gatling-kafka-plugin/tree/master/src/test/scala/org/galaxio/gatling/kafka/examples)
 
 ## Avro support in Request-Reply
 
@@ -119,8 +119,8 @@ val de = KafkaAvroDeserializer(CachedSchemaRegistryClient("schRegUrl".split(',')
 
 ### Example usage Avro in Request-Reply
 
-Example [scala](src/test/scala/io/cosmospf/gatling/kafka/examples/AvroClassWithRequestReplySimulation.scala)
+Example [scala](src/test/scala/org/galaxio/gatling/kafka/examples/AvroClassWithRequestReplySimulation.scala)
 
-Example [java](src/test/java/io/cosmospf/gatling/kafka/javaapi/examples/AvroClassWithRequestReplySimulation.java)
+Example [java](src/test/java/org/galaxio/gatling/kafka/javaapi/examples/AvroClassWithRequestReplySimulation.java)
 
-Example [kotlin](src/test/kotlin/io/cosmospf/gatling/kafka/javaapi/examples/AvroClassWithRequestReplySimulation.kt)
+Example [kotlin](src/test/kotlin/org/galaxio/gatling/kafka/javaapi/examples/AvroClassWithRequestReplySimulation.kt)
