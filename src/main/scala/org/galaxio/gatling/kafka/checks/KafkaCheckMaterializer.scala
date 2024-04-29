@@ -17,7 +17,7 @@ import org.apache.kafka.common.serialization.Serde
 import org.galaxio.gatling.kafka.KafkaCheck
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 
-final class KafkaCheckMaterializer[T, P] private[KafkaCheckMaterializer](
+final class KafkaCheckMaterializer[T, P] private[KafkaCheckMaterializer] (
     override val preparer: Preparer[KafkaProtocolMessage, P],
 ) extends CheckMaterializer[T, KafkaCheck, KafkaProtocolMessage, P](identity)
 
