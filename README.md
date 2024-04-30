@@ -51,6 +51,56 @@ Examples [here](src/test/java/org/galaxio/gatling/kafka/javaapi/examples)
 
 Examples [here](src/test/kotlin/org/galaxio/gatling/kafka/javaapi/examples)
 
+## Silent Requests (hide Gatling stats rows)
+
+Use `silent` when you need to execute Kafka requests but do not want them to appear as request rows in Gatling stats/report.
+
+### Scala
+
+```scala
+val scn = scenario("Silent Kafka examples")
+  .exec(
+    kafka("Request String")
+      .send[String]("foo")
+      .silent,
+  )
+  .exec(
+    kafka("Request Reply String").requestReply
+      .requestTopic("myTopic1")
+      .replyTopic("test.t1")
+      .send[String, String]("k", """{ "m": "v" }""")
+      .silent
+      .check(jsonPath("$.m").is("v")),
+  )
+```
+
+See working examples in tests:
+- [KafkaGatlingTest.scala](src/test/scala/org/galaxio/gatling/kafka/examples/KafkaGatlingTest.scala)
+
+### Java
+
+```java
+setUp(
+  scenario("Silent Kafka Java")
+    .exec(
+      kafka("Request String silent")
+        .send("testJavaWithoutKeyAndHeaders")
+        .silent()
+        .asScala()
+    )
+    .exec(
+      kafka("Request with explicit boolean")
+        .send("payload", new RecordHeaders().add("h", "v".getBytes()), true)
+        .asScala()
+    )
+    .inject(atOnceUsers(1))
+    .protocols(kafkaConfwoKey)
+);
+```
+
+See working examples in tests:
+- [KafkaJavaapiMethodsGatlingTest.scala](src/test/scala/org/galaxio/gatling/kafka/examples/KafkaJavaapiMethodsGatlingTest.scala)
+
 ## Download and create Avro schema
 
 Avro schema is downloaded using the plugin [sbt-schema-registry-plugin](https://github.com/galax-io/sbt-schema-registry-plugin)

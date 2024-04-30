@@ -49,7 +49,8 @@ class KafkaRequestAction[K, V](
   private def reportUnbuildableRequest(session: Session, error: String): Unit = {
     val loggedName = attr.requestName(session) match {
       case Success(requestNameValue) =>
-        statsEngine.logRequestCrash(session.scenario, session.groups, requestNameValue, s"Failed to build request: $error")
+        if (!attr.silent.getOrElse(false))
+          statsEngine.logRequestCrash(session.scenario, session.groups, requestNameValue, s"Failed to build request: $error")
         requestNameValue
       case _                         =>
         name
@@ -83,6 +84,7 @@ class KafkaRequestAction[K, V](
       session: Session,
   ): Unit = {
     val requestStartDate = clock.nowMillis
+    val silent           = attr.silent.getOrElse(false)
     scala.concurrent.blocking(
       scala.concurrent
         .Future(producer.send(record).get())(components.sender.executionContext)
@@ -94,34 +96,40 @@ class KafkaRequestAction[K, V](
               logger.trace(s"ProducerRecord=$record")
             }
 
-            statsEngine.logResponse(
-              session.scenario,
-              session.groups,
-              requestName,
-              startTimestamp = requestStartDate,
-              endTimestamp = requestEndDate,
-              OK,
-              None,
-              None,
-            )
-            next ! session.logGroupRequestTimings(requestStartDate, requestEndDate)
+            if (!silent) {
+              statsEngine.logResponse(
+                session.scenario,
+                session.groups,
+                requestName,
+                startTimestamp = requestStartDate,
+                endTimestamp = requestEndDate,
+                OK,
+                None,
+                None,
+              )
+              next ! session.logGroupRequestTimings(requestStartDate, requestEndDate)
+            } else
+              next ! session
 
           case util.Failure(exception) =>
             val requestEndDate = clock.nowMillis
 
             logger.error(exception.getMessage, exception)
 
-            statsEngine.logResponse(
-              session.scenario,
-              session.groups,
-              requestName,
-              startTimestamp = requestStartDate,
-              endTimestamp = requestEndDate,
-              KO,
-              None,
-              Some(exception.getMessage),
-            )
-            next ! session.logGroupRequestTimings(requestStartDate, requestEndDate).markAsFailed
+            if (!silent) {
+              statsEngine.logResponse(
+                session.scenario,
+                session.groups,
+                requestName,
+                startTimestamp = requestStartDate,
+                endTimestamp = requestEndDate,
+                KO,
+                None,
+                Some(exception.getMessage),
+              )
+              next ! session.logGroupRequestTimings(requestStartDate, requestEndDate).markAsFailed
+            } else
+              next ! session.markAsFailed
         }(components.sender.executionContext),
     )
   }

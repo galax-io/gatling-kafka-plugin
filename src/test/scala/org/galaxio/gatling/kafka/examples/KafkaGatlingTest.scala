@@ -1,15 +1,12 @@
 package org.galaxio.gatling.kafka.examples
 
 import com.sksamuel.avro4s._
-import io.confluent.kafka.schemaregistry.client.CachedSchemaRegistryClient
-import io.confluent.kafka.serializers.{KafkaAvroDeserializer, KafkaAvroSerializer}
 import io.gatling.core.Predef._
 import io.gatling.core.structure.ScenarioBuilder
 import org.apache.kafka.clients.producer.ProducerConfig
-import org.galaxio.gatling.kafka.Predef._
 import org.apache.kafka.common.header.Headers
 import org.apache.kafka.common.header.internals.RecordHeaders
-import org.apache.kafka.common.serialization.{Deserializer, Serde, Serializer}
+import org.galaxio.gatling.kafka.Predef._
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 
@@ -162,6 +159,11 @@ class KafkaGatlingTest extends Simulation {
       kafka("Request Stirng With null key")
         .send[Any, String](null, "nullkey"),
     )
+    .exec(
+      kafka("Request String")
+        .send[String]("foo")
+        .silent,
+    )
 
   val scn: ScenarioBuilder = scenario("Request String")
     .exec(kafka("Request String 2").send[String, String]("testCheckJson", """{ "m": "dkf" }"""))
@@ -170,6 +172,11 @@ class KafkaGatlingTest extends Simulation {
     .exec(
       kafka("Request Byte")
         .send[Array[Byte], Array[Byte]]("key".getBytes(), "tstBytes".getBytes()),
+    )
+    .exec(
+      kafka("Request Byte")
+        .send[Array[Byte], Array[Byte]]("key".getBytes(), "tstBytes".getBytes())
+        .silent,
     )
 
   val scnRR2: ScenarioBuilder = scenario("RequestReply Bytes")
@@ -189,6 +196,11 @@ class KafkaGatlingTest extends Simulation {
     .exec(
       kafka("Request Avro4s")
         .send[String, Ingredient]("key4s", Ingredient("Cheese", 0d, 70d)),
+    )
+    .exec(
+      kafka("Request Simple Avro4s")
+        .send(Ingredient("Cheese", 1d, 50d))
+        .silent,
     )
 
   val scnRRwo: ScenarioBuilder = scenario("RequestReply w/o answer")
