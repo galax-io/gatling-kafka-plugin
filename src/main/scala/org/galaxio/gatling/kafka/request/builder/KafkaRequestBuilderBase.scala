@@ -23,8 +23,10 @@ case class KafkaRequestBuilderBase(requestName: Expression[String]) {
       sender.send(requestName, Some(key), payload, Some(headers))
   }
 
-  def send[V](payload: Expression[V])(implicit sender: Sender[Nothing, V]): RequestBuilder[_, V] =
-    sender.send(requestName, None, payload)
+  def send[V](payload: Expression[V])(implicit
+      sender: Sender[Nothing, V],
+  ): RequestBuilder[_, V] =
+    sender.send(requestName = requestName, key = None, payload = payload, headers = None)
 
   def requestReply: ReqRepBase.type = ReqRepBase
 
@@ -37,15 +39,16 @@ case class KafkaRequestBuilderBase(requestName: Expression[String]) {
       ): KafkaRequestReplyActionBuilder[K, V] = {
         KafkaRequestReplyActionBuilder[K, V](
           new KafkaRequestReplyAttributes[K, V](
-            requestName,
-            inputTopic,
-            outputTopic,
-            key,
-            payload,
-            Some(headers),
-            implicitly[Serde[K]].serializer(),
-            implicitly[Serde[V]].serializer(),
-            List.empty,
+            requestName = requestName,
+            inputTopic = inputTopic,
+            outputTopic = outputTopic,
+            key = key,
+            value = payload,
+            headers = Some(headers),
+            keySerializer = implicitly[Serde[K]].serializer(),
+            valueSerializer = implicitly[Serde[V]].serializer(),
+            checks = List.empty,
+            silent = None,
           ),
         )
       }
@@ -53,6 +56,7 @@ case class KafkaRequestBuilderBase(requestName: Expression[String]) {
 
     case class RRInTopicStep(inputTopic: Expression[String]) {
       def replyTopic(outputTopic: Expression[String]): RROutTopicStep = RROutTopicStep(inputTopic, outputTopic)
+
     }
     def requestTopic(rt: Expression[String]): RRInTopicStep = RRInTopicStep(rt)
 

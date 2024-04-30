@@ -59,12 +59,10 @@ public class KafkaRequestBuilderBase {
 
     public <K, V> RequestBuilder<?, ?> send(V payload, Headers headers) {
         return new RequestBuilder<>(
-                wrapped.send(
-                        null,
+                wrapped.send(null,
                         calculateExpression(payload),
                         toStaticValueExpression(headers),
-                        Sender.noSchemaSender()
-                ));
+                        Sender.noSchemaSender()));
     }
 
     public ReqRepBase requestReply() {

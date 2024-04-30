@@ -1,5 +1,6 @@
 package org.galaxio.gatling.kafka.actions
 
+import com.softwaremill.quicklens._
 import io.gatling.core.action.Action
 import io.gatling.core.action.builder.ActionBuilder
 import io.gatling.core.structure.ScenarioContext
@@ -9,7 +10,7 @@ import org.galaxio.gatling.kafka.request.builder.KafkaAttributes
 
 import scala.jdk.CollectionConverters._
 
-class KafkaRequestActionBuilder[K, V](attr: KafkaAttributes[K, V]) extends ActionBuilder {
+case class KafkaRequestActionBuilder[K, V](attributes: KafkaAttributes[K, V]) extends ActionBuilder {
 
   override def build(ctx: ScenarioContext, next: Action): Action = {
 
@@ -24,7 +25,7 @@ class KafkaRequestActionBuilder[K, V](attr: KafkaAttributes[K, V]) extends Actio
 
     new KafkaRequestAction(
       producer,
-      attr,
+      attributes,
       coreComponents,
       kafkaComponents.kafkaProtocol,
       throttled,

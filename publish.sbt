@@ -2,9 +2,9 @@ ThisBuild / versionScheme        := Some("semver-spec")
 ThisBuild / organization         := "org.galaxio"
 ThisBuild / organizationName     := "Galaxio Team"
 ThisBuild / organizationHomepage := Some(url("https://github.com/galax-io"))
-ThisBuild / description          := "Plugin to support kafka performance testing in Gatling."
-ThisBuild / homepage             := Some(url("https://github.com/galax-io/gatling-kafka-plugin"))
-ThisBuild / scmInfo              := Some(
+
+ThisBuild / homepage := Some(url("https://github.com/galax-io/gatling-kafka-plugin"))
+ThisBuild / scmInfo  := Some(
   ScmInfo(
     url("https://github.com/galax-io/gatling-kafka-plugin"),
     "git@github.com:galax-io/gatling-kafka-plugin.git",
@@ -21,7 +21,8 @@ ThisBuild / developers := List(
 )
 
 // Remove all additional repository other than Maven Central from POM
-ThisBuild / publishTo := {
+ThisBuild / pomIncludeRepository := { _ => false }
+ThisBuild / publishTo            := {
   val nexus = "https://s01.oss.sonatype.org/"
   if (isSnapshot.value) Some("snapshots" at nexus + "content/repositories/snapshots")
   else Some("releases" at nexus + "service/local/staging/deploy/maven2")
