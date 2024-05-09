@@ -4,8 +4,6 @@ import com.sksamuel.avro4s.{FromRecord, RecordFormat, SchemaFor}
 import io.gatling.core.session.Expression
 import org.apache.kafka.common.header.Headers
 
-import scala.reflect.ClassTag
-
 trait Sender[K, V] {
 
   def send(requestName: Expression[String], payload: Expression[V]): RequestBuilder[Nothing, V]
@@ -23,7 +21,7 @@ trait Sender[K, V] {
 
 object Sender extends LowPriorSender {
 
-  implicit def Avro4sSender[K: ClassTag, V: ClassTag](implicit
+  implicit def Avro4sSender[K, V](implicit
       schema: SchemaFor[V],
       format: RecordFormat[V],
       fromRecord: FromRecord[V],
