@@ -33,7 +33,7 @@ class KafkaJavaapiMethodsGatlingTest extends Simulation {
       )
       .exec(
         kafka("Request String with headers without key")
-          .send("testJavaWithHeadersWithoutKey", new RecordHeaders().add("test-header", "test_value".getBytes()))
+          .send("testJavaWithHeadersWithoutKey", new RecordHeaders().add("test-header", "test_value".getBytes()), false)
           .asScala(),
       )
       .exec(
