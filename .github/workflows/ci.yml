@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-20.04
     services:
       zookeeper:
-        image: zookeeper:latest
+        image: bitnami/zookeeper:latest
         env:
           ALLOW_ANONYMOUS_LOGIN: yes
           ZOO_MY_ID: "1"
