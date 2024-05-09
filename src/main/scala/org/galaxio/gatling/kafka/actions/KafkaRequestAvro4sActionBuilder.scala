@@ -13,8 +13,7 @@ import org.galaxio.gatling.kafka.request.builder.Avro4sAttributes
 import scala.jdk.CollectionConverters._
 import scala.reflect.ClassTag
 
-case class KafkaRequestAvro4sActionBuilder[K, V](attributes: Avro4sAttributes[K, V])
-    extends ActionBuilder with NameGen {
+case class KafkaRequestAvro4sActionBuilder[K, V](attributes: Avro4sAttributes[K, V]) extends ActionBuilder with NameGen {
 
   override def build(ctx: ScenarioContext, next: Action): Action = {
     import ctx._
