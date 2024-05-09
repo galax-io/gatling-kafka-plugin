@@ -88,6 +88,7 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
           logMessage(s"Record sent user=${session.userId} key=${new String(msg.key)} topic=${rm.topic()}", msg)
         }
         val id = components.kafkaProtocol.messageMatcher.requestMatch(msg)
+
         components.trackersPool
           .tracker(msg.inputTopic, msg.outputTopic, components.kafkaProtocol.messageMatcher, None)
           .track(
@@ -98,6 +99,7 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
             session,
             next,
             requestNameString,
+            attributes.silent.getOrElse(false)
           )
       },
       e => {
