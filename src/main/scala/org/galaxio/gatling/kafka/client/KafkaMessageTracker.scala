@@ -16,7 +16,7 @@ class KafkaMessageTracker(actor: ActorRef) {
       session: Session,
       next: Action,
       requestName: String,
-      silentRequest: Boolean
+      silentRequest: Boolean,
   ): Unit =
     actor ! MessagePublished(
       matchId,
@@ -26,6 +26,6 @@ class KafkaMessageTracker(actor: ActorRef) {
       session,
       next,
       requestName,
-      silentRequest
+      silentRequest,
     )
 }

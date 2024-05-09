@@ -28,7 +28,7 @@ object KafkaMessageTrackerActor {
       session: Session,
       next: Action,
       requestName: String,
-      silentRequest: Boolean
+      silentRequest: Boolean,
   )
 
   case class MessageConsumed(
@@ -71,9 +71,9 @@ class KafkaMessageTrackerActor(statsEngine: StatsEngine, clock: Clock) extends A
       requestName: String,
       responseCode: Option[String],
       message: Option[String],
-      silentRequest: Boolean
+      silentRequest: Boolean,
   ): Unit = {
-    if(! silentRequest) {
+    if (!silentRequest) {
       statsEngine.logResponse(
         session.scenario,
         session.groups,
@@ -112,7 +112,7 @@ class KafkaMessageTrackerActor(statsEngine: StatsEngine, clock: Clock) extends A
           requestName,
           message.responseCode,
           Some(errorMessage),
-          silentRequest
+          silentRequest,
         )
       case _                           =>
         executeNext(newSession, sent, received, OK, next, requestName, None, None, silentRequest)
@@ -159,7 +159,7 @@ class KafkaMessageTrackerActor(statsEngine: StatsEngine, clock: Clock) extends A
           requestName,
           None,
           Some(s"Reply timeout after $receivedTimeout ms"),
-          silentRequest
+          silentRequest,
         )
       }
       timedOutMessages.clear()

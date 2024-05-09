@@ -99,7 +99,7 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
             session,
             next,
             requestNameString,
-            attributes.silent.getOrElse(false)
+            attributes.silent.getOrElse(false),
           )
       },
       e => {
