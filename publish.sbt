@@ -2,6 +2,7 @@ ThisBuild / versionScheme        := Some("semver-spec")
 ThisBuild / organization         := "org.galaxio"
 ThisBuild / organizationName     := "Galaxio Team"
 ThisBuild / organizationHomepage := Some(url("https://github.com/galax-io"))
+ThisBuild / description          := "Plugin to support kafka performance testing in Gatling."
 
 ThisBuild / homepage := Some(url("https://github.com/galax-io/gatling-kafka-plugin"))
 ThisBuild / scmInfo  := Some(
