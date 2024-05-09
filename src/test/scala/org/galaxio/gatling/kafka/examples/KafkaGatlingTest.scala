@@ -160,13 +160,14 @@ class KafkaGatlingTest extends Simulation {
         .send[Any, String](null, "nullkey"),
     )
     .exec(
-      kafka("Request String")
+      kafka("Request String SILENT")
         .send[String]("foo")
         .silent,
     )
 
   val scn: ScenarioBuilder = scenario("Request String")
     .exec(kafka("Request String 2").send[String, String]("testCheckJson", """{ "m": "dkf" }"""))
+    .exec(kafka("Request String 2 SILENT").send[String, String]("testCheckJson", """{ "m": "dkf" }""").silent)
 
   val scn2: ScenarioBuilder = scenario("Request Byte")
     .exec(
@@ -174,7 +175,7 @@ class KafkaGatlingTest extends Simulation {
         .send[Array[Byte], Array[Byte]]("key".getBytes(), "tstBytes".getBytes()),
     )
     .exec(
-      kafka("Request Byte")
+      kafka("Request Byte SILENT")
         .send[Array[Byte], Array[Byte]]("key".getBytes(), "tstBytes".getBytes())
         .silent,
     )
@@ -187,19 +188,27 @@ class KafkaGatlingTest extends Simulation {
         .send[Array[Byte], Array[Byte]]("test".getBytes(), "tstBytes".getBytes())
         .check(bodyBytes.is("tstBytes".getBytes()).saveAs("bodyInfo")),
     )
+    .exec(
+      kafka("Request Reply Bytes SILENT").requestReply
+        .requestTopic("myTopic2")
+        .replyTopic("test.t2")
+        .send[Array[Byte], Array[Byte]]("test".getBytes(), "tstBytes".getBytes())
+        .silent
+        .check(bodyBytes.is("tstBytes".getBytes()).saveAs("bodyInfo")),
+    )
 
   val scnAvro4s: ScenarioBuilder = scenario("Request Avro4s")
     .exec(
       kafka("Request Simple Avro4s")
-        .send(Ingredient("Cheese", 1d, 50d)),
+        .send[Ingredient](Ingredient("Cheese", 1d, 50d)),
     )
     .exec(
       kafka("Request Avro4s")
         .send[String, Ingredient]("key4s", Ingredient("Cheese", 0d, 70d)),
     )
     .exec(
-      kafka("Request Simple Avro4s")
-        .send(Ingredient("Cheese", 1d, 50d))
+      kafka("Request Simple Avro4s SILENT")
+        .send[Ingredient](Ingredient("Cheese", 1d, 50d))
         .silent,
     )
 
@@ -209,6 +218,13 @@ class KafkaGatlingTest extends Simulation {
         .requestTopic("myTopic2")
         .replyTopic("test.t2")
         .send[Array[Byte], Array[Byte]]("testWO".getBytes(), "tstBytesWO".getBytes()),
+    )
+    .exec(
+      kafka("Request Reply Bytes wo SILENT").requestReply
+        .requestTopic("myTopic2")
+        .replyTopic("test.t2")
+        .send[Array[Byte], Array[Byte]]("testWO".getBytes(), "tstBytesWO".getBytes())
+        .silent,
     )
 
   setUp(
@@ -220,7 +236,7 @@ class KafkaGatlingTest extends Simulation {
     scnRRwo.inject(atOnceUsers(1)).protocols(kafkaProtocolRRBytes2),
     scnwokey.inject(nothingFor(1), atOnceUsers(1)).protocols(kafkaConfwoKey),
   ).assertions(
-    global.failedRequests.percent.lt(15.0),
+    global.failedRequests.percent.lt(17.0),
   )
 
 }

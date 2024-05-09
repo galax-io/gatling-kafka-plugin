@@ -15,10 +15,12 @@ public class ProducerSimulation extends Simulation {
 
     private final KafkaProtocolBuilder kafkaConsumerConf =
             KafkaDsl.kafka().topic("test.topic")
-            .properties(Map.of(ProducerConfig.ACKS_CONFIG, "1"));
+                    .properties(Map.of(ProducerConfig.ACKS_CONFIG, "1"));
 
     private final ScenarioBuilder scn = scenario("Basic")
             .exec(KafkaDsl.kafka("BasicRequest").send("foo"))
+            .exec(KafkaDsl.kafka("BasicRequest SILENT").send("foo")
+                    .silent())
             .exec(KafkaDsl.kafka("dld").send("true", 12.0));
 
 }

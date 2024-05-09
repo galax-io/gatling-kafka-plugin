@@ -37,16 +37,18 @@ public class KafkaRequestBuilderBase {
                         calculateExpression(key),
                         calculateExpression(payload),
                         toStaticValueExpression(new RecordHeaders()),
+                        false,
                         Sender.noSchemaSender()
                 ));
     }
 
-    public <K, V> RequestBuilder<?, ?> send(K key, V payload, Headers headers) {
+    public <K, V> RequestBuilder<?, ?> send(K key, V payload, Headers headers, boolean silent) {
         return new RequestBuilder<>(
                 wrapped.send(
                         calculateExpression(key),
                         calculateExpression(payload),
                         toStaticValueExpression(headers),
+                        silent,
                         Sender.noSchemaSender()
                 ));
     }
@@ -57,11 +59,12 @@ public class KafkaRequestBuilderBase {
                 Sender.noSchemaSender()));
     }
 
-    public <K, V> RequestBuilder<?, ?> send(V payload, Headers headers) {
+    public <K, V> RequestBuilder<?, ?> send(V payload, Headers headers, boolean silent) {
         return new RequestBuilder<>(
                 wrapped.send(null,
                         calculateExpression(payload),
                         toStaticValueExpression(headers),
+                        silent,
                         Sender.noSchemaSender()));
     }
 

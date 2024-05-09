@@ -26,9 +26,10 @@ trait LowPriorSender {
           key: Option[Expression[K]],
           payload: Expression[V],
           headers: Option[Expression[Headers]],
+          silent: Option[Boolean],
       ): RequestBuilder[K, V] =
         KafkaRequestBuilder[K, V](
-          KafkaAttributes(requestName = requestName, key = key, payload = payload, headers = headers, silent = None),
+          KafkaAttributes(requestName = requestName, key = key, payload = payload, headers = headers, silent = silent),
         )
 
     }

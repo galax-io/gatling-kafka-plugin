@@ -7,7 +7,7 @@ import io.gatling.core.structure.ScenarioContext
 import io.gatling.core.util.NameGen
 import org.galaxio.gatling.kafka.KafkaCheck
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol
-import org.galaxio.gatling.kafka.request.builder.{KafkaRequestBuilder, KafkaRequestReplyAttributes}
+import org.galaxio.gatling.kafka.request.builder.{KafkaRequestReplyAttributes, RequestBuilder}
 
 import scala.reflect.ClassTag
 
@@ -32,4 +32,5 @@ case class KafkaRequestReplyActionBuilder[K: ClassTag, V: ClassTag](attributes: 
       ctx.coreComponents.throttler,
     )
   }
+
 }

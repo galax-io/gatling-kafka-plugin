@@ -36,6 +36,12 @@ class KafkaJavaapiMethodsGatlingTest extends Simulation {
           .send("testJavaWithHeadersWithoutKey", new RecordHeaders().add("test-header", "test_value".getBytes()))
           .asScala(),
       )
+      .exec(
+        kafka("Request String without headers and key SILENT")
+          .send("testJavaWithoutKeyAndHeaders")
+          .silent()
+          .asScala(),
+      )
       .inject(nothingFor(1), atOnceUsers(1))
       .protocols(kafkaConfwoKey),
   )

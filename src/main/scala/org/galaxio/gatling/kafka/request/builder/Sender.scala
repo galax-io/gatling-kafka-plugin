@@ -15,6 +15,7 @@ trait Sender[K, V] {
       key: Option[Expression[K]],
       payload: Expression[V],
       headers: Option[Expression[Headers]],
+      silent: Option[Boolean],
   ): RequestBuilder[K, V]
 
 }
@@ -65,6 +66,7 @@ object Sender extends LowPriorSender {
         key: Option[Expression[K]],
         payload: Expression[V],
         headers: Option[Expression[Headers]],
+        silent: Option[Boolean],
     ): RequestBuilder[K, V] =
       new KafkaAvro4sRequestBuilder[K, V](
         Avro4sAttributes(
@@ -75,7 +77,7 @@ object Sender extends LowPriorSender {
           format = format,
           fromRecord = fromRecord,
           headers = headers,
-          silent = None,
+          silent = silent,
         ),
       )
 
