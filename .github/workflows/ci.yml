@@ -24,6 +24,7 @@ jobs:
         image: bitnami/kafka:2.7.0
         env:
           KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+          ALLOW_PLAINTEXT_LISTENER: yes
           KAFKA_ADVERTISED_HOST_NAME: kafka
           KAFKA_LISTENERS: BROKER://:9092,EXTERNAL://:9093
           KAFKA_ADVERTISED_LISTENERS: BROKER://kafka:9092,EXTERNAL://localhost:9093
