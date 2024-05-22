@@ -7,7 +7,7 @@ import io.gatling.core.structure.ScenarioContext
 import io.gatling.core.util.NameGen
 import org.galaxio.gatling.kafka.KafkaCheck
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol
-import org.galaxio.gatling.kafka.request.builder.{KafkaRequestReplyAttributes, RequestBuilder}
+import org.galaxio.gatling.kafka.request.builder.KafkaRequestReplyAttributes
 
 import scala.reflect.ClassTag
 

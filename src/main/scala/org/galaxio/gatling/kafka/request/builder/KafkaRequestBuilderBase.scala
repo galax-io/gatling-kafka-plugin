@@ -15,19 +15,17 @@ case class KafkaRequestBuilderBase(requestName: Expression[String]) {
       payload: Expression[V],
       headers: Expression[Headers] = List.empty[Header],
       silent: Boolean = false,
-  )(implicit
-      sender: Sender[K, V],
-  ): RequestBuilder[K, V] = {
-    if (key == null)
-      sender.send(requestName, None, payload, Some(headers), Some(silent))
-    else
-      sender.send(requestName, Some(key), payload, Some(headers), Some(silent))
-  }
+  )(implicit sender: Sender[K, V]): RequestBuilder[K, V] = if (key == null)
+    sender.send(requestName, None, payload, Some(headers), Some(silent))
+  else
+    sender.send(requestName, Some(key), payload, Some(headers), Some(silent))
 
   def send[V](payload: Expression[V])(implicit
       sender: Sender[Nothing, V],
+      headers: Expression[Headers] = List.empty[Header],
+      silent: Boolean = false,
   ): RequestBuilder[_, V] =
-    sender.send(requestName = requestName, key = None, payload = payload, headers = None, silent = None)
+    sender.send(requestName = requestName, key = None, payload = payload, headers = Some(headers), silent = Some(silent))
 
   def requestReply: ReqRepBase.type = ReqRepBase
 

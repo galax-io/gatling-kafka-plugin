@@ -1,6 +1,5 @@
 package org.galaxio.gatling.kafka.actions
 
-import com.softwaremill.quicklens._
 import io.gatling.core.action.Action
 import io.gatling.core.action.builder.ActionBuilder
 import io.gatling.core.structure.ScenarioContext
