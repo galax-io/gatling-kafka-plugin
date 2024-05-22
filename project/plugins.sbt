@@ -5,10 +5,10 @@ resolvers ++= Seq(
 )
 
 addSbtPlugin("com.github.sbt" % "sbt-ci-release"             % "1.5.12")
-addSbtPlugin("io.gatling"     % "gatling-sbt"                % "4.3.2")
-addSbtPlugin("org.scalameta"  % "sbt-scalafmt"               % "2.5.0")
-addSbtPlugin("com.github.sbt" % "sbt-avro"                   % "3.4.2")
-addSbtPlugin("org.galaxio"    % "sbt-schema-registry-plugin" % "0.3.0")
-addSbtPlugin("org.scoverage"  % "sbt-scoverage"              % "2.0.7")
+addSbtPlugin("io.gatling"     % "gatling-sbt"                % "4.9.0")
+addSbtPlugin("org.scalameta"  % "sbt-scalafmt"               % "2.5.2")
+addSbtPlugin("com.github.sbt" % "sbt-avro"                   % "3.4.3")
+addSbtPlugin("org.galaxio"    % "sbt-schema-registry-plugin" % "0.4.0")
+addSbtPlugin("org.scoverage"  % "sbt-scoverage"              % "2.0.12")
 
-libraryDependencies += "org.apache.avro" % "avro-compiler" % "1.11.1"
+libraryDependencies += "org.apache.avro" % "avro-compiler" % "1.11.3"
