@@ -1,7 +1,7 @@
 package org.galaxio.gatling.kafka.examples
 
 import io.gatling.app.Gatling
-import io.gatling.core.config.GatlingPropertiesBuilder
+import io.gatling.shared.cli.GatlingCliOptions
 
 object GatlingRunner {
 
@@ -10,10 +10,17 @@ object GatlingRunner {
     // this is where you specify the class you want to run
     val simulationClass = classOf[BasicSimulation].getName
 
-    val props = new GatlingPropertiesBuilder
-    props.simulationClass(simulationClass)
-
-    Gatling.fromMap(props.build)
+    Gatling.main(
+      args ++
+        Array(
+          GatlingCliOptions.Simulation.shortOption,
+          simulationClass,
+          GatlingCliOptions.ResultsFolder.shortOption,
+          "results",
+          GatlingCliOptions.Launcher.shortOption,
+          "sbt",
+        ),
+    )
   }
 
 }
