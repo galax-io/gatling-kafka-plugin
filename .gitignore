@@ -50,3 +50,4 @@ project/plugins/project/
 /.idea/
 /.bsp/
 .DS_Store
+results/

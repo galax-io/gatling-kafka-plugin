@@ -12,4 +12,5 @@ case class Avro4sAttributes[K, V](
     format: RecordFormat[V],
     fromRecord: FromRecord[V],
     headers: Option[Expression[Headers]],
+    silent: Option[Boolean],
 )

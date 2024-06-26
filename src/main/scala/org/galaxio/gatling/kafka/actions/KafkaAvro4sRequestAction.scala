@@ -15,7 +15,7 @@ import org.galaxio.gatling.kafka.request.builder.Avro4sAttributes
 
 class KafkaAvro4sRequestAction[K, V](
     val producer: KafkaProducer[K, GenericRecord],
-    val attr: Avro4sAttributes[K, V],
+    val kafkaAttributes: Avro4sAttributes[K, V],
     val coreComponents: CoreComponents,
     val kafkaProtocol: KafkaProtocol,
     val throttled: Boolean,
@@ -27,8 +27,8 @@ class KafkaAvro4sRequestAction[K, V](
   override val name: String    = genName("kafkaAvroRequest")
 
   override def execute(session: Session): Unit = recover(session) {
-    attr requestName session flatMap { requestName =>
-      val outcome = sendRequest(requestName, producer, attr, throttled, session)
+    kafkaAttributes requestName session flatMap { requestName =>
+      val outcome = sendRequest(requestName, producer, kafkaAttributes, throttled, session)
 
       outcome.onFailure(errorMessage => {
         logger.error(errorMessage)
@@ -60,21 +60,25 @@ class KafkaAvro4sRequestAction[K, V](
 
       val requestStartDate = clock.nowMillis
 
+      val silent: Boolean = kafkaAttributes.silent.getOrElse(false)
+
       producer.send(
         record,
         (_: RecordMetadata, e: Exception) => {
 
           val requestEndDate = clock.nowMillis
-          statsEngine.logResponse(
-            session.scenario,
-            session.groups,
-            requestName,
-            requestStartDate,
-            requestEndDate,
-            if (e == null) OK else KO,
-            None,
-            if (e == null) None else Some(e.getMessage),
-          )
+
+          if (!silent)
+            statsEngine.logResponse(
+              session.scenario,
+              session.groups,
+              requestName,
+              requestStartDate,
+              requestEndDate,
+              if (e == null) OK else KO,
+              None,
+              if (e == null) None else Some(e.getMessage),
+            )
 
           coreComponents.throttler match {
             case Some(th) if throttled => th.throttle(session.scenario, () => next ! session)

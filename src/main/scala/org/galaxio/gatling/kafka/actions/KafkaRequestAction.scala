@@ -14,7 +14,7 @@ import org.galaxio.gatling.kafka.request.builder.KafkaAttributes
 
 class KafkaRequestAction[K, V](
     val producer: KafkaProducer[K, V],
-    val attr: KafkaAttributes[K, V],
+    val attributes: KafkaAttributes[K, V],
     val coreComponents: CoreComponents,
     val kafkaProtocol: KafkaProtocol,
     val throttled: Boolean,
@@ -27,9 +27,9 @@ class KafkaRequestAction[K, V](
 
   override def execute(session: Session): Unit = recover(session) {
 
-    attr requestName session flatMap { requestName =>
+    attributes requestName session flatMap { requestName =>
       val outcome =
-        sendRequest(requestName, producer, attr, throttled, session)
+        sendRequest(requestName, producer, attributes, throttled, session)
 
       outcome.onFailure(errorMessage => {
         logger.error(errorMessage)
@@ -59,6 +59,8 @@ class KafkaRequestAction[K, V](
         .map(h => h(session).toOption.get)
         .orNull
 
+      val silent: Boolean = kafkaAttributes.silent.getOrElse(false)
+
       val record = new ProducerRecord[K, V](
         kafkaProtocol.producerTopic,
         null,
@@ -75,16 +77,17 @@ class KafkaRequestAction[K, V](
 
           val requestEndDate = clock.nowMillis
 
-          statsEngine.logResponse(
-            session.scenario,
-            session.groups,
-            requestName,
-            startTimestamp = requestStartDate,
-            endTimestamp = requestEndDate,
-            if (e == null) OK else KO,
-            None,
-            if (e == null) None else Some(e.getMessage),
-          )
+          if (!silent)
+            statsEngine.logResponse(
+              session.scenario,
+              session.groups,
+              requestName,
+              startTimestamp = requestStartDate,
+              endTimestamp = requestEndDate,
+              if (e == null) OK else KO,
+              None,
+              if (e == null) None else Some(e.getMessage),
+            )
 
           coreComponents.throttler match {
             case Some(th) if throttled => th.throttle(session.scenario, () => next ! session)

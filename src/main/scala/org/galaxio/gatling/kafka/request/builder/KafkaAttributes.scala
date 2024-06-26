@@ -8,4 +8,5 @@ case class KafkaAttributes[K, V](
     key: Option[Expression[K]],
     payload: Expression[V],
     headers: Option[Expression[Headers]],
+    silent: Option[Boolean],
 )

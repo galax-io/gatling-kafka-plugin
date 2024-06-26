@@ -1,9 +1,10 @@
 package org.galaxio.gatling.kafka.actions
 
-import com.softwaremill.quicklens.ModifyPimp
+import com.softwaremill.quicklens._
 import io.gatling.core.action.Action
 import io.gatling.core.action.builder.ActionBuilder
 import io.gatling.core.structure.ScenarioContext
+import io.gatling.core.util.NameGen
 import org.galaxio.gatling.kafka.KafkaCheck
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol
 import org.galaxio.gatling.kafka.request.builder.KafkaRequestReplyAttributes
@@ -11,7 +12,12 @@ import org.galaxio.gatling.kafka.request.builder.KafkaRequestReplyAttributes
 import scala.reflect.ClassTag
 
 case class KafkaRequestReplyActionBuilder[K: ClassTag, V: ClassTag](attributes: KafkaRequestReplyAttributes[K, V])
-    extends ActionBuilder {
+    extends ActionBuilder with NameGen {
+
+  def silent: KafkaRequestReplyActionBuilder[K, V] = this.modify(_.attributes.silent).setTo(Some(true))
+
+  def notSilent: KafkaRequestReplyActionBuilder[K, V] = this.modify(_.attributes.silent).setTo(Some(false))
+
   def check(checks: KafkaCheck*): KafkaRequestReplyActionBuilder[K, V] =
     this.modify(_.attributes.checks).using(_ ::: checks.toList)
 
@@ -26,4 +32,5 @@ case class KafkaRequestReplyActionBuilder[K: ClassTag, V: ClassTag](attributes: 
       ctx.coreComponents.throttler,
     )
   }
+
 }
