@@ -30,9 +30,10 @@ class KafkaAvro4sRequestAction[K, V](
     attr requestName session flatMap { requestName =>
       val outcome = sendRequest(requestName, producer, attr, throttled, session)
 
-      outcome.onFailure(errorMessage =>
-        statsEngine.reportUnbuildableRequest(session.scenario, session.groups, requestName, errorMessage),
-      )
+      outcome.onFailure(errorMessage => {
+        logger.error(errorMessage)
+        statsEngine.logRequestCrash(session.scenario, session.groups, requestName, s"Failed to build request: $errorMessage")
+      })
 
       outcome
     }

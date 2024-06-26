@@ -42,7 +42,7 @@ object KafkaMessagePreparer {
       messageCharset(configuration, msg)
         .flatMap(bodyCharset =>
           if (msg.value.length > CharsParsingThreshold)
-            jsonParsers.safeParse(new ByteArrayInputStream(msg.value), bodyCharset)
+            jsonParsers.safeParse(new ByteArrayInputStream(msg.value))
           else
             jsonParsers.safeParse(new String(msg.value, bodyCharset)),
         )
