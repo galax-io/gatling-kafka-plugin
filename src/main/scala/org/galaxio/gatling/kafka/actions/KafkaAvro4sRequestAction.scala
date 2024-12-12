@@ -5,6 +5,7 @@ import io.gatling.commons.util.DefaultClock
 import io.gatling.commons.validation.Validation
 import io.gatling.core.CoreComponents
 import io.gatling.core.action.{Action, ExitableAction}
+import io.gatling.core.controller.throttle.Throttler
 import io.gatling.core.session.Session
 import io.gatling.core.stats.StatsEngine
 import io.gatling.core.util.NameGen
@@ -77,14 +78,11 @@ class KafkaAvro4sRequestAction[K, V](
           )
 
           coreComponents.throttler match {
-            case Some(th) if throttled => th.throttle(session.scenario, () => next ! session)
+            case Some(th) if throttled => th ! Throttler.Command.ThrottledRequest(session.scenario, () => next ! session)
             case _                     => next ! session
           }
-
         },
       )
-
     }
-
   }
 }
