@@ -6,10 +6,12 @@ import io.gatling.commons.validation.Validation
 import io.gatling.core.CoreComponents
 import io.gatling.core.action.{Action, ExitableAction}
 import io.gatling.core.session.Session
+import io.gatling.core.session.el._
 import io.gatling.core.stats.StatsEngine
 import io.gatling.core.util.NameGen
 import org.apache.avro.generic.GenericRecord
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord, RecordMetadata}
+import org.apache.kafka.common.header.Headers
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol
 import org.galaxio.gatling.kafka.request.builder.Avro4sAttributes
 
@@ -48,9 +50,10 @@ class KafkaAvro4sRequestAction[K, V](
   ): Validation[Unit] = {
 
     attr payload session map { payload =>
-      val headers = attr.headers
-        .map(h => h(session).toOption.get)
-        .orNull
+      val headers = attr.headers match {
+        case Right(x) => x
+        case Left(x) => x(session).flatMap(_.el[Headers].apply(session)).toOption.get
+      }
       val key     = attr.key
         .map(k => k(session).toOption.get)
         .getOrElse(null.asInstanceOf[K])

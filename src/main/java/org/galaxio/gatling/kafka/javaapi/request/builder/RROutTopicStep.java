@@ -20,7 +20,7 @@ public class RROutTopicStep {
         this.requestName = requestName;
     }
 
-    public <K, V> RequestReplyBuilder<?, ?> send(K key, V payload, Headers headers, Class<K> keyClass, Class<V> payloadClass) {
+    public <K, V> RequestReplyBuilder<?, ?> send(K key, V payload, String headers, Class<K> keyClass, Class<V> payloadClass) {
         return new RequestReplyBuilder<K, V>(KafkaRequestBuilderBase.apply(toStringExpression(this.requestName)).requestReply()
                 .requestTopic(toStringExpression(this.inputTopic))
                 .replyTopic(toStringExpression(this.outputTopic))
@@ -35,6 +35,21 @@ public class RROutTopicStep {
                 ));
     }
 
+    public <K, V> RequestReplyBuilder<?, ?> send(K key, V payload, Headers headers, Class<K> keyClass, Class<V> payloadClass) {
+        return new RequestReplyBuilder<K, V>(KafkaRequestBuilderBase.apply(toStringExpression(this.requestName)).requestReply()
+                .requestTopic(toStringExpression(this.inputTopic))
+                .replyTopic(toStringExpression(this.outputTopic))
+                .send(
+                        toStaticValueExpression(key),
+                        toStaticValueExpression(payload),
+                        headers,
+                        Serdes.serdeFrom(keyClass),
+                        ClassTag.apply(keyClass),
+                        Serdes.serdeFrom(payloadClass),
+                        ClassTag.apply(payloadClass)
+                ));
+    }
+
     public <K, V> RequestReplyBuilder<?, ?> send(K key, V payload, Class<K> keyClass, Class<V> payloadClass) {
         return new RequestReplyBuilder<K, V>(KafkaRequestBuilderBase.apply(toStringExpression(this.requestName)).requestReply()
                 .requestTopic(toStringExpression(this.inputTopic))
@@ -42,7 +57,7 @@ public class RROutTopicStep {
                 .send(
                         toStaticValueExpression(key),
                         toStaticValueExpression(payload),
-                        toStaticValueExpression(new RecordHeaders()),
+                        new RecordHeaders(),
                         Serdes.serdeFrom(keyClass),
                         ClassTag.apply(keyClass),
                         Serdes.serdeFrom(payloadClass),
@@ -57,7 +72,7 @@ public class RROutTopicStep {
                 .send(
                         toStaticValueExpression(key),
                         toStaticValueExpression(payload),
-                        toStaticValueExpression(new RecordHeaders()),
+                        new RecordHeaders(),
                         Serdes.serdeFrom(keyClass),
                         ClassTag.apply(keyClass),
                         Serdes.serdeFrom(ser, de),
@@ -66,6 +81,21 @@ public class RROutTopicStep {
     }
 
     public <K, V> RequestReplyBuilder<?, ?> send(K key, V payload, Headers headers, Class<K> keyClass, Class<V> payloadClass, Serializer<V> ser, Deserializer<V> de) {
+        return new RequestReplyBuilder<K, V>(KafkaRequestBuilderBase.apply(toStringExpression(this.requestName)).requestReply()
+                .requestTopic(toStringExpression(this.inputTopic))
+                .replyTopic(toStringExpression(this.outputTopic))
+                .send(
+                        toStaticValueExpression(key),
+                        toStaticValueExpression(payload),
+                        headers,
+                        Serdes.serdeFrom(keyClass),
+                        ClassTag.apply(keyClass),
+                        Serdes.serdeFrom(ser, de),
+                        ClassTag.apply(payloadClass)
+                ));
+    }
+
+    public <K, V> RequestReplyBuilder<?, ?> send(K key, V payload, String headers, Class<K> keyClass, Class<V> payloadClass, Serializer<V> ser, Deserializer<V> de) {
         return new RequestReplyBuilder<K, V>(KafkaRequestBuilderBase.apply(toStringExpression(this.requestName)).requestReply()
                 .requestTopic(toStringExpression(this.inputTopic))
                 .replyTopic(toStringExpression(this.outputTopic))

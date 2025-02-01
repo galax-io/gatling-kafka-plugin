@@ -3,6 +3,7 @@ package org.galaxio.gatling.kafka.javaapi.examples;
 import io.gatling.javaapi.core.ScenarioBuilder;
 import io.gatling.javaapi.core.Simulation;
 import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.kafka.common.header.internals.RecordHeaders;
 import org.galaxio.gatling.kafka.javaapi.protocol.KafkaProtocolBuilderNew;
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage;
 import org.galaxio.gatling.kafka.javaapi.KafkaDsl;
@@ -11,6 +12,7 @@ import java.time.Duration;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
@@ -59,7 +61,10 @@ public class MatchSimulation extends Simulation {
 
     private final AtomicInteger c = new AtomicInteger(0);
     private final Iterator<Map<String, Object>> feeder =
-            Stream.generate((Supplier<Map<String, Object>>) () -> Collections.singletonMap("kekey", c.incrementAndGet())
+            Stream.generate(() -> Map.of(
+                    "kekey", c.incrementAndGet(),
+                    "kafkaHeaders", new RecordHeaders().add("uuid", UUID.randomUUID().toString().getBytes())
+                    )
             ).iterator();
 
     private final ScenarioBuilder scn = scenario("Basic")
@@ -70,7 +75,7 @@ public class MatchSimulation extends Simulation {
             .replyTopic("test.t")
         .send("#{kekey}", """
                 { "m": "dkf" }
-                """, String.class, String.class));
+                """, "#{kafkaHeaders}", String.class, String.class));
 
     {
         setUp(

@@ -9,6 +9,7 @@ import io.gatling.core.session.el._
 import io.gatling.core.session.{Expression, Session}
 import io.gatling.core.stats.StatsEngine
 import io.gatling.core.util.NameGen
+import org.apache.kafka.common.header.Headers
 import org.apache.kafka.common.serialization.Serializer
 import org.galaxio.gatling.kafka.KafkaLogging
 import org.galaxio.gatling.kafka.protocol.KafkaComponents
@@ -55,8 +56,11 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
         key   <- keyE(s)
       } yield serializer.serialize(topic, key)
 
-  private def optToVal[T](ovt: Option[Validation[T]]): Validation[Option[T]] =
-    ovt.fold(Option.empty[T].success)(_.map(Option[T]))
+  private def resolveHeaders(headers: Either[Expression[String], Headers], s: Session): Validation[Option[Headers]] =
+    headers match {
+      case Right(h) => h.success.map(Option(_))
+      case Left(h) => h(s).flatMap(_.el[Headers].apply(s)).map(Option(_))
+  }
 
   private def resolveToProtocolMessage: Expression[KafkaProtocolMessage] = s =>
     // need for work gatling Expression Language
@@ -69,7 +73,7 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
                          .asInstanceOf[Expression[String]](s)
                          .flatMap(_.el[String].apply(s))
                          .map(v => attributes.valueSerializer.asInstanceOf[Serializer[String]].serialize(inputTopic, v))
-        headers     <- optToVal(attributes.headers.map(_(s)))
+        headers     <- resolveHeaders(attributes.headers, s)
       } yield KafkaProtocolMessage(key, value, inputTopic, outputTopic, headers)
     else
       for {
@@ -77,7 +81,7 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
         inputTopic  <- attributes.inputTopic(s)
         outputTopic <- attributes.outputTopic(s)
         value       <- attributes.value(s).map(v => attributes.valueSerializer.serialize(inputTopic, v))
-        headers     <- optToVal(attributes.headers.map(_(s)))
+        headers     <- resolveHeaders(attributes.headers, s)
       } yield KafkaProtocolMessage(key, value, inputTopic, outputTopic, headers)
 
   private def publishAndLogMessage(requestNameString: String, msg: KafkaProtocolMessage, session: Session): Unit = {

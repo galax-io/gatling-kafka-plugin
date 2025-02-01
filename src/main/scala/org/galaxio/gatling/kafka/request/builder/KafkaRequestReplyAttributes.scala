@@ -11,7 +11,7 @@ case class KafkaRequestReplyAttributes[K, V](
     outputTopic: Expression[String],
     key: Expression[K],
     value: Expression[V],
-    headers: Option[Expression[Headers]],
+    headers: Either[Expression[String], Headers],
     keySerializer: Serializer[K],
     valueSerializer: Serializer[V],
     checks: List[KafkaCheck],

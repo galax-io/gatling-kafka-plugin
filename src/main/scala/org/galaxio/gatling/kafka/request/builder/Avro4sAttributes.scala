@@ -11,5 +11,5 @@ case class Avro4sAttributes[K, V](
     schema: SchemaFor[V],
     format: RecordFormat[V],
     fromRecord: FromRecord[V],
-    headers: Option[Expression[Headers]],
+    headers: Either[Expression[String], Headers],
 )

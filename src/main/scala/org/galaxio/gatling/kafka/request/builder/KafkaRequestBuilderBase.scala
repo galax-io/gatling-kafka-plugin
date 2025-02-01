@@ -1,7 +1,7 @@
 package org.galaxio.gatling.kafka.request.builder
 
 import io.gatling.core.session._
-import org.apache.kafka.common.header.{Header, Headers}
+import org.apache.kafka.common.header.Headers
 import org.apache.kafka.common.serialization.Serde
 import org.galaxio.gatling.kafka.actions.KafkaRequestReplyActionBuilder
 
@@ -9,18 +9,30 @@ import scala.reflect.ClassTag
 
 case class KafkaRequestBuilderBase(requestName: Expression[String]) {
 
-  import org.galaxio.gatling.kafka.Predef._
   def send[K, V](
       key: Expression[K],
       payload: Expression[V],
-      headers: Expression[Headers] = List.empty[Header],
+      headers: Expression[String],
   )(implicit
       sender: Sender[K, V],
   ): RequestBuilder[K, V] = {
     if (key == null)
-      sender.send(requestName, None, payload, Some(headers))
+      sender.send(requestName, None, payload, headers)
     else
-      sender.send(requestName, Some(key), payload, Some(headers))
+      sender.send(requestName, Some(key), payload, headers)
+  }
+
+  def send[K, V](
+      key: Expression[K],
+      payload: Expression[V],
+      headers: Headers,
+  )(implicit
+      sender: Sender[K, V],
+  ): RequestBuilder[K, V] = {
+    if (key == null)
+      sender.send(requestName, None, payload, headers)
+    else
+      sender.send(requestName, Some(key), payload, headers)
   }
 
   def send[V](payload: Expression[V])(implicit sender: Sender[Nothing, V]): RequestBuilder[_, V] =
@@ -33,7 +45,7 @@ case class KafkaRequestBuilderBase(requestName: Expression[String]) {
       def send[K: Serde: ClassTag, V: Serde: ClassTag](
           key: Expression[K],
           payload: Expression[V],
-          headers: Expression[Headers] = List.empty[Header].expressionSuccess,
+          headers: Expression[String]
       ): KafkaRequestReplyActionBuilder[K, V] = {
         KafkaRequestReplyActionBuilder[K, V](
           new KafkaRequestReplyAttributes[K, V](
@@ -42,7 +54,27 @@ case class KafkaRequestBuilderBase(requestName: Expression[String]) {
             outputTopic,
             key,
             payload,
-            Some(headers),
+            Left(headers),
+            implicitly[Serde[K]].serializer(),
+            implicitly[Serde[V]].serializer(),
+            List.empty,
+          ),
+        )
+      }
+
+      def send[K: Serde: ClassTag, V: Serde: ClassTag](
+          key: Expression[K],
+          payload: Expression[V],
+          headers: Headers
+      ): KafkaRequestReplyActionBuilder[K, V] = {
+        KafkaRequestReplyActionBuilder[K, V](
+          new KafkaRequestReplyAttributes[K, V](
+            requestName,
+            inputTopic,
+            outputTopic,
+            key,
+            payload,
+            Right(headers),
             implicitly[Serde[K]].serializer(),
             implicitly[Serde[V]].serializer(),
             List.empty,
