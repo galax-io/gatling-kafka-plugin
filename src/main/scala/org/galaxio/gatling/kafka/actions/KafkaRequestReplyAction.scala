@@ -59,8 +59,8 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
   private def resolveHeaders(headers: Either[Expression[String], Headers], s: Session): Validation[Option[Headers]] =
     headers match {
       case Right(h) => h.success.map(Option(_))
-      case Left(h) => h(s).flatMap(_.el[Headers].apply(s)).map(Option(_))
-  }
+      case Left(h)  => h(s).flatMap(_.el[Headers].apply(s)).map(Option(_))
+    }
 
   private def resolveToProtocolMessage: Expression[KafkaProtocolMessage] = s =>
     // need for work gatling Expression Language

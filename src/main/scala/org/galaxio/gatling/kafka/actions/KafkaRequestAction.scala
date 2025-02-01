@@ -58,8 +58,8 @@ class KafkaRequestAction[K, V](
         .getOrElse(null.asInstanceOf[K])
 
       val headers = kafkaAttributes.headers match {
-        case Right(x) => x
-        case Left(x) => x(session).flatMap(_.el[Headers].apply(session)).toOption.get
+        case Right(h) => h
+        case Left(h)  => h(session).flatMap(_.el[Headers].apply(session)).toOption.get
       }
 
       val record = new ProducerRecord[K, V](

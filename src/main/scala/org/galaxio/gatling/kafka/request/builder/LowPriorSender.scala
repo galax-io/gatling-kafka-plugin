@@ -27,11 +27,11 @@ trait LowPriorSender {
         KafkaRequestBuilder[K, V](KafkaAttributes(requestName, key, payload, Left(headers)))
 
       override def send(
-         requestName: Expression[String],
-         key: Option[Expression[K]],
-         payload: Expression[V],
-         headers: Headers,
-       ): RequestBuilder[K, V] =
+          requestName: Expression[String],
+          key: Option[Expression[K]],
+          payload: Expression[V],
+          headers: Headers,
+      ): RequestBuilder[K, V] =
         KafkaRequestBuilder[K, V](KafkaAttributes(requestName, key, payload, Right(headers)))
     }
 }

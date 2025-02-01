@@ -51,8 +51,8 @@ class KafkaAvro4sRequestAction[K, V](
 
     attr payload session map { payload =>
       val headers = attr.headers match {
-        case Right(x) => x
-        case Left(x) => x(session).flatMap(_.el[Headers].apply(session)).toOption.get
+        case Right(h) => h
+        case Left(h)  => h(session).flatMap(_.el[Headers].apply(session)).toOption.get
       }
       val key     = attr.key
         .map(k => k(session).toOption.get)

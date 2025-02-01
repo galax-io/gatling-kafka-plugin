@@ -45,7 +45,7 @@ case class KafkaRequestBuilderBase(requestName: Expression[String]) {
       def send[K: Serde: ClassTag, V: Serde: ClassTag](
           key: Expression[K],
           payload: Expression[V],
-          headers: Expression[String]
+          headers: Expression[String],
       ): KafkaRequestReplyActionBuilder[K, V] = {
         KafkaRequestReplyActionBuilder[K, V](
           new KafkaRequestReplyAttributes[K, V](
@@ -65,7 +65,7 @@ case class KafkaRequestBuilderBase(requestName: Expression[String]) {
       def send[K: Serde: ClassTag, V: Serde: ClassTag](
           key: Expression[K],
           payload: Expression[V],
-          headers: Headers
+          headers: Headers,
       ): KafkaRequestReplyActionBuilder[K, V] = {
         KafkaRequestReplyActionBuilder[K, V](
           new KafkaRequestReplyAttributes[K, V](
