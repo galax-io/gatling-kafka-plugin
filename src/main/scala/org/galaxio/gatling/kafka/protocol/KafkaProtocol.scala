@@ -3,8 +3,8 @@ package org.galaxio.gatling.kafka.protocol
 import io.gatling.core.CoreComponents
 import io.gatling.core.config.GatlingConfiguration
 import io.gatling.core.protocol.{Protocol, ProtocolKey}
-import KafkaProtocol.KafkaMatcher
 import org.galaxio.gatling.kafka.client.{KafkaSender, TrackersPool}
+import org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaMatcher
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 
 import java.util.concurrent.Executors

@@ -9,8 +9,7 @@ import org.apache.kafka.streams.scala.ImplicitConversions._
 import org.apache.kafka.streams.scala.StreamsBuilder
 import org.apache.kafka.streams.scala.serialization.Serdes._
 import org.galaxio.gatling.kafka.KafkaLogging
-import KafkaMessageTrackerActor.MessageConsumed
-import org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaMatcher
+import org.galaxio.gatling.kafka.client.KafkaMessageTrackerActor.MessageConsumed
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaMatcher
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 
