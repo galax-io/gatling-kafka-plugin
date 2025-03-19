@@ -8,6 +8,7 @@ import scala.jdk.CollectionConverters._
 import scala.util.{Failure, Success}
 
 trait KafkaSender {
+  val executionContext: ExecutionContext
   def send(protocolMessage: KafkaProtocolMessage)(
       onSuccess: RecordMetadata => Unit,
       onFailure: Throwable => Unit,
@@ -30,6 +31,7 @@ object KafkaSender {
     override def close(): Unit =
       producer.close()
 
+    override val executionContext: ExecutionContext = ec
   }
 
   def apply(producerSettings: Map[String, AnyRef])(implicit ec: ExecutionContext): KafkaSender = {

@@ -7,7 +7,7 @@ import io.gatling.core.session.ExpressionSuccessWrapper
 import org.apache.avro.generic.GenericRecord
 import org.apache.kafka.common.serialization.Serde
 import org.galaxio.gatling.kafka.KafkaCheck
-import KafkaCheckMaterializer.KafkaMessageCheckType
+import org.galaxio.gatling.kafka.checks.KafkaCheckMaterializer.KafkaMessageCheckType
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 
 import scala.util.Try

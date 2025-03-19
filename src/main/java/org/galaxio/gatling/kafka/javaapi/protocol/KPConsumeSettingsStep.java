@@ -4,8 +4,6 @@ import java.time.Duration;
 import java.util.Map;
 
 import static scala.jdk.javaapi.CollectionConverters.asScala;
-
-import org.galaxio.gatling.kafka.protocol.KafkaProtocol;
 import scala.jdk.javaapi.DurationConverters;
 
 public class KPConsumeSettingsStep {
@@ -21,12 +19,12 @@ public class KPConsumeSettingsStep {
     public KafkaProtocolBuilderNew timeout(Duration timeout) {
         scala.collection.immutable.Map<String, Object> ps = scala.collection.immutable.Map.from(asScala(this.producerSettings));
         scala.collection.immutable.Map<String, Object> cs = scala.collection.immutable.Map.from(asScala(this.consumeSettings));
-        return new KafkaProtocolBuilderNew(org.galaxio.gatling.kafka.protocol.KafkaProtocolBuilderNew.apply(ps, cs, DurationConverters.toScala(timeout), KafkaProtocol.KafkaKeyMatcher$.MODULE$));
+        return new KafkaProtocolBuilderNew(org.galaxio.gatling.kafka.protocol.KafkaProtocolBuilderNew.apply(ps, cs, DurationConverters.toScala(timeout), org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaKeyMatcher$.MODULE$));
     }
 
     public KafkaProtocolBuilderNew withDefaultTimeout() {
         scala.collection.immutable.Map<String, Object> ps = scala.collection.immutable.Map.from(asScala(this.producerSettings));
         scala.collection.immutable.Map<String, Object> cs = scala.collection.immutable.Map.from(asScala(this.consumeSettings));
-        return new KafkaProtocolBuilderNew(org.galaxio.gatling.kafka.protocol.KafkaProtocolBuilderNew.apply(ps, cs, DurationConverters.toScala(Duration.ofSeconds(60)), KafkaProtocol.KafkaKeyMatcher$.MODULE$));
+        return new KafkaProtocolBuilderNew(org.galaxio.gatling.kafka.protocol.KafkaProtocolBuilderNew.apply(ps, cs, DurationConverters.toScala(Duration.ofSeconds(60)), org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaKeyMatcher$.MODULE$));
     }
 }

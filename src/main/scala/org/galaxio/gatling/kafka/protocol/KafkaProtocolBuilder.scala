@@ -1,6 +1,6 @@
 package org.galaxio.gatling.kafka.protocol
 
-import KafkaProtocol.KafkaKeyMatcher
+import org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaKeyMatcher
 
 import scala.concurrent.duration.DurationInt
 

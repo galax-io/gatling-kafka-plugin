@@ -4,7 +4,7 @@ import io.gatling.core.session.Expression
 import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.common.serialization.Serdes
 import org.apache.kafka.streams.StreamsConfig
-import KafkaProtocol._
+import org.galaxio.gatling.kafka.protocol.KafkaProtocol._
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
