@@ -28,14 +28,6 @@ public class KafkaRequestBuilderBase {
         if (obj instanceof String || obj.getClass().isPrimitive() || obj instanceof CharSequence) {
             return toExpression(obj.toString(), obj.getClass());
         }
-//        else if (obj instanceof byte[] bytes) {
-//            String strBytes = new String(bytes);
-//            if (strBytes.matches("#\\{[a-zA-Z].*\\}")) {
-//                return toExpression(strBytes, bytes.getClass());
-//            } else {
-//                return toStaticValueExpression(obj);
-//            }
-//        }
         else {
             return toStaticValueExpression(obj);
         }

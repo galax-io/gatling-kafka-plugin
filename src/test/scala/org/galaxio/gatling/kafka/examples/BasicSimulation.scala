@@ -2,6 +2,7 @@ package org.galaxio.gatling.kafka.examples
 
 import io.gatling.core.Predef._
 import io.gatling.core.feeder.Feeder
+import io.gatling.core.session.Expression
 import io.gatling.core.structure.ScenarioBuilder
 import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.common.header.Headers
@@ -31,13 +32,17 @@ class BasicSimulation extends Simulation {
       ),
     )
     .timeout(5.seconds)
-  val c                             = new AtomicInteger(0)
-  val feeder: Feeder[Int]           = Iterator.continually(Map("kekey" -> c.incrementAndGet()))
 
-  val headers: Headers = new RecordHeaders().add("test-header", "test_value".getBytes)
+  val c                            = new AtomicInteger(0)
+  val feeder: Feeder[Int]          = Iterator.continually(Map("kekey" -> c.incrementAndGet()))
+  val hFeeder: Feeder[Array[Byte]] = Iterator.continually(Map("headerId" -> java.util.UUID.randomUUID().toString.getBytes))
+
+  val headers: Expression[Headers] =
+    _("headerId").validate[Array[Byte]].map(bytes => new RecordHeaders().add("test-header", bytes))
 
   val scn: ScenarioBuilder = scenario("Basic")
     .feed(feeder)
+    .feed(hFeeder)
     .exec(
       kafka("ReqRep").requestReply
         .requestTopic("test.t")
