@@ -7,6 +7,8 @@ import io.gatling.core.check.CheckBuilder;
 import io.gatling.core.check.Check;
 import io.gatling.core.check.CheckMaterializer;
 import org.apache.avro.generic.GenericRecord;
+import org.apache.kafka.common.serialization.Deserializer;
+import org.apache.kafka.common.serialization.Serializer;
 import org.apache.kafka.common.utils.Bytes;
 import org.galaxio.gatling.kafka.javaapi.checks.KafkaCheckType;
 import org.galaxio.gatling.kafka.javaapi.checks.KafkaChecks;
@@ -104,6 +106,10 @@ public final class KafkaDsl {
 
     public static AvroExpressionBuilder avro(JExpression<Object> s, SchemaRegistryClient client) {
         return new AvroExpressionBuilder(s, client);
+    }
+
+    public static AvroExpressionBuilder avro(JExpression<Object> s, Serializer<Object> ser, Deserializer<Object> deser) {
+        return new AvroExpressionBuilder(s, ser, deser);
     }
 
     public static KafkaProtocolBuilderBase kafka() {

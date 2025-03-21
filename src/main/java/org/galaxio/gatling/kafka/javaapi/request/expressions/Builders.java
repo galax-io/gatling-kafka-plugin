@@ -3,7 +3,9 @@ package org.galaxio.gatling.kafka.javaapi.request.expressions;
 import io.confluent.kafka.schemaregistry.client.SchemaRegistryClient;
 import io.confluent.kafka.serializers.KafkaAvroDeserializer;
 import io.confluent.kafka.serializers.KafkaAvroSerializer;
+import org.apache.kafka.common.serialization.Deserializer;
 import org.apache.kafka.common.serialization.Serdes;
+import org.apache.kafka.common.serialization.Serializer;
 import org.apache.kafka.common.utils.Bytes;
 
 import java.nio.ByteBuffer;
@@ -69,6 +71,9 @@ public class Builders {
     public static final class AvroExpressionBuilder extends ExpressionBuilder<Object> {
         public AvroExpressionBuilder(JExpression<Object> valueF, SchemaRegistryClient client) {
             super(valueF, Object.class, Serdes.serdeFrom(new KafkaAvroSerializer(client), new KafkaAvroDeserializer(client)));
+        }
+        public AvroExpressionBuilder(JExpression<Object> valueF, Serializer<Object> ser, Deserializer<Object> deser) {
+            super(valueF, Object.class, Serdes.serdeFrom(ser, deser));
         }
     }
 
