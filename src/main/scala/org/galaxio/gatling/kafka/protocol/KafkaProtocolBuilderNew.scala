@@ -1,6 +1,5 @@
 package org.galaxio.gatling.kafka.protocol
 
-import io.gatling.core.session.Expression
 import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.common.serialization.Serdes
 import org.apache.kafka.streams.StreamsConfig

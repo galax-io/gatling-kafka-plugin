@@ -3,12 +3,12 @@ package org.galaxio.gatling.kafka.protocol
 import io.gatling.core.CoreComponents
 import io.gatling.core.protocol.ProtocolComponents
 import io.gatling.core.session.Session
-import org.galaxio.gatling.kafka.client.{KafkaSender, TrackersPool}
+import org.galaxio.gatling.kafka.client.{KafkaSender, KafkaMessageTrackerPool}
 
 case class KafkaComponents(
     coreComponents: CoreComponents,
     kafkaProtocol: KafkaProtocol,
-    trackersPool: TrackersPool,
+    trackersPool: KafkaMessageTrackerPool,
     sender: KafkaSender,
 ) extends ProtocolComponents {
 
