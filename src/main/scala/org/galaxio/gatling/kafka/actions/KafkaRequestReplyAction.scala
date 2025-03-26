@@ -121,7 +121,7 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
           Some(e.getMessage),
         )
       },
-    )
+    )(components.sender.executionContext())
   }
 
   override def name: String = genName("kafkaRequestReply")

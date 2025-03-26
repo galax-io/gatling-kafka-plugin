@@ -23,7 +23,7 @@ case class KafkaRequestReplyActionBuilder[K: ClassTag, V: ClassTag](attributes: 
       ctx.coreComponents.statsEngine,
       ctx.coreComponents.clock,
       next,
-      ctx.coreComponents.throttler,
+      ctx.coreComponents.throttler.filter(_ => ctx.throttled),
     )
   }
 }

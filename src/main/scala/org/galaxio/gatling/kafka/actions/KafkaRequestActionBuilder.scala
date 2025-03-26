@@ -13,23 +13,20 @@ class KafkaRequestActionBuilder[K, V](attr: KafkaAttributes[K, V]) extends Actio
 
   override def build(ctx: ScenarioContext, next: Action): Action = {
 
-    import ctx._
-
-    val kafkaComponents =
-      protocolComponentsRegistry.components(KafkaProtocol.kafkaProtocolKey)
+    val kafkaComponents = ctx.protocolComponentsRegistry.components(KafkaProtocol.kafkaProtocolKey)
 
     val producer = new KafkaProducer[K, V](kafkaComponents.kafkaProtocol.producerProperties.asJava)
 
-    coreComponents.actorSystem.registerOnTermination(producer.close())
+    ctx.coreComponents.actorSystem.registerOnTermination(producer.close())
 
     new KafkaRequestAction(
       producer,
       kafkaComponents,
       attr,
-      coreComponents,
+      ctx.coreComponents,
       kafkaComponents.kafkaProtocol,
-      throttled,
       next,
+      ctx.coreComponents.throttler.filter(_ => ctx.throttled),
     )
   }
 }
