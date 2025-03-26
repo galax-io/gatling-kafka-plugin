@@ -13,23 +13,21 @@ import scala.jdk.CollectionConverters._
 
 class KafkaRequestAvro4sActionBuilder[K, V](attr: Avro4sAttributes[K, V]) extends ActionBuilder with NameGen {
   override def build(ctx: ScenarioContext, next: Action): Action = {
-    import ctx._
 
-    val kafkaComponents: KafkaProtocol.Components = protocolComponentsRegistry.components(KafkaProtocol.kafkaProtocolKey)
+    val kafkaComponents: KafkaProtocol.Components = ctx.protocolComponentsRegistry.components(KafkaProtocol.kafkaProtocolKey)
 
     val producer = new KafkaProducer[K, GenericRecord](kafkaComponents.kafkaProtocol.producerProperties.asJava)
 
-    coreComponents.actorSystem.registerOnTermination(producer.close())
+    ctx.coreComponents.actorSystem.registerOnTermination(producer.close())
 
     new KafkaAvro4sRequestAction(
       producer,
       kafkaComponents,
       attr,
-      coreComponents,
+      ctx.coreComponents,
       kafkaComponents.kafkaProtocol,
-      throttled,
       next,
+      ctx.coreComponents.throttler.filter(_ => ctx.throttled),
     )
-
   }
 }
