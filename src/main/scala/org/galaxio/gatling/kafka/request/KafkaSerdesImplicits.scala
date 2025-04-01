@@ -6,10 +6,10 @@ import io.confluent.kafka.streams.serdes.avro.GenericAvroSerde
 import org.apache.avro.generic.GenericRecord
 import org.apache.kafka.common.serialization.{Deserializer, Serde, Serializer, Serdes => JSerdes}
 import org.apache.kafka.streams.kstream.WindowedSerdes
+import org.apache.kafka.streams.scala.kstream.Consumed
 
 import java.nio.ByteBuffer
 import java.util.UUID
-
 import scala.jdk.CollectionConverters._
 
 trait KafkaSerdesImplicits {
@@ -43,5 +43,8 @@ trait KafkaSerdesImplicits {
   }
 
   implicit val avroSerde: Serde[GenericRecord] = new GenericAvroSerde()
+
+  implicit def consumedFromSerde[K, V](implicit keySerde: Serde[K], valueSerde: Serde[V]): Consumed[K, V] = Consumed.`with`[K, V]
+
 
 }

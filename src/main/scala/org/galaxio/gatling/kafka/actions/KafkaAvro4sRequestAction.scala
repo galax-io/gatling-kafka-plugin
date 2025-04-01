@@ -1,71 +1,55 @@
 package org.galaxio.gatling.kafka.actions
 
-import io.gatling.commons.stats.{KO, OK}
+import com.sksamuel.avro4s
 import io.gatling.commons.util.Clock
 import io.gatling.commons.validation._
-import io.gatling.core.CoreComponents
-import io.gatling.core.action.{Action, ExitableAction}
+import io.gatling.core.action.Action
 import io.gatling.core.actor.ActorRef
 import io.gatling.core.controller.throttle.Throttler
 import io.gatling.core.session.{Expression, Session}
 import io.gatling.core.stats.StatsEngine
-import io.gatling.core.util.NameGen
-import org.apache.avro.generic.GenericRecord
-import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord}
+import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.header.Headers
+import org.galaxio.gatling.kafka.client.{KafkaSender, KafkaSenderImpl}
 import org.galaxio.gatling.kafka.protocol.{KafkaComponents, KafkaProtocol}
 import org.galaxio.gatling.kafka.request.builder.Avro4sAttributes
 
-class KafkaAvro4sRequestAction[K, V](
-    val producer: KafkaProducer[K, GenericRecord],
+import scala.reflect.ClassTag
+
+class KafkaAvro4sRequestAction[K: ClassTag, V: ClassTag](
     val components: KafkaComponents,
-    val attr: Avro4sAttributes[K, V],
-    val coreComponents: CoreComponents,
+    val attributes: Avro4sAttributes[K, V],
     val kafkaProtocol: KafkaProtocol,
     val next: Action,
     val throttler: Option[ActorRef[Throttler.Command]],
-) extends ExitableAction with NameGen {
+) extends KafkaBaseAction[K, V] {
 
-  override val name: String    = genName("kafkaAvroRequest")
-  val statsEngine: StatsEngine = coreComponents.statsEngine
-  val clock: Clock             = coreComponents.clock
+  override val name: String                    = genName("kafkaAvroRequest")
+  override def requestName: Expression[String] = attributes.requestName
 
-  override def execute(session: Session): Unit = {
-    recover(session) {
-      val outcome = for {
-        requestNameData <- attr.requestName(session)
-        producerRecord  <- resolveProducerRecord(session)
-      } yield throttler match {
-        case Some(th) =>
-          th ! Throttler.Command.ThrottledRequest(
-            session.scenario,
-            () => sendAndLogProducerRecord(requestNameData, producerRecord, session),
-          )
-        case _        => sendAndLogProducerRecord(requestNameData, producerRecord, session)
-      }
+  val statsEngine: StatsEngine                           = components.coreComponents.statsEngine
+  val clock: Clock                                       = components.coreComponents.clock
+  private val kafkaSender: KafkaSender[K, avro4s.Record] =
+    new KafkaSenderImpl(kafkaProtocol.producerProperties, components.coreComponents)
 
-      outcome.onFailure { errorMessage => reportUnbuildableRequest(session, errorMessage) }
-      outcome
-    }
+  override def sendRequest(session: Session): Validation[Unit] = for {
+    requestNameData <- attributes.requestName(session)
+    producerRecord  <- avroProtocolMessage(session)
+  } yield throttler match {
+    case Some(th) =>
+      th ! Throttler.Command.ThrottledRequest(
+        session.scenario,
+        () => sendAndLogAvroRecord(kafkaSender, requestNameData, producerRecord, session),
+      )
+    case _        => sendAndLogAvroRecord(kafkaSender, requestNameData, producerRecord, session)
   }
 
-  private def reportUnbuildableRequest(session: Session, error: String): Unit = {
-    val loggedName = attr.requestName(session) match {
-      case Success(requestNameValue) =>
-        statsEngine.logRequestCrash(session.scenario, session.groups, requestNameValue, s"Failed to build request: $error")
-        requestNameValue
-      case _                         =>
-        name
-    }
-    logger.error(s"'$loggedName' failed to execute: $error")
-  }
-
-  private def resolveProducerRecord: Expression[ProducerRecord[K, GenericRecord]] = s =>
+  private def avroProtocolMessage: Expression[ProducerRecord[K, avro4s.Record]] = s =>
     for {
-      payload <- attr.payload(s).flatMap(pl => scala.util.Try(attr.format.to(pl)).toValidation)
-      key     <- attr.key.fold(null.asInstanceOf[K].success)(_(s))
-      headers <- attr.headers.fold(null.asInstanceOf[Headers].success)(_(s))
-    } yield new ProducerRecord[K, GenericRecord](
+      payload <- attributes.payload(s).flatMap(pl => scala.util.Try(attributes.format.to(pl)).toValidation)
+      key     <- attributes.key.fold(null.asInstanceOf[K].success)(_(s))
+      headers <- attributes.headers.fold(null.asInstanceOf[Headers].success)(_(s))
+    } yield new ProducerRecord[K, avro4s.Record](
       kafkaProtocol.producerTopic,
       null,
       key,
@@ -73,52 +57,4 @@ class KafkaAvro4sRequestAction[K, V](
       headers,
     )
 
-  private def sendAndLogProducerRecord(
-      requestName: String,
-      record: ProducerRecord[K, GenericRecord],
-      session: Session,
-  ): Unit = {
-    val requestStartDate = clock.nowMillis
-    scala.concurrent.blocking(
-      scala.concurrent
-        .Future(producer.send(record).get())(components.sender.executionContext())
-        .onComplete {
-          case util.Success(rm) =>
-            val requestEndDate = clock.nowMillis
-            if (logger.underlying.isDebugEnabled) {
-              logger.debug(s"Avro record sent user=${session.userId} key=${record.key} topic=${rm.topic()}")
-              logger.trace(s"ProducerRecord=$record")
-            }
-
-            statsEngine.logResponse(
-              session.scenario,
-              session.groups,
-              requestName,
-              startTimestamp = requestStartDate,
-              endTimestamp = requestEndDate,
-              OK,
-              None,
-              None,
-            )
-            next ! session.logGroupRequestTimings(requestStartDate, requestEndDate)
-
-          case util.Failure(exception) =>
-            val requestEndDate = clock.nowMillis
-
-            logger.error(exception.getMessage, exception)
-
-            statsEngine.logResponse(
-              session.scenario,
-              session.groups,
-              requestName,
-              startTimestamp = requestStartDate,
-              endTimestamp = requestEndDate,
-              KO,
-              None,
-              Some(exception.getMessage),
-            )
-            next ! session.logGroupRequestTimings(requestStartDate, requestEndDate).markAsFailed
-        }(components.sender.executionContext()),
-    )
-  }
 }

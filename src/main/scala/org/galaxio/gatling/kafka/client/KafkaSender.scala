@@ -1,39 +1,52 @@
 package org.galaxio.gatling.kafka.client
 
-import org.apache.kafka.clients.producer.{KafkaProducer, Producer, RecordMetadata}
-import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
+import io.gatling.core.CoreComponents
+import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord, RecordMetadata}
+import org.galaxio.gatling.kafka.KafkaLogging
 
 import java.util.concurrent.Executors
 import scala.concurrent.{ExecutionContext, ExecutionContextExecutorService, Future}
 import scala.jdk.CollectionConverters._
 import scala.util.{Failure, Success}
 
-trait KafkaSender {
-  def executionContext(): ExecutionContext
-  implicit def send(protocolMessage: KafkaProtocolMessage)(onSuccess: RecordMetadata => Unit, onFailure: Throwable => Unit)(
-      implicit ec: ExecutionContext,
+trait KafkaSender[K, V] {
+
+  val producer: KafkaProducer[K, V]
+
+  def send(
+      protocolMessage: ProducerRecord[K, V],
+      onSuccess: RecordMetadata => Unit,
+      onFailure: Throwable => Unit,
   ): Unit
+
   def close(): Unit
 }
 
-class KafkaSenderImpl(producerSettings: Map[String, AnyRef]) extends KafkaSender {
+/** For sending Records
+  * @param producerSettings
+  *   Kafka Producer settings
+  */
+class KafkaSenderImpl[K, V](producerSettings: Map[String, AnyRef], coreComponents: CoreComponents)
+    extends KafkaSender[K, V] with KafkaLogging {
 
-  implicit val ec: ExecutionContextExecutorService = ExecutionContext.fromExecutorService(Executors.newCachedThreadPool())
-  private val producer                             = new KafkaProducer[Array[Byte], Array[Byte]](producerSettings.asJava)
+  private val ec: ExecutionContextExecutorService = ExecutionContext.fromExecutorService(Executors.newCachedThreadPool())
+  override val producer                           = new KafkaProducer[K, V](producerSettings.asJava)
+  coreComponents.actorSystem.registerOnTermination(close())
 
-  override def close(): Unit = {
-    producer.close()
-    ec.shutdown()
-  }
-
-  override implicit def send(
-      protocolMessage: KafkaProtocolMessage,
-  )(onSuccess: RecordMetadata => Unit, onFailure: Throwable => Unit)(implicit ec: ExecutionContext): Unit = {
-    Future(producer.send(protocolMessage.toProducerRecord).get())(ec).onComplete {
+  override def send(
+      protocolMessage: ProducerRecord[K, V],
+      onSuccess: RecordMetadata => Unit,
+      onFailure: Throwable => Unit,
+  ): Unit = {
+    Future(producer.send(protocolMessage).get())(ec).onComplete {
       case Success(value)     => onSuccess(value)
       case Failure(exception) => onFailure(exception)
     }(ec)
   }
 
-  override def executionContext(): ExecutionContextExecutorService = ec
+  override def close(): Unit = {
+    logger.debug("Closing KafkaSender and Execution Context")
+    producer.close()
+    ec.shutdown()
+  }
 }

@@ -17,8 +17,8 @@ import scala.concurrent.duration.DurationInt
 
 object KafkaMessageTracker {
 
-  def actor(actorName: String, statsEngine: StatsEngine, clock: Clock): Actor[KafkaMessage] =
-    new KafkaMessageTracker(actorName, statsEngine, clock)
+  def actor[K, V](actorName: String, statsEngine: StatsEngine, clock: Clock): Actor[KafkaMessage] =
+    new KafkaMessageTracker[K, V](actorName, statsEngine, clock)
 
   sealed trait KafkaMessage
 
@@ -46,7 +46,7 @@ object KafkaMessageTracker {
 
 /** Actor to record request and response Kafka Events, publishing data to the Gatling core DataWriter
   */
-class KafkaMessageTracker(name: String, statsEngine: StatsEngine, clock: Clock) extends Actor[KafkaMessage](name) {
+class KafkaMessageTracker[K, V](name: String, statsEngine: StatsEngine, clock: Clock) extends Actor[KafkaMessage](name) {
 
   private val sentMessages                 = mutable.HashMap.empty[String, MessagePublished]
   private val timedOutMessages             = mutable.ArrayBuffer.empty[MessagePublished]
@@ -62,9 +62,9 @@ class KafkaMessageTracker(name: String, statsEngine: StatsEngine, clock: Clock) 
 
   override def init(): Behavior[KafkaMessage] = {
     // message was sent; add the timestamps to the map
-    case messageSent: MessagePublished               =>
+    case messageSent: MessagePublished    =>
       val key = makeKeyForSentMessages(messageSent.matchId)
-      logger.debug("Published with MatchId: {} Tracking Key: {}", messageSent.matchId, key)
+      logger.debug("Published with MatchId: {} Tracking Key: {}", new String(messageSent.matchId), key)
       sentMessages += key -> messageSent
       if (messageSent.replyTimeout > 0) {
         triggerPeriodicTimeoutScan()
@@ -72,10 +72,13 @@ class KafkaMessageTracker(name: String, statsEngine: StatsEngine, clock: Clock) 
       stay
 
     // message was received; publish stats and remove from the map
-    case MessageConsumed(replyId, received, message) =>
+    case messageConsumed: MessageConsumed =>
+      val replyId  = messageConsumed.replyId
+      val received = messageConsumed.received
+      val message  = messageConsumed.message
       // if key is missing, message was already acked and is a dup, or request timeout
-      val key = makeKeyForSentMessages(replyId)
-      logger.debug("Received with MatchId: {} Tracking Key: {}", replyId, key)
+      val key      = makeKeyForSentMessages(replyId)
+      logger.debug("Received with MatchId: {} Tracking Key: {}", new String(replyId), key)
       sentMessages.remove(key).foreach { case MessagePublished(_, sent, _, checks, session, next, requestName) =>
         processMessage(session, sent, received, checks, message, next, requestName)
       }
