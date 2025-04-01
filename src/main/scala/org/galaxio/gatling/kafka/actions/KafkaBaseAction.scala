@@ -29,10 +29,10 @@ abstract class KafkaBaseAction[K, V] extends RequestAction with KafkaLogging wit
       keyE: Expression[K],
       topicE: Expression[String],
   ): Expression[Array[Byte]] = s =>
-      for {
-        topic <- topicE(s)
-        key   <- keyE(s)
-      } yield serializer.serialize(topic, key)
+    for {
+      topic <- topicE(s)
+      key   <- keyE(s)
+    } yield serializer.serialize(topic, key)
 
   def reportUnbuildableRequest(requestName: Expression[String], session: Session, error: String): Unit = {
     val loggedName = requestName(session) match {
@@ -63,11 +63,11 @@ abstract class KafkaBaseAction[K, V] extends RequestAction with KafkaLogging wit
       session: Session,
   ): Unit = {
     val requestStartDate = clock.nowMillis
-      kafkaSender.send(
-        protocolMessage = message,
-        onSuccess = _ => successCaseGeneric(requestName, message, session, requestStartDate),
-        onFailure = exception => failureCase(requestName, session, requestStartDate, exception),
-      )
+    kafkaSender.send(
+      protocolMessage = message,
+      onSuccess = _ => successCaseGeneric(requestName, message, session, requestStartDate),
+      onFailure = exception => failureCase(requestName, session, requestStartDate, exception),
+    )
   }
 
   /** Publish a record to Kafka
