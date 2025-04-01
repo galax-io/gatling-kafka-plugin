@@ -45,11 +45,11 @@ case class KafkaProtocolBuilderNew(
     )
 
     val consumeDefaults = Map(
-      StreamsConfig.APPLICATION_ID_CONFIG            -> s"gatling-test-${java.util.UUID.randomUUID()}",
+      StreamsConfig.APPLICATION_ID_CONFIG            -> s"gatling-kafka-test-${java.util.UUID.randomUUID()}",
       StreamsConfig.DEFAULT_KEY_SERDE_CLASS_CONFIG   -> Serdes.ByteArray().getClass.getName,
       StreamsConfig.DEFAULT_VALUE_SERDE_CLASS_CONFIG -> Serdes.ByteArray().getClass.getName,
     )
 
-    KafkaProtocol("test", producerSettings ++ serializers, consumeDefaults ++ consumeSettings, timeout, messageMatcher)
+    KafkaProtocol("kafka-test", producerSettings ++ serializers, consumeDefaults ++ consumeSettings, timeout, messageMatcher)
   }
 }

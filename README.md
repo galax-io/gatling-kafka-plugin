@@ -5,25 +5,30 @@
 
 # Introduction
 
-Plugin to support Kafka in Gatling (3.9.x)
+Plugin to support Kafka in Gatling (3.9.x)+
+
+| Gatling Version | Kafka Plugin Version  | Notable Changes                                                                                             |
+|-----------------|-----------------------|-------------------------------------------------------------------------------------------------------------|
+| 3.9.x - 3.11.x  | Releases up to 0.15.1 | May require additional akka dependency in your dependencies - e.g. com.typesafe.akka:akka-actor_2.13:2.6.20 |
+| 3.13.x          | Releases after 0.15.1 | Akka dependency no longer required                                                                          |
 
 # Usage
 
 ### Getting Started
 
-Plugin is currently available for Scala 2.13, Java 17, Kotlin.
-
-You may include plugin as dependency in project with your tests. Write
+This plugin is currently available for Scala 2.13 / Java 17 / Kotlin.
+To use it, you should include it as a dependency in your gatling project with your tests.
+To include:
 
 ### Scala
 
 ```scala
-libraryDependencies += "org.galaxio" %% "gatling-kafka-plugin" % <version> % Test
+libraryDependencies += "org.galaxio" %% "gatling-kafka-plugin" % <version>% Test
 ```
 
 ### Java
 
-Write this to your dependencies block in build.gradle:
+Add this to your dependencies block in build.gradle:
 
 ```java
 gatling "org.galaxio:gatling-kafka-plugin_2.13:<version>"
@@ -31,7 +36,7 @@ gatling "org.galaxio:gatling-kafka-plugin_2.13:<version>"
 
 ### Kotlin
 
-Write this to your dependencies block in build.gradle:
+Add this to your dependencies block in build.gradle:
 
 ```kotlin
 gatling("org.galaxio:gatling-kafka-plugin_2.13:<version>")
@@ -53,7 +58,8 @@ Examples [here](src/test/kotlin/org/galaxio/gatling/kafka/javaapi/examples)
 
 ## Download and create Avro schema
 
-Avro schema is downloaded using the plugin [sbt-schema-registry-plugin](https://github.com/galax-io/sbt-schema-registry-plugin)
+Avro schema is downloaded using the
+plugin [sbt-schema-registry-plugin](https://github.com/galax-io/sbt-schema-registry-plugin)
 and for that you need to configure schemas and url in `build.sbt` and run the command:
 
 ```bash 
@@ -95,6 +101,7 @@ val de =
 
 implicit val serdeClass: Serde[MyAvroClass] = new Serde[MyAvroClass] {
   override def serializer(): Serializer[MyAvroClass] = ser.asInstanceOf[Serializer[MyAvroClass]]
+
   override def deserializer(): Deserializer[MyAvroClass] = de.asInstanceOf[Deserializer[MyAvroClass]]
 }
 ```
