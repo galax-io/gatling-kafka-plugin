@@ -131,3 +131,15 @@ Example [scala](src/test/scala/org/galaxio/gatling/kafka/examples/AvroClassWithR
 Example [java](src/test/java/org/galaxio/gatling/kafka/javaapi/examples/AvroClassWithRequestReplySimulation.java)
 
 Example [kotlin](src/test/kotlin/org/galaxio/gatling/kafka/javaapi/examples/AvroClassWithRequestReplySimulation.kt)
+
+
+
+### Build this plugin
+
+When contributing to this project - check your build with:
+
+```shell
+sbt clean scalafmtCheckAll scalafmtSbtCheck compile coverage "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaGatlingTest" test coverageOff
+```
+
+Reference to [ci.yml](/.github/workflows/ci.yml)
