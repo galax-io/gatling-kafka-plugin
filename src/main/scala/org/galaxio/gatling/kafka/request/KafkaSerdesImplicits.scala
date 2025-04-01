@@ -44,7 +44,7 @@ trait KafkaSerdesImplicits {
 
   implicit val avroSerde: Serde[GenericRecord] = new GenericAvroSerde()
 
-  implicit def consumedFromSerde[K, V](implicit keySerde: Serde[K], valueSerde: Serde[V]): Consumed[K, V] = Consumed.`with`[K, V]
-
+  implicit def consumedFromSerde[K, V](implicit keySerde: Serde[K], valueSerde: Serde[V]): Consumed[K, V] =
+    Consumed.`with`[K, V]
 
 }
