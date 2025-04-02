@@ -24,7 +24,7 @@ object KafkaMessageTracker {
 
   final case class MessagePublished(
       matchId: Array[Byte],
-      sent: Long,
+      sentTimestamp: Long,
       replyTimeout: Long,
       checks: List[KafkaCheck],
       session: Session,
@@ -73,14 +73,14 @@ class KafkaMessageTracker[K, V](name: String, statsEngine: StatsEngine, clock: C
 
     // message was received; publish stats and remove from the map
     case messageConsumed: MessageConsumed =>
-      val replyId  = messageConsumed.replyId
-      val received = messageConsumed.received
-      val message  = messageConsumed.message
+      val replyId           = messageConsumed.replyId
+      val receivedTimestamp = messageConsumed.received
+      val message           = messageConsumed.message
       // if key is missing, message was already acked and is a dup, or request timeout
-      val key      = makeKeyForSentMessages(replyId)
+      val key               = makeKeyForSentMessages(replyId)
       logger.debug("Received with MatchId: {} Tracking Key: {}", new String(replyId), key)
-      sentMessages.remove(key).foreach { case MessagePublished(_, sent, _, checks, session, next, requestName) =>
-        processMessage(session, sent, received, checks, message, next, requestName)
+      sentMessages.remove(key).foreach { case MessagePublished(_, sentTimestamp, _, checks, session, next, requestName) =>
+        processMessage(session, sentTimestamp, receivedTimestamp, checks, message, next, requestName)
       }
       stay
 
@@ -88,15 +88,17 @@ class KafkaMessageTracker[K, V](name: String, statsEngine: StatsEngine, clock: C
       val now = clock.nowMillis
       sentMessages.valuesIterator.foreach { messagePublished =>
         val replyTimeout = messagePublished.replyTimeout
-        if (replyTimeout > 0 && (now - messagePublished.sent) > replyTimeout) {
+        if (replyTimeout > 0 && (now - messagePublished.sentTimestamp) > replyTimeout) {
           timedOutMessages += messagePublished
         }
       }
-      for (MessagePublished(matchId, sent, receivedTimeout, _, session, next, requestName) <- timedOutMessages) {
-        sentMessages.remove(makeKeyForSentMessages(matchId))
+      for (MessagePublished(matchId, sentTimestamp, receivedTimeout, _, session, next, requestName) <- timedOutMessages) {
+        val matchKey = makeKeyForSentMessages(matchId)
+        logger.warn("Did not receive match for {} - key: {} after {}ms", new String(matchId), matchKey, receivedTimeout)
+        sentMessages.remove(matchKey)
         executeNext(
           session.markAsFailed,
-          sent,
+          sentTimestamp,
           now,
           KO,
           next,
@@ -111,8 +113,8 @@ class KafkaMessageTracker[K, V](name: String, statsEngine: StatsEngine, clock: C
 
   private def executeNext(
       session: Session,
-      sent: Long,
-      received: Long,
+      sentTimestamp: Long,
+      receivedTimestamp: Long,
       status: Status,
       next: Action,
       requestName: String,
@@ -123,21 +125,21 @@ class KafkaMessageTracker[K, V](name: String, statsEngine: StatsEngine, clock: C
       session.scenario,
       session.groups,
       requestName,
-      sent,
-      received,
+      sentTimestamp,
+      receivedTimestamp,
       status,
       responseCode,
       message,
     )
-    next ! session.logGroupRequestTimings(sent, received)
+    next ! session.logGroupRequestTimings(sentTimestamp, receivedTimestamp)
   }
 
   /** Processes a matched message
     */
   private def processMessage(
       session: Session,
-      sent: Long,
-      received: Long,
+      sentTimestamp: Long,
+      receivedTimestamp: Long,
       checks: List[KafkaCheck],
       message: KafkaProtocolMessage,
       next: Action,
@@ -148,8 +150,8 @@ class KafkaMessageTracker[K, V](name: String, statsEngine: StatsEngine, clock: C
       case Some(Failure(errorMessage)) =>
         executeNext(
           newSession.markAsFailed,
-          sent,
-          received,
+          sentTimestamp,
+          receivedTimestamp,
           KO,
           next,
           requestName,
@@ -157,7 +159,7 @@ class KafkaMessageTracker[K, V](name: String, statsEngine: StatsEngine, clock: C
           Some(errorMessage),
         )
       case _                           =>
-        executeNext(newSession, sent, received, OK, next, requestName, None, None)
+        executeNext(newSession, sentTimestamp, receivedTimestamp, OK, next, requestName, None, None)
     }
   }
 }
