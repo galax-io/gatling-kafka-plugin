@@ -5,6 +5,7 @@ import io.gatling.core.actor.{ActorRef, ActorSystem}
 import io.gatling.core.stats.StatsEngine
 import io.gatling.core.util.NameGen
 import org.apache.kafka.streams.KafkaStreams
+import org.apache.kafka.streams.StreamsConfig.APPLICATION_ID_CONFIG
 import org.apache.kafka.streams.processor.api
 import org.apache.kafka.streams.processor.api.{Processor, ProcessorSupplier}
 import org.apache.kafka.streams.scala.StreamsBuilder
@@ -14,6 +15,7 @@ import org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaMatcher
 import org.galaxio.gatling.kafka.request.{KafkaProtocolMessage, KafkaSerdesImplicits}
 
 import java.util.concurrent.ConcurrentHashMap
+import java.util.{Properties, UUID}
 import scala.jdk.CollectionConverters._
 
 class KafkaMessageTrackerPool(
@@ -25,9 +27,7 @@ class KafkaMessageTrackerPool(
 
   // Trackers map Output Topic (String) to Tracker/Actor
   private val trackers  = new ConcurrentHashMap[String, ActorRef[KafkaMessageTracker.KafkaMessage]]
-  private val props     = new java.util.Properties()
   private val actorName = "kafkaTrackerActor"
-  props.putAll(streamsSettings.asJava)
 
   def tracker(
       topic: String,
@@ -37,6 +37,7 @@ class KafkaMessageTrackerPool(
     trackers.computeIfAbsent(
       topic,
       _ => {
+        logger.debug("Computing new tracker for topic {}, there are currently {} other trackers", topic, trackers.size())
         val tracker = actor.actorOf(KafkaMessageTracker.actor(genName(actorName), statsEngine, clock))
         val builder = new StreamsBuilder
         builder
@@ -51,13 +52,27 @@ class KafkaMessageTrackerPool(
             ),
           )
 
-        val streams = new KafkaStreams(builder.build(), props)
+        val streams = new KafkaStreams(builder.build(), createStreamsProperties)
         streams.cleanUp()
         streams.start()
-        actor.registerOnTermination(streams.close())
+        actor.registerOnTermination {
+          logger.debug("Closing stream {}", streams)
+          streams.close()
+        }
         tracker
       },
     )
+
+  private def createStreamsProperties = {
+    val props = new Properties()
+    props.putAll(streamsSettings.asJava)
+    if (props.get(APPLICATION_ID_CONFIG) != null) {
+      val uniqueAppIdForStreams = props.get(APPLICATION_ID_CONFIG).toString + UUID.randomUUID().toString
+      logger.debug("Creating you a unique app id for streams {}", uniqueAppIdForStreams)
+      props.put(APPLICATION_ID_CONFIG, uniqueAppIdForStreams)
+    }
+    props
+  }
 }
 
 /** Because we may need access to headers whilst deserializing (which can contain deserialization info), we will need to use the
