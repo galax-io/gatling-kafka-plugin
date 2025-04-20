@@ -10,7 +10,7 @@ on:
 jobs:
   test:
     name: Test Release
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     services:
       zookeeper:
         image: wurstmeister/zookeeper
@@ -71,7 +71,7 @@ jobs:
     name: Publish Release
     needs: [test]
     if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v2.4.0
