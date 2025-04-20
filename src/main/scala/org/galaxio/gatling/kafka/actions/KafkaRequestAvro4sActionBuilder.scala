@@ -23,6 +23,7 @@ class KafkaRequestAvro4sActionBuilder[K, V](attr: Avro4sAttributes[K, V]) extend
 
     new KafkaAvro4sRequestAction(
       producer,
+      kafkaComponents,
       attr,
       coreComponents,
       kafkaComponents.kafkaProtocol,

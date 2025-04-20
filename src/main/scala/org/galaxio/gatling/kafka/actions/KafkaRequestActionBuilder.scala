@@ -24,6 +24,7 @@ class KafkaRequestActionBuilder[K, V](attr: KafkaAttributes[K, V]) extends Actio
 
     new KafkaRequestAction(
       producer,
+      kafkaComponents,
       attr,
       coreComponents,
       kafkaComponents.kafkaProtocol,
