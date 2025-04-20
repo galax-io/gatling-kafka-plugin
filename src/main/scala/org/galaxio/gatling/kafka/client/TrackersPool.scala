@@ -1,7 +1,7 @@
 package org.galaxio.gatling.kafka.client
 
-import akka.actor.{ActorSystem, CoordinatedShutdown}
 import io.gatling.commons.util.Clock
+import io.gatling.core.actor.ActorSystem
 import io.gatling.core.stats.StatsEngine
 import io.gatling.core.util.NameGen
 import org.apache.kafka.streams.KafkaStreams
@@ -37,7 +37,7 @@ class TrackersPool(
       outputTopic,
       _ => {
         val actor =
-          system.actorOf(KafkaMessageTrackerActor.props(statsEngine, clock), genName("kafkaTrackerActor"))
+          system.actorOf(new KafkaMessageTrackerActor(genName("kafkaTrackerActor"), statsEngine, clock))
 
         val builder = new StreamsBuilder
 
@@ -76,7 +76,7 @@ class TrackersPool(
         streams.cleanUp()
         streams.start()
 
-        CoordinatedShutdown(system).addJvmShutdownHook(streams.close())
+        system.registerOnTermination(streams.close())
 
         new KafkaMessageTracker(actor)
       },

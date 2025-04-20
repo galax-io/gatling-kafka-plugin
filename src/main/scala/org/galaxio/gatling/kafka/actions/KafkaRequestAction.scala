@@ -5,6 +5,7 @@ import io.gatling.commons.util.Clock
 import io.gatling.commons.validation._
 import io.gatling.core.CoreComponents
 import io.gatling.core.action.{Action, ExitableAction}
+import io.gatling.core.controller.throttle.Throttler
 import io.gatling.core.session._
 import io.gatling.core.session.el._
 import io.gatling.core.stats.StatsEngine
@@ -35,7 +36,10 @@ class KafkaRequestAction[K, V](
         producerRecord  <- resolveProducerRecord(session)
       } yield coreComponents.throttler match {
         case Some(th) if throttled =>
-          th.throttle(session.scenario, () => sendAndLogProducerRecord(requestNameData, producerRecord, session))
+          th ! Throttler.Command.ThrottledRequest(
+            session.scenario,
+            () => sendAndLogProducerRecord(requestNameData, producerRecord, session),
+          )
         case _                     => sendAndLogProducerRecord(requestNameData, producerRecord, session)
       }
 
