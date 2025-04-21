@@ -3,9 +3,12 @@ package org.galaxio.gatling.kafka.protocol
 import io.gatling.core.CoreComponents
 import io.gatling.core.config.GatlingConfiguration
 import io.gatling.core.protocol.{Protocol, ProtocolKey}
+import org.galaxio.gatling.kafka.client.{KafkaMessageTrackerPool, KafkaSender}
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaMatcher
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 
+import java.util.concurrent.Executors
+import scala.concurrent.{ExecutionContext, ExecutionContextExecutorService}
 import scala.concurrent.duration.FiniteDuration
 
 object KafkaProtocol {
@@ -39,7 +42,18 @@ object KafkaProtocol {
 
     override def newComponents(coreComponents: CoreComponents): KafkaProtocol => KafkaComponents =
       kafkaProtocol => {
-        KafkaComponents(coreComponents, kafkaProtocol)
+        val blockingPool                        = Executors.newCachedThreadPool()
+        val ec: ExecutionContextExecutorService = ExecutionContext.fromExecutorService(blockingPool)
+
+        val sender       = KafkaSender(kafkaProtocol.producerProperties)(ec)
+        val trackersPool = new KafkaMessageTrackerPool(
+          kafkaProtocol.consumerProperties,
+          coreComponents.actorSystem,
+          coreComponents.statsEngine,
+          coreComponents.clock,
+        )
+
+        KafkaComponents(coreComponents, kafkaProtocol, trackersPool, sender)
       }
   }
 }

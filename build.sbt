@@ -1,7 +1,7 @@
 import Dependencies.*
 //import org.galaxio.performance.avro.RegistrySubject
 
-val scalaV      = "2.13.14"
+val scalaV      = "2.13.15"
 val avroSchemas = Seq() // for example Seq(RegistrySubject("test-hello-schema", 1))
 
 lazy val root = (project in file("."))

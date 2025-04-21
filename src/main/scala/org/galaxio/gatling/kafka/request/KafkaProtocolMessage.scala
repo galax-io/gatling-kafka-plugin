@@ -9,21 +9,23 @@ import org.apache.kafka.common.header.Headers
   *   the event Key
   * @param value
   *   the event 'data'
-  * @param topic
+  * @param outputTopic
   *   the topic this event is for
   * @param headers
   *   any supplementary headers e.g. serde related headers
   * @param responseCode
   *   a response code
   */
-case class KafkaProtocolMessage(
+
+final case class KafkaProtocolMessage(
     key: Array[Byte],
     value: Array[Byte],
-    topic: String,
+    inputTopic: String,
+    outputTopic: String,
     headers: Option[Headers] = None,
     responseCode: Option[String] = None,
 ) {
   def toProducerRecord: ProducerRecord[Array[Byte], Array[Byte]] = {
-    headers.fold(new ProducerRecord(topic, key, value))(hs => new ProducerRecord(topic, null, key, value, hs))
+    headers.fold(new ProducerRecord(inputTopic, key, value))(hs => new ProducerRecord(inputTopic, null, key, value, hs))
   }
 }

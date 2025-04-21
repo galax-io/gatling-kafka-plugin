@@ -82,46 +82,44 @@ class KafkaAvro4sRequestAction[K, V](
       session: Session,
   ): Unit = {
     val requestStartDate = clock.nowMillis
-    scala.concurrent.blocking(
-      scala.concurrent
-        .Future(producer.send(record).get())(components.sender.executionContext)
-        .onComplete {
-          case util.Success(rm) =>
-            val requestEndDate = clock.nowMillis
-            if (logger.underlying.isDebugEnabled) {
-              logger.debug(s"Avro record sent user=${session.userId} key=${record.key} topic=${rm.topic()}")
-              logger.trace(s"ProducerRecord=$record")
-            }
+    scala.concurrent
+      .Future(scala.concurrent.blocking(producer.send(record).get()))(components.sender.executionContext)
+      .onComplete {
+        case util.Success(rm) =>
+          val requestEndDate = clock.nowMillis
+          if (logger.underlying.isDebugEnabled) {
+            logger.debug(s"Avro record sent user=${session.userId} key=${record.key} topic=${rm.topic()}")
+            logger.trace(s"ProducerRecord=$record")
+          }
 
-            statsEngine.logResponse(
-              session.scenario,
-              session.groups,
-              requestName,
-              startTimestamp = requestStartDate,
-              endTimestamp = requestEndDate,
-              OK,
-              None,
-              None,
-            )
-            next ! session.logGroupRequestTimings(requestStartDate, requestEndDate)
+          statsEngine.logResponse(
+            session.scenario,
+            session.groups,
+            requestName,
+            startTimestamp = requestStartDate,
+            endTimestamp = requestEndDate,
+            OK,
+            None,
+            None,
+          )
+          next ! session.logGroupRequestTimings(requestStartDate, requestEndDate)
 
-          case util.Failure(exception) =>
-            val requestEndDate = clock.nowMillis
+        case util.Failure(exception) =>
+          val requestEndDate = clock.nowMillis
 
-            logger.error(exception.getMessage, exception)
+          logger.error(exception.getMessage, exception)
 
-            statsEngine.logResponse(
-              session.scenario,
-              session.groups,
-              requestName,
-              startTimestamp = requestStartDate,
-              endTimestamp = requestEndDate,
-              KO,
-              None,
-              Some(exception.getMessage),
-            )
-            next ! session.logGroupRequestTimings(requestStartDate, requestEndDate).markAsFailed
-        }(components.sender.executionContext),
-    )
+          statsEngine.logResponse(
+            session.scenario,
+            session.groups,
+            requestName,
+            startTimestamp = requestStartDate,
+            endTimestamp = requestEndDate,
+            KO,
+            None,
+            Some(exception.getMessage),
+          )
+          next ! session.logGroupRequestTimings(requestStartDate, requestEndDate).markAsFailed
+      }(components.sender.executionContext)
   }
 }

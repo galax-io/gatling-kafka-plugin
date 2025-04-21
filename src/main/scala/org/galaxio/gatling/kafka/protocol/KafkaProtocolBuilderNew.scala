@@ -26,7 +26,7 @@ case class KafkaProtocolBuilderNew(
     consumeSettings: Map[String, AnyRef],
     timeout: FiniteDuration,
     messageMatcher: KafkaMatcher = KafkaKeyMatcher,
-) extends {
+) {
 
   def matchByValue: KafkaProtocolBuilderNew =
     messageMatcher(KafkaValueMatcher)

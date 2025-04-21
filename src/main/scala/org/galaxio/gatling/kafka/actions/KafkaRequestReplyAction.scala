@@ -12,6 +12,7 @@ import io.gatling.core.stats.StatsEngine
 import io.gatling.core.util.NameGen
 import org.apache.kafka.common.serialization.Serializer
 import org.galaxio.gatling.kafka.KafkaLogging
+import org.galaxio.gatling.kafka.client.KafkaMessageTracker
 import org.galaxio.gatling.kafka.protocol.KafkaComponents
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 import org.galaxio.gatling.kafka.request.builder.KafkaRequestReplyAttributes
@@ -88,10 +89,11 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
         if (logger.underlying.isDebugEnabled) {
           logMessage(s"Record sent user=${session.userId} key=${new String(msg.key)} topic=${rm.topic()}", msg)
         }
-        val id = components.kafkaProtocol.messageMatcher.requestMatch(msg)
-        components.trackersPool
-          .tracker(msg.inputTopic, msg.outputTopic, components.kafkaProtocol.messageMatcher, None)
-          .track(
+        val id      = components.kafkaProtocol.messageMatcher.requestMatch(msg)
+        val tracker =
+          components.trackersPool.tracker(msg.inputTopic, msg.outputTopic, components.kafkaProtocol.messageMatcher, None)
+        tracker ! KafkaMessageTracker
+          .MessagePublished(
             id,
             clock.nowMillis,
             components.kafkaProtocol.timeout.toMillis,
@@ -114,7 +116,7 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
           Some(e.getMessage),
         )
       },
-    )(components.sender.executionContext())
+    )
   }
 
   override def name: String = genName("kafkaRequestReply")
