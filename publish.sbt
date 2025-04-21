@@ -11,7 +11,7 @@ ThisBuild / scmInfo              := Some(
   ),
 )
 
-ThisBuild / scalaVersion := "2.13.14"
+ThisBuild / scalaVersion := "2.13.15"
 
 ThisBuild / developers := List(
   Developer(

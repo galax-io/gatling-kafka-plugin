@@ -5,6 +5,7 @@ import io.gatling.commons.util.Clock
 import io.gatling.commons.validation._
 import io.gatling.core.CoreComponents
 import io.gatling.core.action.{Action, ExitableAction}
+import io.gatling.core.actor.ActorRef
 import io.gatling.core.controller.throttle.Throttler
 import io.gatling.core.session._
 import io.gatling.core.session.el._
@@ -21,8 +22,8 @@ class KafkaRequestAction[K, V](
     val attr: KafkaAttributes[K, V],
     val coreComponents: CoreComponents,
     val kafkaProtocol: KafkaProtocol,
-    val throttled: Boolean,
     val next: Action,
+    val throttler: Option[ActorRef[Throttler.Command]],
 ) extends ExitableAction with NameGen {
 
   override val name: String    = genName("kafkaRequest")
@@ -34,13 +35,13 @@ class KafkaRequestAction[K, V](
       val outcome = for {
         requestNameData <- attr.requestName(session)
         producerRecord  <- resolveProducerRecord(session)
-      } yield coreComponents.throttler match {
-        case Some(th) if throttled =>
+      } yield throttler match {
+        case Some(th) =>
           th ! Throttler.Command.ThrottledRequest(
             session.scenario,
             () => sendAndLogProducerRecord(requestNameData, producerRecord, session),
           )
-        case _                     => sendAndLogProducerRecord(requestNameData, producerRecord, session)
+        case _        => sendAndLogProducerRecord(requestNameData, producerRecord, session)
       }
 
       outcome.onFailure { errorMessage => reportUnbuildableRequest(session, errorMessage) }
@@ -55,8 +56,7 @@ class KafkaRequestAction[K, V](
       case Success(requestNameValue) =>
         statsEngine.logRequestCrash(session.scenario, session.groups, requestNameValue, s"Failed to build request: $error")
         requestNameValue
-      case _                         =>
-        name
+      case _                         => name
     }
     logger.error(s"'$loggedName' failed to execute: $error")
   }
@@ -70,7 +70,7 @@ class KafkaRequestAction[K, V](
 
   private def resolveProducerRecord: Expression[ProducerRecord[K, V]] = s =>
     for {
-      payload <- stringExpressionResolve(attr.payload)(s)
+      payload <- stringExpressionResolve(attr.value)(s)
       key     <- attr.key.fold(null.asInstanceOf[K].success)(k => stringExpressionResolve(k)(s))
       headers <- attr.headers.fold(null.asInstanceOf[Headers].success)(_(s))
     } yield new ProducerRecord[K, V](
@@ -87,46 +87,44 @@ class KafkaRequestAction[K, V](
       session: Session,
   ): Unit = {
     val requestStartDate = clock.nowMillis
-    scala.concurrent.blocking(
-      scala.concurrent
-        .Future(producer.send(record).get())(components.sender.executionContext)
-        .onComplete {
-          case util.Success(rm) =>
-            val requestEndDate = clock.nowMillis
-            if (logger.underlying.isDebugEnabled) {
-              logger.debug(s"Record sent user=${session.userId} key=${record.key} topic=${rm.topic()}")
-              logger.trace(s"ProducerRecord=$record")
-            }
+    scala.concurrent
+      .Future(scala.concurrent.blocking(producer.send(record).get()))(components.sender.executionContext)
+      .onComplete {
+        case util.Success(rm) =>
+          val requestEndDate = clock.nowMillis
+          if (logger.underlying.isDebugEnabled) {
+            logger.debug(s"Record sent user=${session.userId} key=${record.key} topic=${rm.topic()}")
+            logger.trace(s"ProducerRecord=$record")
+          }
 
-            statsEngine.logResponse(
-              session.scenario,
-              session.groups,
-              requestName,
-              startTimestamp = requestStartDate,
-              endTimestamp = requestEndDate,
-              OK,
-              None,
-              None,
-            )
-            next ! session.logGroupRequestTimings(requestStartDate, requestEndDate)
+          statsEngine.logResponse(
+            session.scenario,
+            session.groups,
+            requestName,
+            startTimestamp = requestStartDate,
+            endTimestamp = requestEndDate,
+            OK,
+            None,
+            None,
+          )
+          next ! session.logGroupRequestTimings(requestStartDate, requestEndDate)
 
-          case util.Failure(exception) =>
-            val requestEndDate = clock.nowMillis
+        case util.Failure(exception) =>
+          val requestEndDate = clock.nowMillis
 
-            logger.error(exception.getMessage, exception)
+          logger.error(exception.getMessage, exception)
 
-            statsEngine.logResponse(
-              session.scenario,
-              session.groups,
-              requestName,
-              startTimestamp = requestStartDate,
-              endTimestamp = requestEndDate,
-              KO,
-              None,
-              Some(exception.getMessage),
-            )
-            next ! session.logGroupRequestTimings(requestStartDate, requestEndDate).markAsFailed
-        }(components.sender.executionContext),
-    )
+          statsEngine.logResponse(
+            session.scenario,
+            session.groups,
+            requestName,
+            startTimestamp = requestStartDate,
+            endTimestamp = requestEndDate,
+            KO,
+            None,
+            Some(exception.getMessage),
+          )
+          next ! session.logGroupRequestTimings(requestStartDate, requestEndDate).markAsFailed
+      }(components.sender.executionContext)
   }
 }

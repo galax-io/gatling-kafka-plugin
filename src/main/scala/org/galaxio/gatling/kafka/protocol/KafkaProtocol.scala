@@ -3,13 +3,13 @@ package org.galaxio.gatling.kafka.protocol
 import io.gatling.core.CoreComponents
 import io.gatling.core.config.GatlingConfiguration
 import io.gatling.core.protocol.{Protocol, ProtocolKey}
-import org.galaxio.gatling.kafka.client.{KafkaSender, TrackersPool}
+import org.galaxio.gatling.kafka.client.{KafkaMessageTrackerPool, KafkaSender}
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaMatcher
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 
 import java.util.concurrent.Executors
-import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.{ExecutionContext, ExecutionContextExecutorService}
+import scala.concurrent.duration.FiniteDuration
 
 object KafkaProtocol {
 
@@ -33,9 +33,7 @@ object KafkaProtocol {
     override def responseMatch(msg: KafkaProtocolMessage): Array[Byte] = keyExtractor(msg)
   }
 
-  type Components = KafkaComponents
-
-  val kafkaProtocolKey: ProtocolKey[KafkaProtocol, Components] = new ProtocolKey[KafkaProtocol, Components] {
+  val kafkaProtocolKey: ProtocolKey[KafkaProtocol, KafkaComponents] = new ProtocolKey[KafkaProtocol, KafkaComponents] {
     override def protocolClass: Class[Protocol] =
       classOf[KafkaProtocol].asInstanceOf[Class[Protocol]]
 
@@ -44,12 +42,12 @@ object KafkaProtocol {
 
     override def newComponents(coreComponents: CoreComponents): KafkaProtocol => KafkaComponents =
       kafkaProtocol => {
-        val blockingPool                                 = Executors.newCachedThreadPool()
-        implicit val ec: ExecutionContextExecutorService = ExecutionContext.fromExecutorService(blockingPool)
+        val blockingPool                        = Executors.newCachedThreadPool()
+        val ec: ExecutionContextExecutorService = ExecutionContext.fromExecutorService(blockingPool)
 
-        val sender       = KafkaSender(kafkaProtocol.producerProperties)
-        val trackersPool = new TrackersPool(
-          kafkaProtocol.consumeProperties,
+        val sender       = KafkaSender(kafkaProtocol.producerProperties)(ec)
+        val trackersPool = new KafkaMessageTrackerPool(
+          kafkaProtocol.consumerProperties,
           coreComponents.actorSystem,
           coreComponents.statsEngine,
           coreComponents.clock,
@@ -63,7 +61,7 @@ object KafkaProtocol {
 case class KafkaProtocol(
     producerTopic: String,
     producerProperties: Map[String, AnyRef],
-    consumeProperties: Map[String, AnyRef],
+    consumerProperties: Map[String, AnyRef],
     timeout: FiniteDuration,
     messageMatcher: KafkaMatcher,
 ) extends Protocol {
@@ -74,7 +72,6 @@ case class KafkaProtocol(
     copy(producerProperties = properties)
 
   def producerProperties(properties: Map[String, AnyRef]): KafkaProtocol = copy(producerProperties = properties)
-  def consumeProperties(properties: Map[String, AnyRef]): KafkaProtocol  = copy(consumeProperties = properties)
+  def consumerProperties(properties: Map[String, AnyRef]): KafkaProtocol = copy(consumerProperties = properties)
   def timeout(t: FiniteDuration): KafkaProtocol                          = copy(timeout = t)
-
 }

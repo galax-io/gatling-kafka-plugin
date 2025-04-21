@@ -23,17 +23,17 @@ class BasicSimulation extends Simulation {
     .producerSettings(
       Map(
         ProducerConfig.ACKS_CONFIG              -> "1",
-        ProducerConfig.BOOTSTRAP_SERVERS_CONFIG -> "localhost:9092",
+        ProducerConfig.BOOTSTRAP_SERVERS_CONFIG -> "localhost:9093",
       ),
     )
     .consumeSettings(
       Map(
-        "bootstrap.servers" -> "localhost:9092",
+        "bootstrap.servers" -> "localhost:9093",
       ),
     )
     .timeout(5.seconds)
 
-  val c                            = new AtomicInteger(0)
+  val c                            = new AtomicInteger(10)
   val feeder: Feeder[Int]          = Iterator.continually(Map("kekey" -> c.incrementAndGet()))
   val hFeeder: Feeder[Array[Byte]] = Iterator.continually(Map("headerId" -> java.util.UUID.randomUUID().toString.getBytes))
 

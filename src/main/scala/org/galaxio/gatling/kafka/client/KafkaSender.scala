@@ -3,7 +3,7 @@ package org.galaxio.gatling.kafka.client
 import org.apache.kafka.clients.producer.{KafkaProducer, Producer, RecordMetadata}
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.{ExecutionContext, Future, blocking}
 import scala.jdk.CollectionConverters._
 import scala.util.{Failure, Success}
 
@@ -21,7 +21,7 @@ object KafkaSender {
     override def send(
         protocolMessage: KafkaProtocolMessage,
     )(onSuccess: RecordMetadata => Unit, onFailure: Throwable => Unit): Unit = {
-      Future(producer.send(protocolMessage.toProducerRecord).get()).onComplete {
+      Future(blocking(producer.send(protocolMessage.toProducerRecord).get())).onComplete {
         case Success(value)     => onSuccess(value)
         case Failure(exception) => onFailure(exception)
       }
