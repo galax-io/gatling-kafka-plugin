@@ -1,19 +1,23 @@
 package org.galaxio.gatling.kafka.javaapi.examples;
 
-import io.confluent.kafka.schemaregistry.client.SchemaRegistryClient;
-import io.gatling.javaapi.core.*;
-import org.apache.kafka.clients.producer.ProducerConfig;
-import org.galaxio.gatling.kafka.javaapi.protocol.KafkaProtocolBuilderNew;
 import io.confluent.kafka.schemaregistry.client.CachedSchemaRegistryClient;
-import io.confluent.kafka.serializers.*;
-import org.apache.kafka.common.serialization.*;
+import io.confluent.kafka.schemaregistry.client.SchemaRegistryClient;
+import io.confluent.kafka.serializers.KafkaAvroDeserializer;
+import io.confluent.kafka.serializers.KafkaAvroSerializer;
+import io.gatling.javaapi.core.Simulation;
+import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.kafka.common.serialization.Deserializer;
+import org.apache.kafka.common.serialization.Serializer;
+import org.galaxio.gatling.kafka.javaapi.protocol.KafkaProtocolBuilder;
 import org.galaxio.gatling.kafka.javaapi.request.builder.RequestReplyBuilder;
 
 import java.time.Duration;
-import java.util.*;
+import java.util.Arrays;
+import java.util.Map;
 
-import static io.gatling.javaapi.core.CoreDsl.*;
-import static org.galaxio.gatling.kafka.javaapi.KafkaDsl.*;
+import static io.gatling.javaapi.core.CoreDsl.atOnceUsers;
+import static io.gatling.javaapi.core.CoreDsl.scenario;
+import static org.galaxio.gatling.kafka.javaapi.KafkaDsl.kafka;
 
 public class AvroClassWithRequestReplySimulation extends Simulation {
     private static final SchemaRegistryClient client = new CachedSchemaRegistryClient(Arrays.asList("schRegUrl".split(",")), 16);
@@ -25,7 +29,7 @@ public class AvroClassWithRequestReplySimulation extends Simulation {
             (Deserializer) new KafkaAvroDeserializer(client);
 
     // protocol
-    private final KafkaProtocolBuilderNew kafkaProtocolRRAvro = kafka().requestReply()
+    private final KafkaProtocolBuilder kafkaProtocolRRAvro = kafka()
             .producerSettings(
                     Map.of(
                             ProducerConfig.ACKS_CONFIG, "1",

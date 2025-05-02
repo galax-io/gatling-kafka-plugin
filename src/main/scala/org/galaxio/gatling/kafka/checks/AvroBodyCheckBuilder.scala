@@ -20,7 +20,7 @@ object AvroBodyCheckBuilder {
       val name                                                         = "avroBody"
       val arity                                                        = "find"
       def apply(prepared: KafkaProtocolMessage): Validation[Option[T]] = {
-        Try(Option(implicitly[Serde[T]].deserializer().deserialize(prepared.outputTopic, prepared.value))).toValidation
+        Try(Option(implicitly[Serde[T]].deserializer().deserialize(prepared.consumerTopic, prepared.value))).toValidation
       }
     }.expressionSuccess
 

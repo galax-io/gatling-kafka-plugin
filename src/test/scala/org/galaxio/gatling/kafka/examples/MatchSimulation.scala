@@ -13,7 +13,7 @@ import scala.concurrent.duration.DurationInt
 
 class MatchSimulation extends Simulation {
 
-  val kafkaProtocolMatchByValue: KafkaProtocol = kafka.requestReply
+  val kafkaProtocolMatchByValue: KafkaProtocol = kafka
     .producerSettings(
       Map(
         ProducerConfig.ACKS_CONFIG              -> "1",
@@ -37,7 +37,7 @@ class MatchSimulation extends Simulation {
     "Custom Message".getBytes // just returning something
   }
 
-  val kafkaProtocolMatchByMessage: KafkaProtocol = kafka.requestReply
+  val kafkaProtocolMatchByMessage: KafkaProtocol = kafka
     .producerSettings(
       Map(
         ProducerConfig.ACKS_CONFIG              -> "1",

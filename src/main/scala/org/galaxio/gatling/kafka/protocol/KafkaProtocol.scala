@@ -35,9 +35,6 @@ object KafkaProtocol {
   }
 
   val kafkaProtocolKey: ProtocolKey[KafkaProtocol, KafkaComponents] = new ProtocolKey[KafkaProtocol, KafkaComponents] {
-
-//    private val blockingPool                                              = Executors.newCachedThreadPool()
-//    private val ec: ExecutionContextExecutorService                       = ExecutionContext.fromExecutorService(blockingPool)
     private val senderRef: AtomicReference[KafkaSender]                   = new AtomicReference[KafkaSender]()
     private val trackersPoolRef: AtomicReference[KafkaMessageTrackerPool] = new AtomicReference[KafkaMessageTrackerPool]()
 
@@ -89,7 +86,6 @@ object KafkaProtocol {
 }
 
 final case class KafkaProtocol(
-//    @deprecated("use topics in requests builders", "1.0.0")
     producerTopic: String, // TODO: remove after 1.1.0 (when topic moved from protocol to request builders)
     producerProperties: Map[String, AnyRef],
     consumerProperties: Map[String, AnyRef],

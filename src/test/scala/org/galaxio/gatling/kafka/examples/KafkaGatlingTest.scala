@@ -4,9 +4,11 @@ import com.sksamuel.avro4s._
 import io.confluent.kafka.schemaregistry.client.CachedSchemaRegistryClient
 import io.confluent.kafka.serializers.{KafkaAvroDeserializer, KafkaAvroSerializer}
 import io.gatling.core.Predef._
+import io.gatling.core.feeder.Feeder
 import io.gatling.core.structure.ScenarioBuilder
 import org.apache.kafka.clients.producer.ProducerConfig
 import org.galaxio.gatling.kafka.Predef._
+import org.galaxio.gatling.kafka.avro4s._
 import org.apache.kafka.common.header.Headers
 import org.apache.kafka.common.header.internals.RecordHeaders
 import org.apache.kafka.common.serialization.{Deserializer, Serde, Serializer}
@@ -19,14 +21,7 @@ class KafkaGatlingTest extends Simulation {
 
   case class Ingredient(name: String, sugar: Double, fat: Double)
 
-  implicit val ingridientToRecord: ToRecord[Ingredient]     = ToRecord.apply
-  implicit val ingridientFromRecord: FromRecord[Ingredient] = FromRecord.apply
-  implicit val ingridientSchemaFor: SchemaFor[Ingredient]   = SchemaFor.apply
-  implicit val ingridientFormat: RecordFormat[Ingredient]   = RecordFormat.apply
-  implicit val ingredientHeaders: Headers                   = new RecordHeaders()
-
   val kafkaConf: KafkaProtocol = kafka
-    .topic("test.t1")
     .properties(
       Map(
         ProducerConfig.ACKS_CONFIG                   -> "1",
@@ -37,7 +32,6 @@ class KafkaGatlingTest extends Simulation {
     )
 
   val kafkaConfwoKey: KafkaProtocol = kafka
-    .topic("myTopic3")
     .properties(
       Map(
         ProducerConfig.ACKS_CONFIG                   -> "1",
@@ -48,7 +42,6 @@ class KafkaGatlingTest extends Simulation {
     )
 
   val kafkaConfBytes: KafkaProtocol = kafka
-    .topic("test.t2")
     .properties(
       Map(
         ProducerConfig.ACKS_CONFIG                   -> "1",
@@ -58,58 +51,45 @@ class KafkaGatlingTest extends Simulation {
       ),
     )
 
-  val kafkaProtocolRRString: KafkaProtocol = kafka.requestReply
+  val kafkaProtocolRRString: KafkaProtocol = kafka
     .producerSettings(
-      Map(
-        ProducerConfig.ACKS_CONFIG                   -> "1",
-        ProducerConfig.BOOTSTRAP_SERVERS_CONFIG      -> "localhost:9093",
-        ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG   -> "org.apache.kafka.common.serialization.StringSerializer",
-        ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG -> "org.apache.kafka.common.serialization.StringSerializer",
-      ),
+      ProducerConfig.ACKS_CONFIG                   -> "1",
+      ProducerConfig.BOOTSTRAP_SERVERS_CONFIG      -> "localhost:9093",
+      ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG   -> "org.apache.kafka.common.serialization.StringSerializer",
+      ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG -> "org.apache.kafka.common.serialization.StringSerializer",
     )
     .consumeSettings(
-      Map(
-        "bootstrap.servers" -> "localhost:9093",
-      ),
+      "bootstrap.servers" -> "localhost:9093",
     )
     .withDefaultTimeout
 
-  val kafkaProtocolRRBytes: KafkaProtocol = kafka.requestReply
+  val kafkaProtocolRRBytes: KafkaProtocol = kafka
     .producerSettings(
-      Map(
-        ProducerConfig.ACKS_CONFIG                   -> "1",
-        ProducerConfig.BOOTSTRAP_SERVERS_CONFIG      -> "localhost:9093",
-        ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG   -> "org.apache.kafka.common.serialization.ByteArraySerializer",
-        ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG -> "org.apache.kafka.common.serialization.ByteArraySerializer",
-      ),
+      ProducerConfig.ACKS_CONFIG                   -> "1",
+      ProducerConfig.BOOTSTRAP_SERVERS_CONFIG      -> "localhost:9093",
+      ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG   -> "org.apache.kafka.common.serialization.ByteArraySerializer",
+      ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG -> "org.apache.kafka.common.serialization.ByteArraySerializer",
     )
     .consumeSettings(
-      Map(
-        "bootstrap.servers" -> "localhost:9093",
-      ),
+      "bootstrap.servers" -> "localhost:9093",
     )
     .timeout(5.seconds)
     .matchByValue
 
-  val kafkaProtocolRRBytes2: KafkaProtocol = kafka.requestReply
+  val kafkaProtocolRRBytes2: KafkaProtocol = kafka
     .producerSettings(
-      Map(
-        ProducerConfig.ACKS_CONFIG                   -> "1",
-        ProducerConfig.BOOTSTRAP_SERVERS_CONFIG      -> "localhost:9093",
-        ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG   -> "org.apache.kafka.common.serialization.ByteArraySerializer",
-        ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG -> "org.apache.kafka.common.serialization.ByteArraySerializer",
-      ),
+      ProducerConfig.ACKS_CONFIG                   -> "1",
+      ProducerConfig.BOOTSTRAP_SERVERS_CONFIG      -> "localhost:9093",
+      ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG   -> "org.apache.kafka.common.serialization.ByteArraySerializer",
+      ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG -> "org.apache.kafka.common.serialization.ByteArraySerializer",
     )
     .consumeSettings(
-      Map(
-        "bootstrap.servers" -> "localhost:9093",
-      ),
+      "bootstrap.servers" -> "localhost:9093",
     )
     .timeout(1.seconds)
     .matchByValue
 
   val kafkaAvro4sConf: KafkaProtocol = kafka
-    .topic("test.t3")
     .properties(
       Map(
         ProducerConfig.ACKS_CONFIG                   -> "1",
@@ -125,21 +105,17 @@ class KafkaGatlingTest extends Simulation {
     message.key
   }
 
-  val kafkaProtocolRRAvro: KafkaProtocol = kafka.requestReply
+  val kafkaProtocolRRAvro: KafkaProtocol = kafka
     .producerSettings(
-      Map(
-        ProducerConfig.ACKS_CONFIG                   -> "1",
-        ProducerConfig.BOOTSTRAP_SERVERS_CONFIG      -> "localhost:9093",
-        ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG   -> "org.apache.kafka.common.serialization.StringSerializer",
-        ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG -> "io.confluent.kafka.serializers.KafkaAvroSerializer",
-        "value.subject.name.strategy"                -> "io.confluent.kafka.serializers.subject.RecordNameStrategy",
-        "schema.registry.url"                        -> "http://localhost:9094",
-      ),
+      ProducerConfig.ACKS_CONFIG                   -> "1",
+      ProducerConfig.BOOTSTRAP_SERVERS_CONFIG      -> "localhost:9093",
+      ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG   -> "org.apache.kafka.common.serialization.StringSerializer",
+      ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG -> "io.confluent.kafka.serializers.KafkaAvroSerializer",
+      "value.subject.name.strategy"                -> "io.confluent.kafka.serializers.subject.RecordNameStrategy",
+      "schema.registry.url"                        -> "http://localhost:9094",
     )
     .consumeSettings(
-      Map(
-        "bootstrap.servers" -> "localhost:9093",
-      ),
+      "bootstrap.servers" -> "localhost:9093",
     )
     .timeout(7.seconds)
     .matchByMessage(matchByOwnVal)
@@ -156,19 +132,22 @@ class KafkaGatlingTest extends Simulation {
   val scnwokey: ScenarioBuilder = scenario("Request String without key")
     .exec(
       kafka("Request String")
+        .topic("myTopic3")
         .send[String]("foo"),
     )
     .exec(
       kafka("Request String With null key")
-        .send[Any, String](null, "nullkey"),
+        .topic("myTopic3")
+        .send[Int, String](null, "nullkey"),
     )
 
   val scn: ScenarioBuilder = scenario("Request String")
-    .exec(kafka("Request String 2").send[String, String]("testCheckJson", """{ "m": "dkf" }"""))
+    .exec(kafka("Request String 2").topic("test.t1").send[String, String]("testCheckJson", """{ "m": "dkf" }"""))
 
   val scn2: ScenarioBuilder = scenario("Request Byte")
     .exec(
       kafka("Request Byte")
+        .topic("test.t2")
         .send[Array[Byte], Array[Byte]]("key".getBytes(), "tstBytes".getBytes()),
     )
 
@@ -184,10 +163,12 @@ class KafkaGatlingTest extends Simulation {
   val scnAvro4s: ScenarioBuilder = scenario("Request Avro4s")
     .exec(
       kafka("Request Simple Avro4s")
+        .topic("test.t3")
         .send[Ingredient](Ingredient("Cheese", 1d, 50d)),
     )
     .exec(
       kafka("Request Avro4s")
+        .topic("test.t3")
         .send[String, Ingredient]("key4s", Ingredient("Cheese", 0d, 70d)),
     )
 
@@ -209,6 +190,6 @@ class KafkaGatlingTest extends Simulation {
     scnwokey.inject(nothingFor(1), atOnceUsers(1)).protocols(kafkaConfwoKey),
   ).assertions(
     global.failedRequests.percent.lt(15.0),
-  )
+  ).maxDuration(120.seconds)
 
 }
