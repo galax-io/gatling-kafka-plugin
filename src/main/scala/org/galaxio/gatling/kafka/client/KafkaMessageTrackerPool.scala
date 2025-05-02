@@ -10,12 +10,12 @@ import org.apache.kafka.streams.processor.api
 import org.apache.kafka.streams.processor.api.{Processor, ProcessorSupplier}
 import org.apache.kafka.streams.scala.StreamsBuilder
 import org.galaxio.gatling.kafka.KafkaLogging
-import org.galaxio.gatling.kafka.client.KafkaMessageTracker.{TrackerMessage, MessageConsumed}
+import org.galaxio.gatling.kafka.client.KafkaMessageTracker.{MessageConsumed, TrackerMessage}
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaMatcher
 import org.galaxio.gatling.kafka.request.{KafkaProtocolMessage, KafkaSerdesImplicits}
 
 import java.util.concurrent.ConcurrentHashMap
-import java.util.{Properties, UUID}
+import java.util.Properties
 import scala.jdk.CollectionConverters._
 
 object KafkaMessageTrackerPool {
@@ -71,30 +71,37 @@ object KafkaMessageTrackerPool {
   ): KafkaMessageProcessorSupplier =
     new KafkaMessageProcessorSupplier(tracker, inputTopic, outputTopic, messageMatcher, responseTransformer, clock)
 
+  def apply(
+      streamsSettings: Map[String, AnyRef],
+      actorSystem: ActorSystem,
+      statsEngine: StatsEngine,
+      clock: Clock,
+  ): KafkaMessageTrackerPool = new KafkaMessageTrackerPool(streamsSettings, actorSystem, statsEngine, clock)
 }
 
 final class KafkaMessageTrackerPool(
     streamsSettings: Map[String, AnyRef],
-    actor: ActorSystem,
+    actorSystem: ActorSystem,
     statsEngine: StatsEngine,
     clock: Clock,
 ) extends KafkaLogging with NameGen with KafkaSerdesImplicits {
 
   // Trackers map Output Topic (String) to Tracker/Actor
-  private val trackers  = new ConcurrentHashMap[String, ActorRef[KafkaMessageTracker.TrackerMessage]]
-  private val actorName = "kafkaTrackerActor"
+  private val trackers    = new ConcurrentHashMap[String, ActorRef[KafkaMessageTracker.TrackerMessage]]
+  private val trackerName = "kafkaTracker"
 
   def tracker(
       inputTopic: String,
       outputTopic: String,
       messageMatcher: KafkaMatcher,
       responseTransformer: Option[KafkaProtocolMessage => KafkaProtocolMessage],
-  ): ActorRef[KafkaMessageTracker.TrackerMessage] =
+  ): ActorRef[KafkaMessageTracker.TrackerMessage] = {
     trackers.computeIfAbsent(
       outputTopic,
       _ => {
         logger.debug("Computing new tracker for topic {}, there are currently {} other trackers", outputTopic, trackers.size())
-        val tracker = actor.actorOf(KafkaMessageTracker.actor(genName(actorName), statsEngine, clock))
+        val name    = genName(trackerName)
+        val tracker = actorSystem.actorOf(KafkaMessageTracker.actor(name, statsEngine, clock))
         val builder = new StreamsBuilder
         builder
           .stream[Array[Byte], Array[Byte]](outputTopic)
@@ -109,25 +116,22 @@ final class KafkaMessageTrackerPool(
             ),
           )
 
-        val streams = new KafkaStreams(builder.build(), createStreamsProperties)
+        val streams = new KafkaStreams(builder.build(), propertiesWithAppId(name))
         streams.cleanUp()
         streams.start()
-        actor.registerOnTermination {
-          logger.debug("Closing stream {}", streams)
+        actorSystem.registerOnTermination {
+          logger.debug("Closing stream {} with name {}", streams, name)
           streams.close()
         }
         tracker
       },
     )
+  }
 
-  private def createStreamsProperties = {
+  private def propertiesWithAppId(appId: String) = {
     val props = new Properties()
     props.putAll(streamsSettings.asJava)
-    if (props.get(APPLICATION_ID_CONFIG) != null) {
-      val uniqueAppIdForStreams = props.get(APPLICATION_ID_CONFIG).toString + UUID.randomUUID().toString
-      logger.debug("Creating you a unique app id for streams {}", uniqueAppIdForStreams)
-      props.put(APPLICATION_ID_CONFIG, uniqueAppIdForStreams)
-    }
+    props.put(APPLICATION_ID_CONFIG, appId)
     props
   }
 }

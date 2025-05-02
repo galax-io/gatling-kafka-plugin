@@ -72,6 +72,7 @@ public class Builders {
         public AvroExpressionBuilder(JExpression<Object> valueF, SchemaRegistryClient client) {
             super(valueF, Object.class, Serdes.serdeFrom(new KafkaAvroSerializer(client), new KafkaAvroDeserializer(client)));
         }
+
         public AvroExpressionBuilder(JExpression<Object> valueF, Serializer<Object> ser, Deserializer<Object> deser) {
             super(valueF, Object.class, Serdes.serdeFrom(ser, deser));
         }

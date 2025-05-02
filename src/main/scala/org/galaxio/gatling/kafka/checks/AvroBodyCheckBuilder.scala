@@ -15,7 +15,7 @@ import scala.util.Try
 object AvroBodyCheckBuilder {
   private type KafkaCheckMaterializer[T, P] = CheckMaterializer[T, KafkaCheck, KafkaProtocolMessage, P]
 
-  def _avroBody[T <: GenericRecord: Serde]: CheckBuilder.Find[KafkaMessageCheckType, KafkaProtocolMessage, T] = {
+  def _avroBody[T: Serde]: CheckBuilder.Find[KafkaMessageCheckType, KafkaProtocolMessage, T] = {
     val tExtractor = new Extractor[KafkaProtocolMessage, T] {
       val name                                                         = "avroBody"
       val arity                                                        = "find"

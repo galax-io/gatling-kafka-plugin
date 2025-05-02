@@ -15,15 +15,15 @@ public abstract class ExpressionBuilder<V> {
         this.serde = serde;
     }
 
-    scala.Function1<io.gatling.core.session.Session, Validation<byte[]>> bytes(String topic){
+    scala.Function1<io.gatling.core.session.Session, Validation<byte[]>> bytes(String topic) {
         return Expressions.javaFunctionToExpression(javaExpression.andThen(v -> serde.serializer().serialize(topic, v)));
     }
 
-    public scala.Function1<io.gatling.core.session.Session, Validation<V>> gatlingExpression(){
+    public scala.Function1<io.gatling.core.session.Session, Validation<V>> gatlingExpression() {
         return Expressions.javaFunctionToExpression(javaExpression);
     }
 
-    public Class<V> getType(){
+    public Class<V> getType() {
         return type;
     }
 
