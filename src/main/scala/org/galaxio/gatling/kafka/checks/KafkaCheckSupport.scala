@@ -25,7 +25,7 @@ import scala.annotation.implicitNotFound
 trait KafkaCheckSupport {
   def messageCheck: KafkaMessageCheck.type = KafkaMessageCheck
 
-  def avroBody[T <: GenericRecord: Serde]: CheckBuilder.Find[KafkaMessageCheckType, KafkaProtocolMessage, T] =
+  def avroBody[T: Serde]: CheckBuilder.Find[KafkaMessageCheckType, KafkaProtocolMessage, T] =
     AvroBodyCheckBuilder._avroBody
 
   def simpleCheck(f: KafkaProtocolMessage => Boolean): KafkaCheck =
