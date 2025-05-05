@@ -1,12 +1,16 @@
 package org.galaxio.gatling.kafka.client
 
-import org.apache.kafka.clients.consumer.{ConsumerRecord, KafkaConsumer}
+import com.typesafe.scalalogging.StrictLogging
+import org.apache.kafka.clients.consumer.{ConsumerRebalanceListener, ConsumerRecord, KafkaConsumer}
+import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.WakeupException
 
 import java.time.Duration
+import java.util
 import java.util.Properties
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.{ConcurrentLinkedQueue, CountDownLatch}
+import scala.collection.mutable
 import scala.jdk.CollectionConverters._
 
 object DynamicKafkaConsumer {
@@ -28,39 +32,75 @@ final class DynamicKafkaConsumer[K, V] private (
     topics: Set[String],
     onRecord: ConsumerRecord[K, V] => Unit,
     onFailure: Exception => Unit,
-) extends Runnable with AutoCloseable {
+) extends Runnable with AutoCloseable with StrictLogging {
 
-  private val topicsQueue: java.util.Queue[String] = new ConcurrentLinkedQueue[String]()
-  topicsQueue.addAll(topics.asJava)
+  private val topicsQueue: java.util.Queue[(String, CountDownLatch)] = new ConcurrentLinkedQueue[(String, CountDownLatch)]()
+  topicsQueue.addAll(topics.map((_, new CountDownLatch(0))).asJava)
 
   private val running: AtomicBoolean        = new AtomicBoolean(true)
   private val consumer: KafkaConsumer[K, V] = new KafkaConsumer[K, V](settings)
   private val initLatch: CountDownLatch     = if (this.topicsQueue.isEmpty) new CountDownLatch(1) else new CountDownLatch(0)
 
   def addTopicForSubscription(newTopic: String): Unit = {
-    this.topicsQueue.add(newTopic)
+    val latch = new CountDownLatch(1)
+    this.topicsQueue.add(newTopic, latch)
     if (initLatch.getCount > 0) { // need for staring processing loop
       initLatch.countDown()
     }
+    latch.await()
   }
 
-  private def getTopicsForSubscription: java.util.Set[String] = {
+  private def getTopicsForSubscription: Set[(String, CountDownLatch)] = {
     if (!this.topicsQueue.isEmpty) {
-      val forSubscribe = new java.util.HashSet[String]()
-      while (!this.topicsQueue.isEmpty)
-        forSubscribe.add(this.topicsQueue.poll)
-      if (this.consumer.subscription.containsAll(forSubscribe))
-        return java.util.Set.of()
-      forSubscribe.addAll(this.consumer.subscription)
-      return java.util.Collections.unmodifiableSet(forSubscribe)
+      val currentSubscription = this.consumer.subscription()
+      val forSubscribe        = mutable.Set.empty[(String, CountDownLatch)]
+      while (!this.topicsQueue.isEmpty) {
+        val (topic, latch) = this.topicsQueue.poll()
+        if (currentSubscription.contains(topic)) {
+          latch.countDown()
+        } else {
+          forSubscribe.add(topic, latch)
+        }
+      }
+      if (forSubscribe.isEmpty)
+        return Set.empty
+
+      forSubscribe.addAll(currentSubscription.asScala.map((_, new CountDownLatch(1))))
+      return forSubscribe.toSet
     }
-    java.util.Set.of()
+    Set.empty
+  }
+
+  private def subscribeTopics(forSubscribe: Set[(String, CountDownLatch)]): Unit = {
+    if (forSubscribe.nonEmpty) {
+      val (topics, latches) =
+        forSubscribe.foldLeft((mutable.Set.empty[String], mutable.Set.empty[CountDownLatch]))((result, tl) => {
+          val (ts, ls)       = result
+          val (topic, latch) = tl
+          ts.add(topic)
+          ls.add(latch)
+          result
+        })
+      this.consumer.subscribe(
+        topics.asJava,
+        new ConsumerRebalanceListener {
+          override def onPartitionsRevoked(partitions: util.Collection[TopicPartition]): Unit = {
+            logger.debug(s"revoked partitions $partitions")
+          }
+
+          override def onPartitionsAssigned(partitions: util.Collection[TopicPartition]): Unit = {
+            logger.debug(s"assigned partitions $partitions")
+            latches.foreach(_.countDown())
+          }
+        },
+      )
+    }
   }
 
   override def run(): Unit = {
     try {
       this.initLatch.await()
-      this.consumer.subscribe(getTopicsForSubscription)
+      subscribeTopics(getTopicsForSubscription)
       while (running.get) {
         val records = this.consumer.poll(Duration.ofMillis(1000))
         records.forEach(record =>
@@ -70,12 +110,7 @@ final class DynamicKafkaConsumer[K, V] private (
               this.onFailure(e)
           },
         )
-
-        val topicsForSubscription = getTopicsForSubscription
-        if (!topicsForSubscription.isEmpty) {
-          consumer.subscribe(topicsForSubscription) // Subscribe to all
-
-        }
+        subscribeTopics(getTopicsForSubscription)
       }
     } catch {
       case e: WakeupException =>

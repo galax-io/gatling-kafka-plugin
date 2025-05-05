@@ -81,6 +81,8 @@ final case class KafkaProtocolBuilder(
     )
 
     val consumeDefaults = Map(
+      ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG       -> "true",
+      ConsumerConfig.AUTO_OFFSET_RESET_CONFIG        -> "latest",
       ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG   -> Serdes.ByteArray().deserializer().getClass.getName,
       ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG -> Serdes.ByteArray().deserializer().getClass.getName,
     )
