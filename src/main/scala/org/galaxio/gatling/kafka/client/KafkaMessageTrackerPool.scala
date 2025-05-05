@@ -4,83 +4,28 @@ import io.gatling.commons.util.Clock
 import io.gatling.core.actor.{ActorRef, ActorSystem}
 import io.gatling.core.stats.StatsEngine
 import io.gatling.core.util.NameGen
-import org.apache.kafka.streams.KafkaStreams
-import org.apache.kafka.streams.StreamsConfig.APPLICATION_ID_CONFIG
-import org.apache.kafka.streams.processor.api
-import org.apache.kafka.streams.processor.api.{Processor, ProcessorSupplier}
-import org.apache.kafka.streams.scala.StreamsBuilder
+import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.galaxio.gatling.kafka.KafkaLogging
-import org.galaxio.gatling.kafka.client.KafkaMessageTracker.{MessageConsumed, TrackerMessage}
+import org.galaxio.gatling.kafka.client.KafkaMessageTracker.MessageConsumed
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaMatcher
 import org.galaxio.gatling.kafka.request.{KafkaProtocolMessage, KafkaSerdesImplicits}
 
-import java.util.concurrent.ConcurrentHashMap
-import java.util.Properties
-import scala.jdk.CollectionConverters._
+import java.util.concurrent.{ConcurrentHashMap, ExecutorService, Executors}
 
 object KafkaMessageTrackerPool {
 
-  /** Because we may need access to headers whilst deserializing (which can contain deserialization info), we will need to use
-    * the Kafka Processor Api
-    * https://docs.confluent.io/platform/current/streams/developer-guide/dsl-api.html#streams-developer-guide-dsl-process
-    */
-  private final class KafkaMessageProcessorSupplier(
-      tracker: ActorRef[TrackerMessage],
-      inputTopic: String,
-      outputTopic: String,
-      messageMatcher: KafkaMatcher,
-      responseTransformer: Option[KafkaProtocolMessage => KafkaProtocolMessage],
-      clock: Clock,
-  ) extends ProcessorSupplier[Array[Byte], Array[Byte], Void, Void] with KafkaLogging {
-
-    override def get(): Processor[Array[Byte], Array[Byte], Void, Void] =
-      (record: api.Record[Array[Byte], Array[Byte]]) => {
-        val headers = Option(record.headers())
-        val key     = record.key()
-        val value   = record.value()
-        val message = KafkaProtocolMessage(key, value, inputTopic, outputTopic, headers)
-        if (messageMatcher.responseMatch(message) == null) {
-          logger.error("no messageMatcher key for read message {}", message.key)
-        } else {
-          if (key == null || value == null) {
-            logger.warn(" --- received message with null key or value")
-          } else {
-            logger.trace(" --- received {} {}", key, value)
-          }
-          val receivedTimestamp = clock.nowMillis
-          val replyId           = messageMatcher.responseMatch(message)
-          val messageKey        = if (key == null) "null" else new String(key)
-          logMessage(s"Record received key=$messageKey", message)
-
-          tracker ! MessageConsumed(
-            replyId,
-            receivedTimestamp,
-            responseTransformer.map(_(message)).getOrElse(message),
-          )
-        }
-      }
-  }
-
-  private def processorSupplier(
-      tracker: ActorRef[TrackerMessage],
-      inputTopic: String,
-      outputTopic: String,
-      messageMatcher: KafkaMatcher,
-      responseTransformer: Option[KafkaProtocolMessage => KafkaProtocolMessage],
-      clock: Clock,
-  ): KafkaMessageProcessorSupplier =
-    new KafkaMessageProcessorSupplier(tracker, inputTopic, outputTopic, messageMatcher, responseTransformer, clock)
-
   def apply(
-      streamsSettings: Map[String, AnyRef],
+      consumerSettings: Map[String, AnyRef],
       actorSystem: ActorSystem,
       statsEngine: StatsEngine,
       clock: Clock,
-  ): KafkaMessageTrackerPool = new KafkaMessageTrackerPool(streamsSettings, actorSystem, statsEngine, clock)
+  ): KafkaMessageTrackerPool = new KafkaMessageTrackerPool(consumerSettings, actorSystem, statsEngine, clock)
+
+  private val consumerExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 }
 
 final class KafkaMessageTrackerPool(
-    streamsSettings: Map[String, AnyRef],
+    consumerSettings: Map[String, AnyRef],
     actorSystem: ActorSystem,
     statsEngine: StatsEngine,
     clock: Clock,
@@ -90,48 +35,75 @@ final class KafkaMessageTrackerPool(
   private val trackers    = new ConcurrentHashMap[String, ActorRef[KafkaMessageTracker.TrackerMessage]]
   private val trackerName = "kafkaTracker"
 
+  private val consumer: DynamicKafkaConsumer[Array[Byte], Array[Byte]] =
+    DynamicKafkaConsumer(
+      if (consumerSettings.contains(ConsumerConfig.GROUP_ID_CONFIG))
+        consumerSettings
+      else
+        consumerSettings + (ConsumerConfig.GROUP_ID_CONFIG -> genName("gatling-kafka-test")),
+      Set.empty,
+      record => {
+        val kafkaProtocolMessage = KafkaProtocolMessage.from(record, None)
+        val receivedTimestamp    = clock.nowMillis
+        val tracker              = Option(trackers.get(record.topic()))
+
+        tracker.map(
+          _ ! MessageConsumed(
+            receivedTimestamp,
+            kafkaProtocolMessage,
+          ),
+        )
+      },
+      exception => logger.error(exception.getMessage, exception),
+    )
+
+  private val consumerFuture = KafkaMessageTrackerPool.consumerExecutor.submit(consumer)
+  actorSystem.registerOnTermination {
+    logger.debug("Closing consumer {}", consumer)
+    consumer.close()
+    try {
+      consumerFuture.get()
+    } catch {
+      case e: Throwable =>
+        logger.error(e.getMessage, e)
+    }
+    KafkaMessageTrackerPool.consumerExecutor.shutdown()
+  }
+
+  private def withProducerTopic(producerTopic: String): KafkaProtocolMessage => KafkaProtocolMessage =
+    _.copy(producerTopic = producerTopic)
+
   def tracker(
-      inputTopic: String,
-      outputTopic: String,
+      producerTopic: String,
+      consumerTopic: String,
       messageMatcher: KafkaMatcher,
       responseTransformer: Option[KafkaProtocolMessage => KafkaProtocolMessage],
   ): ActorRef[KafkaMessageTracker.TrackerMessage] = {
+
     trackers.computeIfAbsent(
-      outputTopic,
+      consumerTopic,
       _ => {
-        logger.debug("Computing new tracker for topic {}, there are currently {} other trackers", outputTopic, trackers.size())
-        val name    = genName(trackerName)
-        val tracker = actorSystem.actorOf(KafkaMessageTracker.actor(name, statsEngine, clock))
-        val builder = new StreamsBuilder
-        builder
-          .stream[Array[Byte], Array[Byte]](outputTopic)
-          .process(
-            KafkaMessageTrackerPool.processorSupplier(
-              tracker,
-              inputTopic,
-              outputTopic,
-              messageMatcher,
-              responseTransformer,
+        logger.debug(
+          "Computing new tracker for topic {}, there are currently {} other trackers",
+          consumerTopic,
+          trackers.size(),
+        )
+        val name            = genName(trackerName)
+        val transformations =
+          responseTransformer.fold(withProducerTopic(producerTopic))(_.compose(withProducerTopic(producerTopic)))
+        val tracker         =
+          actorSystem.actorOf(
+            KafkaMessageTracker.actor(
+              name,
+              statsEngine,
               clock,
+              messageMatcher,
+              Option(transformations),
             ),
           )
-
-        val streams = new KafkaStreams(builder.build(), propertiesWithAppId(name))
-        streams.cleanUp()
-        streams.start()
-        actorSystem.registerOnTermination {
-          logger.debug("Closing stream {} with name {}", streams, name)
-          streams.close()
-        }
+        consumer.addTopicForSubscription(consumerTopic)
         tracker
       },
     )
-  }
-
-  private def propertiesWithAppId(appId: String) = {
-    val props = new Properties()
-    props.putAll(streamsSettings.asJava)
-    props.put(APPLICATION_ID_CONFIG, appId)
-    props
   }
 }

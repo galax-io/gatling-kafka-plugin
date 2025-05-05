@@ -28,7 +28,7 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
   val clock: Clock             = coreComponents.clock
 
   override def sendKafkaMessage(requestNameString: String, protocolMessage: KafkaProtocolMessage, session: Session): Unit = {
-    val now = clock.nowMillis
+    val requestStartDate = clock.nowMillis
     components.sender.send(protocolMessage)(
       rm => {
         if (logger.underlying.isDebugEnabled) {
@@ -57,17 +57,19 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
           )
       },
       e => {
+        val requestEndDate = clock.nowMillis
         logger.error(e.getMessage, e)
         statsEngine.logResponse(
           session.scenario,
           session.groups,
           requestNameString,
-          now,
-          clock.nowMillis,
+          requestStartDate,
+          requestEndDate,
           KO,
           Some("500"),
           Some(e.getMessage),
         )
+        next ! session.logGroupRequestTimings(requestStartDate, requestEndDate).markAsFailed
       },
     )
   }

@@ -8,17 +8,24 @@ import io.gatling.core.actor.{Actor, Behavior}
 import io.gatling.core.check.Check
 import io.gatling.core.session.Session
 import io.gatling.core.stats.StatsEngine
-import org.galaxio.gatling.kafka.KafkaCheck
 import org.galaxio.gatling.kafka.client.KafkaMessageTracker._
+import org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaMatcher
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
+import org.galaxio.gatling.kafka.{KafkaCheck, KafkaLogging}
 
 import scala.collection.mutable
 import scala.concurrent.duration.DurationInt
 
 object KafkaMessageTracker {
 
-  def actor[K, V](actorName: String, statsEngine: StatsEngine, clock: Clock): Actor[TrackerMessage] =
-    new KafkaMessageTracker[K, V](actorName, statsEngine, clock)
+  def actor[K, V](
+      actorName: String,
+      statsEngine: StatsEngine,
+      clock: Clock,
+      messageMatcher: KafkaMatcher,
+      responseTransformer: Option[KafkaProtocolMessage => KafkaProtocolMessage],
+  ): Actor[TrackerMessage] =
+    new KafkaMessageTracker[K, V](actorName, statsEngine, clock, messageMatcher, responseTransformer)
 
   sealed trait TrackerMessage
 
@@ -33,7 +40,6 @@ object KafkaMessageTracker {
   ) extends TrackerMessage
 
   final case class MessageConsumed(
-      replyId: Array[Byte],
       received: Long,
       message: KafkaProtocolMessage,
   ) extends TrackerMessage
@@ -46,7 +52,13 @@ object KafkaMessageTracker {
 
 /** Actor to record request and response Kafka Events, publishing data to the Gatling core DataWriter
   */
-class KafkaMessageTracker[K, V](name: String, statsEngine: StatsEngine, clock: Clock) extends Actor[TrackerMessage](name) {
+class KafkaMessageTracker[K, V](
+    name: String,
+    statsEngine: StatsEngine,
+    clock: Clock,
+    messageMatcher: KafkaMatcher,
+    responseTransformer: Option[KafkaProtocolMessage => KafkaProtocolMessage],
+) extends Actor[TrackerMessage](name) with KafkaLogging {
 
   private val sentMessages                 = mutable.HashMap.empty[String, MessagePublished]
   private val timedOutMessages             = mutable.ArrayBuffer.empty[MessagePublished]
@@ -62,7 +74,7 @@ class KafkaMessageTracker[K, V](name: String, statsEngine: StatsEngine, clock: C
 
   override def init(): Behavior[TrackerMessage] = {
     // message was sent; add the timestamps to the map
-    case messageSent: MessagePublished    =>
+    case messageSent: MessagePublished                           =>
       val key = makeKeyForSentMessages(messageSent.matchId)
       logger.debug("Published with MatchId: {} Tracking Key: {}", new String(messageSent.matchId), key)
       sentMessages += key -> messageSent
@@ -72,21 +84,32 @@ class KafkaMessageTracker[K, V](name: String, statsEngine: StatsEngine, clock: C
       stay
 
     // message was received; publish stats and remove from the map
-    case messageConsumed: MessageConsumed =>
-      val replyId           = messageConsumed.replyId
-      val receivedTimestamp = messageConsumed.received
-      val message           = messageConsumed.message
-      // if key is missing, message was already acked and is a dup, or request timeout
-      val key               = makeKeyForSentMessages(replyId)
-      logger.debug(
-        "Received with MatchId: {} Tracking Key: {}, inputTopic: {}, outputTopic: {}",
-        new String(replyId),
-        key,
-        message.producerTopic,
-        message.consumerTopic,
-      )
-      sentMessages.remove(key).foreach { case MessagePublished(_, sentTimestamp, _, checks, session, next, requestName) =>
-        processMessage(session, sentTimestamp, receivedTimestamp, checks, message, next, requestName)
+    case MessageConsumed(receivedTimestamp, forTransformMessage) =>
+      val message = responseTransformer.map(_(forTransformMessage)).getOrElse(forTransformMessage)
+      if (messageMatcher.responseMatch(message) == null) {
+        logger.error("no messageMatcher key for read message {}", message.key)
+      } else {
+        if (message.key == null || message.value == null) {
+          logger.warn(" --- received message with null key or value")
+        } else {
+          logger.trace(" --- received {} {}", message.key, message.value)
+        }
+
+        val replyId    = messageMatcher.responseMatch(message)
+        val messageKey = if (message.key == null) "null" else new String(message.key)
+        logMessage(s"Record received key=$messageKey", message)
+        // if key is missing, message was already acked and is a dup, or request timeout
+        val key        = makeKeyForSentMessages(replyId)
+        logger.debug(
+          "Received with MatchId: {} Tracking Key: {}, producerTopic: {}, consumerTopic: {}",
+          new String(replyId),
+          key,
+          message.producerTopic,
+          message.consumerTopic,
+        )
+        sentMessages.remove(key).foreach { case MessagePublished(_, sentTimestamp, _, checks, session, next, requestName) =>
+          processMessage(session, sentTimestamp, receivedTimestamp, checks, message, next, requestName)
+        }
       }
       stay
 
