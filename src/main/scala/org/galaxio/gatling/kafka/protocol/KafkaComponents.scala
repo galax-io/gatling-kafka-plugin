@@ -8,7 +8,7 @@ import org.galaxio.gatling.kafka.client.{KafkaSender, KafkaMessageTrackerPool}
 case class KafkaComponents(
     coreComponents: CoreComponents,
     kafkaProtocol: KafkaProtocol,
-    trackersPool: KafkaMessageTrackerPool,
+    trackersPool: Option[KafkaMessageTrackerPool],
     sender: KafkaSender,
 ) extends ProtocolComponents {
 

@@ -35,8 +35,9 @@ object KafkaProtocol {
   }
 
   val kafkaProtocolKey: ProtocolKey[KafkaProtocol, KafkaComponents] = new ProtocolKey[KafkaProtocol, KafkaComponents] {
-    private val senderRef: AtomicReference[KafkaSender]                   = new AtomicReference[KafkaSender]()
-    private val trackersPoolRef: AtomicReference[KafkaMessageTrackerPool] = new AtomicReference[KafkaMessageTrackerPool]()
+    private val senderRef: AtomicReference[KafkaSender]                           = new AtomicReference[KafkaSender]()
+    private val trackersPoolRef: AtomicReference[Option[KafkaMessageTrackerPool]] =
+      new AtomicReference[Option[KafkaMessageTrackerPool]]()
 
     private def getOrCreateSender(protocol: KafkaProtocol): KafkaSender = {
       do {
@@ -48,7 +49,10 @@ object KafkaProtocol {
       senderRef.get()
     }
 
-    private def getOrCreateTrackerPool(coreComponents: CoreComponents, protocol: KafkaProtocol): KafkaMessageTrackerPool = {
+    private def getOrCreateTrackerPool(
+        coreComponents: CoreComponents,
+        protocol: KafkaProtocol,
+    ): Option[KafkaMessageTrackerPool] = {
       do {
         val pool = trackersPoolRef.get()
         if (pool != null) {

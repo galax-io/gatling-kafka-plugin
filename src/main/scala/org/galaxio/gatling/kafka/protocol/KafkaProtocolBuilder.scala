@@ -1,5 +1,6 @@
 package org.galaxio.gatling.kafka.protocol
 
+import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.common.serialization.Serdes
 import org.apache.kafka.streams.StreamsConfig
@@ -80,8 +81,10 @@ final case class KafkaProtocolBuilder(
     )
 
     val consumeDefaults = Map(
-      StreamsConfig.DEFAULT_KEY_SERDE_CLASS_CONFIG   -> Serdes.ByteArray().getClass.getName,
-      StreamsConfig.DEFAULT_VALUE_SERDE_CLASS_CONFIG -> Serdes.ByteArray().getClass.getName,
+      ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG       -> "true",
+      ConsumerConfig.AUTO_OFFSET_RESET_CONFIG        -> "latest",
+      ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG   -> Serdes.ByteArray().deserializer().getClass.getName,
+      ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG -> Serdes.ByteArray().deserializer().getClass.getName,
     )
 
     KafkaProtocol("kafka-test", producerSettings ++ serializers, consumeDefaults ++ consumeSettings, timeout, messageMatcher)
