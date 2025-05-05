@@ -3,9 +3,9 @@ package org.galaxio.gatling.kafka.javaapi.examples;
 import io.gatling.javaapi.core.ScenarioBuilder;
 import io.gatling.javaapi.core.Simulation;
 import org.apache.kafka.clients.producer.ProducerConfig;
-import org.galaxio.gatling.kafka.javaapi.protocol.KafkaProtocolBuilderNew;
-import org.galaxio.gatling.kafka.request.KafkaProtocolMessage;
 import org.galaxio.gatling.kafka.javaapi.KafkaDsl;
+import org.galaxio.gatling.kafka.javaapi.protocol.KafkaProtocolBuilder;
+import org.galaxio.gatling.kafka.request.KafkaProtocolMessage;
 
 import java.time.Duration;
 import java.util.Collections;
@@ -15,12 +15,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
-import static io.gatling.javaapi.core.CoreDsl.*;
-import static org.galaxio.gatling.kafka.javaapi.KafkaDsl.kafka;
+import static io.gatling.javaapi.core.CoreDsl.atOnceUsers;
+import static io.gatling.javaapi.core.CoreDsl.scenario;
 
 public class MatchSimulation extends Simulation {
 
-    private final KafkaProtocolBuilderNew kafkaProtocolMatchByValue = KafkaDsl.kafka().requestReply()
+    private final KafkaProtocolBuilder kafkaProtocolMatchByValue = KafkaDsl.kafka()
             .producerSettings(
                     Map.of(
                             ProducerConfig.ACKS_CONFIG, "1",
@@ -31,8 +31,8 @@ public class MatchSimulation extends Simulation {
                     Map.of("bootstrap.servers", "localhost:9092")
             )
             .timeout(Duration.ofSeconds(5))
-    // for match by message value
-    .matchByValue();
+            // for match by message value
+            .matchByValue();
 
     private byte[] matchByOwnVal(KafkaProtocolMessage message) {
         // do something with the message and extract the values you are interested in
@@ -42,7 +42,7 @@ public class MatchSimulation extends Simulation {
         return "Custom Message".getBytes(); // just returning something
     }
 
-    private final KafkaProtocolBuilderNew kafkaProtocolMatchByMessage = KafkaDsl.kafka().requestReply()
+    private final KafkaProtocolBuilder kafkaProtocolMatchByMessage = KafkaDsl.kafka()
             .producerSettings(
                     Map.of(
                             ProducerConfig.ACKS_CONFIG, "1",
@@ -55,7 +55,7 @@ public class MatchSimulation extends Simulation {
                     )
             )
             .timeout(Duration.ofSeconds(5))
-    .matchByMessage(this::matchByOwnVal);
+            .matchByMessage(this::matchByOwnVal);
 
     private final AtomicInteger c = new AtomicInteger(0);
     private final Iterator<Map<String, Object>> feeder =
@@ -63,14 +63,14 @@ public class MatchSimulation extends Simulation {
             ).iterator();
 
     private final ScenarioBuilder scn = scenario("Basic")
-    .feed(feeder)
-    .exec(
-            KafkaDsl.kafka("ReqRep").requestReply()
-            .requestTopic("test.t")
-            .replyTopic("test.t")
-        .send("#{kekey}", """
-                { "m": "dkf" }
-                """, String.class, String.class));
+            .feed(feeder)
+            .exec(
+                    KafkaDsl.kafka("ReqRep").requestReply()
+                            .requestTopic("test.t")
+                            .replyTopic("test.t")
+                            .send("#{kekey}", """
+                                    { "m": "dkf" }
+                                    """));
 
     {
         setUp(

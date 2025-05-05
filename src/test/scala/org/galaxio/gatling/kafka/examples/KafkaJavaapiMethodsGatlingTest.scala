@@ -24,7 +24,6 @@ class KafkaJavaapiMethodsGatlingTest extends Simulation {
   }
 
   val kafkaConfwoKey: Protocol = kafka
-    .topic("myTopic3")
     .properties(
       java.util.Map.of(
         ProducerConfig.ACKS_CONFIG,
@@ -45,15 +44,29 @@ class KafkaJavaapiMethodsGatlingTest extends Simulation {
       .feed(feeder)
       .exec(
         kafka("Request String without headers and key")
+          .topic("myTopic3")
           .send("testJavaWithoutKeyAndHeaders")
           .asScala(),
       )
       .exec(
+        kafka("Request Long without headers and key")
+          .topic("myTopic3")
+          .send(12L)
+          .asScala(),
+      )
+      .exec(
+        kafka("Request Int Long without headers")
+          .topic("myTopic3")
+          .send(0, 12L)
+          .asScala(),
+      )
+      .exec(
         kafka("Request String with headers without key")
+          .topic("myTopic3")
           .send("testJavaWithHeadersWithoutKey", new RecordHeaders().add("test-header", "test_value".getBytes()))
           .asScala(),
       )
-      .exec(kafka("MsgBuilders").send("key#{key}", "val", headers).asScala())
+      .exec(kafka("MsgBuilders").topic("myTopic3").send("key#{key}", "val", headers).asScala())
       .inject(nothingFor(1), atOnceUsers(1))
       .protocols(kafkaConfwoKey),
   )

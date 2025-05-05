@@ -78,7 +78,13 @@ class KafkaMessageTracker[K, V](name: String, statsEngine: StatsEngine, clock: C
       val message           = messageConsumed.message
       // if key is missing, message was already acked and is a dup, or request timeout
       val key               = makeKeyForSentMessages(replyId)
-      logger.debug("Received with MatchId: {} Tracking Key: {}", new String(replyId), key)
+      logger.debug(
+        "Received with MatchId: {} Tracking Key: {}, inputTopic: {}, outputTopic: {}",
+        new String(replyId),
+        key,
+        message.producerTopic,
+        message.consumerTopic,
+      )
       sentMessages.remove(key).foreach { case MessagePublished(_, sentTimestamp, _, checks, session, next, requestName) =>
         processMessage(session, sentTimestamp, receivedTimestamp, checks, message, next, requestName)
       }

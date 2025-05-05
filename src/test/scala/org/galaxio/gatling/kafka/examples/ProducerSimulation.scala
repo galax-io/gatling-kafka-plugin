@@ -10,7 +10,6 @@ class ProducerSimulation extends Simulation {
 
   val kafkaConsumerConf: KafkaProtocol =
     kafka
-      .topic("test.topic")
       .properties(
         Map(
           ProducerConfig.ACKS_CONFIG                   -> "1",
@@ -23,9 +22,10 @@ class ProducerSimulation extends Simulation {
   val scn: ScenarioBuilder = scenario("Basic")
     .exec(
       kafka("BasicRequest")
+        .topic("test.topic")
         .send[Double](1.16423),
     )
-    .exec(kafka("BasicRequestWithKey").send[String, Double]("true", 12.0))
+    .exec(kafka("BasicRequestWithKey").topic("test.topic").send[String, Double]("true", 12.0))
 
   setUp(scn.inject(atOnceUsers(5))).protocols(kafkaConsumerConf)
 

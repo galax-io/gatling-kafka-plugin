@@ -11,7 +11,7 @@ public class RequestReplyBuilder<K, V> implements ActionBuilder {
 
     private org.galaxio.gatling.kafka.actions.KafkaRequestReplyActionBuilder<K, V> wrapped;
 
-    public RequestReplyBuilder(org.galaxio.gatling.kafka.actions.KafkaRequestReplyActionBuilder<K,V> wrapped) {
+    public RequestReplyBuilder(org.galaxio.gatling.kafka.actions.KafkaRequestReplyActionBuilder<K, V> wrapped) {
         this.wrapped = wrapped;
     }
 
