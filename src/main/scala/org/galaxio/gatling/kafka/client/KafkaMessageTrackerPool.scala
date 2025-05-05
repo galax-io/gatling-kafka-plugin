@@ -19,7 +19,10 @@ object KafkaMessageTrackerPool {
       actorSystem: ActorSystem,
       statsEngine: StatsEngine,
       clock: Clock,
-  ): KafkaMessageTrackerPool = new KafkaMessageTrackerPool(consumerSettings, actorSystem, statsEngine, clock)
+  ): Option[KafkaMessageTrackerPool] =
+    Option.when(consumerSettings.contains(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG))(
+      new KafkaMessageTrackerPool(consumerSettings, actorSystem, statsEngine, clock),
+    )
 
   private val consumerExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 }
