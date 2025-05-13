@@ -3,7 +3,6 @@ package org.galaxio.gatling.kafka.protocol
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.common.serialization.Serdes
-import org.apache.kafka.streams.StreamsConfig
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol._
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 
@@ -73,6 +72,14 @@ final case class KafkaProtocolBuilder(
   private def messageMatcher(matcher: KafkaMatcher): KafkaProtocolBuilder =
     copy(messageMatcher = matcher)
 
+  private def withDefaultAutoReset(settings: Map[String, AnyRef]): Map[String, AnyRef] =
+    if (settings.contains(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG)) settings
+    else settings + (ConsumerConfig.AUTO_OFFSET_RESET_CONFIG -> "latest")
+
+  private def withDefaultAutoCommit(settings: Map[String, AnyRef]): Map[String, AnyRef] =
+    if (settings.contains(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG)) settings
+    else settings + (ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG -> "true")
+
   def build: KafkaProtocol = {
 
     val serializers = Map(
@@ -80,13 +87,13 @@ final case class KafkaProtocolBuilder(
       ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG -> "org.apache.kafka.common.serialization.ByteArraySerializer",
     )
 
-    val consumeDefaults = Map(
-      ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG       -> "true",
-      ConsumerConfig.AUTO_OFFSET_RESET_CONFIG        -> "latest",
-      ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG   -> Serdes.ByteArray().deserializer().getClass.getName,
-      ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG -> Serdes.ByteArray().deserializer().getClass.getName,
-    )
+    val consumerSettingsWithDefaults =
+      withDefaultAutoReset(consumeSettings) ++ withDefaultAutoCommit(consumeSettings) ++
+      Map(
+        ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG   -> Serdes.ByteArray().deserializer().getClass.getName,
+        ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG -> Serdes.ByteArray().deserializer().getClass.getName,
+      )
 
-    KafkaProtocol("kafka-test", producerSettings ++ serializers, consumeDefaults ++ consumeSettings, timeout, messageMatcher)
+    KafkaProtocol("kafka-test", producerSettings ++ serializers, consumerSettingsWithDefaults, timeout, messageMatcher)
   }
 }
