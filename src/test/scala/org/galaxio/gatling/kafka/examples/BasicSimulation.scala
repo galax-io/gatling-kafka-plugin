@@ -37,7 +37,7 @@ class BasicSimulation extends Simulation {
     .consumeSettings(
       ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG -> "localhost:9093",
     )
-    .timeout(5.seconds)
+    .timeout(10.seconds)
 //    .matchByMessage(getHeader("test-header"))
 
   val c                              = new AtomicInteger(1)
