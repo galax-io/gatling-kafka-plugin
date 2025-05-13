@@ -11,6 +11,7 @@ import java.util.Properties
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.{ConcurrentLinkedQueue, CountDownLatch}
 import scala.collection.mutable
+import scala.concurrent.duration.{DurationInt, FiniteDuration}
 import scala.jdk.CollectionConverters._
 
 object DynamicKafkaConsumer {
@@ -25,6 +26,8 @@ object DynamicKafkaConsumer {
     settings.putAll(settingsMap.asJava)
     new DynamicKafkaConsumer[K, V](settings, topics, onRecord, onFailure)
   }
+  private val initializationTimeout = 90.seconds
+  private val defaultAssignTimeout  = 60.seconds
 }
 
 final class DynamicKafkaConsumer[K, V] private (
@@ -41,13 +44,16 @@ final class DynamicKafkaConsumer[K, V] private (
   private val consumer: KafkaConsumer[K, V] = new KafkaConsumer[K, V](settings)
   private val initLatch: CountDownLatch     = if (this.topicsQueue.isEmpty) new CountDownLatch(1) else new CountDownLatch(0)
 
-  def addTopicForSubscription(newTopic: String): Unit = {
+  def addTopicForSubscription(
+      newTopic: String,
+      assignTimeout: FiniteDuration = DynamicKafkaConsumer.defaultAssignTimeout,
+  ): Unit = {
     val latch = new CountDownLatch(1)
     this.topicsQueue.add(newTopic, latch)
     if (initLatch.getCount > 0) { // need for staring processing loop
       initLatch.countDown()
     }
-    latch.await()
+    latch.await(assignTimeout.length, assignTimeout.unit)
   }
 
   private def getTopicsForSubscription: Set[(String, CountDownLatch)] = {
@@ -99,7 +105,8 @@ final class DynamicKafkaConsumer[K, V] private (
 
   override def run(): Unit = {
     try {
-      this.initLatch.await()
+      val timeout = DynamicKafkaConsumer.initializationTimeout
+      this.initLatch.await(timeout.length, timeout.unit)
       subscribeTopics(getTopicsForSubscription)
       while (running.get) {
         val records = this.consumer.poll(Duration.ofMillis(1000))

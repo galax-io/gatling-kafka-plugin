@@ -89,10 +89,10 @@ final case class KafkaProtocolBuilder(
 
     val consumerSettingsWithDefaults =
       withDefaultAutoReset(consumeSettings) ++ withDefaultAutoCommit(consumeSettings) ++
-      Map(
-        ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG   -> Serdes.ByteArray().deserializer().getClass.getName,
-        ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG -> Serdes.ByteArray().deserializer().getClass.getName,
-      )
+        Map(
+          ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG   -> Serdes.ByteArray().deserializer().getClass.getName,
+          ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG -> Serdes.ByteArray().deserializer().getClass.getName,
+        )
 
     KafkaProtocol("kafka-test", producerSettings ++ serializers, consumerSettingsWithDefaults, timeout, messageMatcher)
   }

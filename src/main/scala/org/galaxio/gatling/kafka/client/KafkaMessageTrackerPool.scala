@@ -11,6 +11,7 @@ import org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaMatcher
 import org.galaxio.gatling.kafka.request.{KafkaProtocolMessage, KafkaSerdesImplicits}
 
 import java.util.concurrent.{ConcurrentHashMap, ExecutorService, Executors}
+import scala.concurrent.duration.FiniteDuration
 
 object KafkaMessageTrackerPool {
 
@@ -43,7 +44,7 @@ final class KafkaMessageTrackerPool(
       if (consumerSettings.contains(ConsumerConfig.GROUP_ID_CONFIG))
         consumerSettings
       else
-        consumerSettings + (ConsumerConfig.GROUP_ID_CONFIG -> genName("gatling-kafka-test")),
+        consumerSettings + (ConsumerConfig.GROUP_ID_CONFIG -> s"gatling-kafka-test-${java.util.UUID.randomUUID()}"),
       Set.empty,
       record => {
         val kafkaProtocolMessage = KafkaProtocolMessage.from(record, None)
@@ -81,6 +82,7 @@ final class KafkaMessageTrackerPool(
       consumerTopic: String,
       messageMatcher: KafkaMatcher,
       responseTransformer: Option[KafkaProtocolMessage => KafkaProtocolMessage],
+      timeout: FiniteDuration,
   ): ActorRef[KafkaMessageTracker.TrackerMessage] = {
 
     trackers.computeIfAbsent(
@@ -104,7 +106,7 @@ final class KafkaMessageTrackerPool(
               Option(transformations),
             ),
           )
-        consumer.addTopicForSubscription(consumerTopic)
+        consumer.addTopicForSubscription(consumerTopic, timeout)
         tracker
       },
     )

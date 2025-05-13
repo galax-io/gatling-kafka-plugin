@@ -45,6 +45,7 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
             protocolMessage.consumerTopic,
             components.kafkaProtocol.messageMatcher,
             None,
+            components.kafkaProtocol.timeout,
           )
           tracker ! KafkaMessageTracker
             .MessagePublished(
