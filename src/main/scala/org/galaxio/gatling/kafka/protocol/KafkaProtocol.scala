@@ -3,13 +3,14 @@ package org.galaxio.gatling.kafka.protocol
 import io.gatling.core.CoreComponents
 import io.gatling.core.config.GatlingConfiguration
 import io.gatling.core.protocol.{Protocol, ProtocolKey}
+import org.apache.kafka.clients.consumer.ConsumerConfig
+import org.apache.kafka.clients.producer.ProducerConfig
 import org.galaxio.gatling.kafka.client.{KafkaMessageTrackerPool, KafkaSender}
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaMatcher
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 
-import java.util.concurrent.Executors
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReference
-import scala.concurrent.{ExecutionContext, ExecutionContextExecutorService}
 import scala.concurrent.duration.FiniteDuration
 
 object KafkaProtocol {
@@ -35,38 +36,36 @@ object KafkaProtocol {
   }
 
   val kafkaProtocolKey: ProtocolKey[KafkaProtocol, KafkaComponents] = new ProtocolKey[KafkaProtocol, KafkaComponents] {
-    private val senderRef: AtomicReference[KafkaSender]                   = new AtomicReference[KafkaSender]()
-    private val trackersPoolRef: AtomicReference[KafkaMessageTrackerPool] = new AtomicReference[KafkaMessageTrackerPool]()
+    private val senders      = new ConcurrentHashMap[String, KafkaSender]()
+    private val trackerPools = new ConcurrentHashMap[String, Option[KafkaMessageTrackerPool]]()
 
-    private def getOrCreateSender(protocol: KafkaProtocol): KafkaSender = {
-      do {
-        val sender = senderRef.get()
-        if (sender != null) {
-          return sender
-        }
-      } while (!senderRef.compareAndSet(null, KafkaSender(protocol.producerProperties)))
-      senderRef.get()
-    }
+    private def getOrCreateSender(protocol: KafkaProtocol): KafkaSender =
+      protocol.producerProperties.get(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG) match {
+        case Some(servers) => this.senders.computeIfAbsent(servers.toString, _ => KafkaSender(protocol.producerProperties))
+        case None          =>
+          throw new IllegalArgumentException(
+            s"Producer settings don't set the required '${ProducerConfig.BOOTSTRAP_SERVERS_CONFIG}' parameter",
+          )
+      }
 
-    private def getOrCreateTrackerPool(coreComponents: CoreComponents, protocol: KafkaProtocol): KafkaMessageTrackerPool = {
-      do {
-        val pool = trackersPoolRef.get()
-        if (pool != null) {
-          return pool
-        }
-      } while (
-        !trackersPoolRef.compareAndSet(
-          null,
-          KafkaMessageTrackerPool(
-            protocol.consumerProperties,
-            coreComponents.actorSystem,
-            coreComponents.statsEngine,
-            coreComponents.clock,
+    private def getOrCreateTrackerPool(
+        coreComponents: CoreComponents,
+        protocol: KafkaProtocol,
+    ): Option[KafkaMessageTrackerPool] =
+      protocol.consumerProperties
+        .get(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG)
+        .flatMap(servers =>
+          trackerPools.computeIfAbsent(
+            servers.toString,
+            _ =>
+              KafkaMessageTrackerPool(
+                protocol.consumerProperties,
+                coreComponents.actorSystem,
+                coreComponents.statsEngine,
+                coreComponents.clock,
+              ),
           ),
         )
-      )
-      trackersPoolRef.get()
-    }
 
     override def protocolClass: Class[Protocol] =
       classOf[KafkaProtocol].asInstanceOf[Class[Protocol]]

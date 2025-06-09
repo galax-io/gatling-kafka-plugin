@@ -36,7 +36,7 @@ final case class KafkaProtocolMessage(
 
 object KafkaProtocolMessage {
   def from(consumerRecord: ConsumerRecord[Array[Byte], Array[Byte]], inputTopic: Option[String]): KafkaProtocolMessage =
-    new KafkaProtocolMessage(
+    KafkaProtocolMessage(
       consumerRecord.key(),
       consumerRecord.value(),
       inputTopic.getOrElse("<unknown>"),

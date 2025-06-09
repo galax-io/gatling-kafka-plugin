@@ -28,7 +28,7 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
   val clock: Clock             = coreComponents.clock
 
   override def sendKafkaMessage(requestNameString: String, protocolMessage: KafkaProtocolMessage, session: Session): Unit = {
-    val now = clock.nowMillis
+    val requestStartDate = clock.nowMillis
     components.sender.send(protocolMessage)(
       rm => {
         if (logger.underlying.isDebugEnabled) {
@@ -37,37 +37,42 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
             protocolMessage,
           )
         }
-        val id      = components.kafkaProtocol.messageMatcher.requestMatch(protocolMessage)
-        val tracker =
-          components.trackersPool.tracker(
+        val id = components.kafkaProtocol.messageMatcher.requestMatch(protocolMessage)
+
+        components.trackersPool.map { trackers =>
+          val tracker = trackers.tracker(
             protocolMessage.producerTopic,
             protocolMessage.consumerTopic,
             components.kafkaProtocol.messageMatcher,
             None,
+            components.kafkaProtocol.timeout,
           )
-        tracker ! KafkaMessageTracker
-          .MessagePublished(
-            id,
-            clock.nowMillis,
-            components.kafkaProtocol.timeout.toMillis,
-            attributes.checks,
-            session,
-            next,
-            requestNameString,
-          )
+          tracker ! KafkaMessageTracker
+            .MessagePublished(
+              id,
+              clock.nowMillis,
+              components.kafkaProtocol.timeout.toMillis,
+              attributes.checks,
+              session,
+              next,
+              requestNameString,
+            )
+        }
       },
       e => {
+        val requestEndDate = clock.nowMillis
         logger.error(e.getMessage, e)
         statsEngine.logResponse(
           session.scenario,
           session.groups,
           requestNameString,
-          now,
-          clock.nowMillis,
+          requestStartDate,
+          requestEndDate,
           KO,
           Some("500"),
           Some(e.getMessage),
         )
+        next ! session.logGroupRequestTimings(requestStartDate, requestEndDate).markAsFailed
       },
     )
   }
