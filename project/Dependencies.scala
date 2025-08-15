@@ -2,10 +2,10 @@ import sbt.*
 
 object Dependencies {
   private object Versions {
-    val kafka   = "7.6.0-ce"
-    val gatling = "3.11.4"
+    val kafka   = "7.9.2-ce"
+    val gatling = "3.11.5"
     val avro4s  = "4.1.2"
-    val avro    = "1.11.3"
+    val avro    = "1.12.0"
   }
 
   lazy val gatling: Seq[ModuleID] = Seq(
@@ -30,7 +30,7 @@ object Dependencies {
   lazy val avroCompiler: ModuleID = "org.apache.avro" % "avro-compiler" % Versions.avro
   lazy val avroCore: ModuleID     = "org.apache.avro" % "avro"          % Versions.avro
   lazy val avroSerdes: ModuleID   =
-    ("io.confluent" % "kafka-streams-avro-serde" % "7.6.0").exclude("org.apache.kafka", "kafka-streams-scala")
-  lazy val avroSerializers: ModuleID = "io.confluent" % "kafka-avro-serializer" % "7.6.0"
+    ("io.confluent" % "kafka-streams-avro-serde" % "7.9.2").exclude("org.apache.kafka", "kafka-streams-scala")
+  lazy val avroSerializers: ModuleID = "io.confluent" % "kafka-avro-serializer" % "7.9.2"
 
 }

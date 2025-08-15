@@ -119,7 +119,7 @@ class KafkaMessageTrackerActor(statsEngine: StatsEngine, clock: Clock) extends A
       timedOutMessages: mutable.ArrayBuffer[MessagePublished],
   ): Receive = {
     // message was sent; add the timestamps to the map
-    case messageSent: MessagePublished               =>
+    case messageSent: MessagePublished =>
       val key = makeKeyForSentMessages(messageSent.matchId)
       sentMessages += key -> messageSent
       if (messageSent.replyTimeout > 0) {
