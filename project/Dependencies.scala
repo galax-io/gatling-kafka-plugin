@@ -2,11 +2,11 @@ import sbt.*
 
 object Dependencies {
   private object Versions {
-    val kafka          = "7.9.0-ccs"
+    val kafka          = "7.9.2-ccs"
     val gatling        = "3.13.5"
     val avro4s         = "4.1.2"
     val avro           = "1.12.0"
-    val kafkaAvroSerde = "7.9.0"
+    val kafkaAvroSerde = "7.9.2"
   }
 
   lazy val gatling: Seq[ModuleID] = Seq(

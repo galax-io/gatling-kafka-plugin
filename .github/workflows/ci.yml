@@ -5,11 +5,29 @@ on:
     branches: ['**']
   push:
     branches: ['**']
-    tags: [v*]
+    tags: ['v*']
+
+permissions:
+  contents: write
+  actions: read
+  checks: write
+  pull-requests: write
+  packages: write
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SBT_OPTS: -Dsbt.color=true -Dsbt.log.noformat=false -Dsbt.supershell=false
+  JAVA_OPTS: -Xms2G -Xmx2G -Xss4M -XX:+UseG1GC
+  JVM_OPTS: -Xms2G -Xmx2G -Xss4M -XX:+UseG1GC
+  FORCE_COLOR: "1"
+  TERM: xterm-256color
 
 jobs:
   test:
-    name: Test Release
+    name: Lint, Compile & Test
     runs-on: ubuntu-24.04
     services:
       zookeeper:
@@ -21,7 +39,7 @@ jobs:
         ports:
           - '2181:2181'
       kafka:
-        image: wurstmeister/kafka:2.13-2.6.3
+        image: wurstmeister/kafka:2.13-2.8.1
         env:
           KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
           KAFKA_ADVERTISED_HOST_NAME: kafka
@@ -46,47 +64,206 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v2.4.0
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-      - name: Setup Scala
-        uses: olafurpg/setup-scala@v13
+      - name: Setup Java (Temurin 17) with sbt cache
+        uses: actions/setup-java@v4
         with:
-          java-version: openjdk@1.17
+          distribution: temurin
+          java-version: '17'
+          cache: sbt
 
-      - name: Test Release
-        run: sbt clean scalafmtCheckAll scalafmtSbtCheck compile coverage "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaGatlingTest" test coverageOff
+      - uses: sbt/setup-sbt@v1
 
-      - name: Test Javaapi Methods
-        run: sbt compile "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaJavaapiMethodsGatlingTest"
+      - name: Cache Coursier
+        uses: coursier/cache-action@v6
 
-      - name: Coverage Report
-        run: sbt coverageReport
+      - name: Cache Ivy/SBT
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.ivy2/cache
+            ~/.sbt
+            ~/.cache/coursier
+          key: sbt-${{ runner.os }}-${{ hashFiles('**/*.sbt') }}-${{ hashFiles('project/**') }}
+          restore-keys: sbt-${{ runner.os }}-
+
+      - name: Check Formatting
+        run: sbt scalafmtCheckAll scalafmtSbtCheck
+
+      - name: Compile
+        run: sbt clean compile
+
+      - name: Test (Gatling targeted)
+        run: sbt coverage "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaGatlingTest" "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaJavaapiMethodsGatlingTest" test coverageOff coverageReport
 
       - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v4
 
-  publish:
-    name: Publish Release
+  release:
+    name: Release (tag-driven)
     needs: [test]
-    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-24.04
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    permissions:
+      contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v2.4.0
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
-
-      - name: Setup Scala
-        uses: olafurpg/setup-scala@v13
+      - name: Setup Java (Temurin 17) with sbt cache
+        uses: actions/setup-java@v4
         with:
-          java-version: openjdk@1.17
+          distribution: temurin
+          java-version: '17'
+          cache: sbt
+      - name: Setup sbt
+        uses: sbt/setup-sbt@v1
+      - name: Cache Coursier
+        uses: coursier/cache-action@v6
+      - name: Cache Ivy/SBT
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.ivy2/cache
+            ~/.sbt
+            ~/.cache/coursier
+          key: sbt-${{ runner.os }}-${{ hashFiles('**/*.sbt') }}-${{ hashFiles('project/**') }}
+          restore-keys: sbt-${{ runner.os }}-
+      - name: Compute next version & create tag on main
+        id: bump
+        if: github.ref == 'refs/heads/main'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
 
-      - name: Publish Release
-        run: sbt ci-release
+          git fetch --tags --force --prune
+
+          LAST_TAG=$(git describe --tags --abbrev=0 --match "v*" --first-parent 2>/dev/null || echo "")
+          echo "last_tag=${LAST_TAG}" >> "$GITHUB_OUTPUT"
+          RANGE="${LAST_TAG:+${LAST_TAG}..HEAD}"
+
+          BUMP="patch"
+          COMMITS=$(git log --pretty=format:%s ${RANGE})
+          if echo "$COMMITS" | grep -Eiq 'BREAKING CHANGE|!:'; then
+            BUMP="major"
+          elif echo "$COMMITS" | grep -Eiq '^feat(\(.+\))?:'; then
+            BUMP="minor"
+          fi
+
+          if [ -z "$LAST_TAG" ]; then
+            MAJOR=0; MINOR=0; PATCH=0
+          else
+            IFS='.' read -r MAJOR MINOR PATCH <<< "${LAST_TAG#v}"
+          fi
+
+          case "$BUMP" in
+            major) MAJOR=$((MAJOR+1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR+1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH+1)) ;;
+          esac
+
+          NEXT_TAG="v${MAJOR}.${MINOR}.${PATCH}"
+
+          if git rev-parse -q --verify "refs/tags/${NEXT_TAG}" >/dev/null; then
+            TAG_COMMIT=$(git rev-list -n 1 "${NEXT_TAG}")
+            HEAD_COMMIT=$(git rev-parse HEAD)
+            if [ "${TAG_COMMIT}" = "${HEAD_COMMIT}" ]; then
+              SKIP_TAG_CREATE=1
+            else
+              while git rev-parse -q --verify "refs/tags/${NEXT_TAG}" >/dev/null; do
+                IFS='.' read -r MAJOR MINOR PATCH <<< "${NEXT_TAG#v}"
+                PATCH=$((PATCH+1))
+                NEXT_TAG="v${MAJOR}.${MINOR}.${PATCH}"
+              done
+            fi
+          fi
+
+          echo "bump=$BUMP" >> "$GITHUB_OUTPUT"
+          echo "tag=$NEXT_TAG" >> "$GITHUB_OUTPUT"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+
+          if [ "${SKIP_TAG_CREATE:-0}" != "1" ]; then
+            git tag -a "$NEXT_TAG" -m "Release $NEXT_TAG"
+            git push origin "$NEXT_TAG"
+          fi
+      - name: Publish to Sonatype via sbt-ci-release
+        if: startsWith(github.ref, 'refs/tags/v') || (github.ref == 'refs/heads/main' && steps.bump.outputs.tag)
         env:
           PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
           PGP_SECRET: ${{ secrets.PGP_SECRET }}
           SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
           SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF##*/}"
+          else
+            TAG="${{ steps.bump.outputs.tag }}"
+            export GITHUB_REF="refs/tags/${TAG}"
+            export GITHUB_REF_NAME="${TAG}"
+          fi
+
+          VERSION="${TAG#v}"
+          echo "Publishing version $VERSION (tag $TAG)"
+
+          if [ -n "${PGP_SECRET:-}" ]; then
+            echo "$PGP_SECRET" | base64 --decode | gpg --batch --import
+          fi
+
+          if sbt 'show dynver' >/dev/null 2>&1; then
+            sbt ci-release
+          else
+            sbt "set ThisBuild/version := \"${VERSION}\"" ci-release
+          fi
+      - name: Generate Changelog
+        id: changelog
+        uses: mikepenz/release-changelog-builder-action@v5
+        if: startsWith(github.ref, 'refs/tags/v') || (github.ref == 'refs/heads/main' && steps.bump.outputs.tag)
+        with:
+          mode: "COMMIT"
+          fromTag: ${{ github.ref == 'refs/heads/main' && steps.bump.outputs.last_tag || '' }}
+          toTag:   ${{ github.ref == 'refs/heads/main' && steps.bump.outputs.tag || '' }}
+          configurationJson: |
+            {
+              "template": "# Changelog\n\n#{{CHANGELOG}}",
+              "categories": [
+                {"title": "✨ Features", "labels": ["feat", "feature"]},
+                {"title": "🐛 Bug Fixes", "labels": ["fix", "bug"]},
+                {"title": "📝 Documentation", "labels": ["docs"]},
+                {"title": "⚡ Performance Improvements", "labels": ["perf"]},
+                {"title": "♻️ Refactoring", "labels": ["refactor"]},
+                {"title": "🧪 Tests", "labels": ["test"]},
+                {"title": "🧹 Chores", "labels": ["chore"]},
+                {"title": "📦 Dependencies", "labels": ["dependency"]},
+                {"title": "🚨 Breaking Changes", "labels": ["breaking"]},
+                {"title": "🤖 CI / Build", "labels": ["ci"]}
+              ],
+              "label_extractor": [
+                {
+                  "pattern": "^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test){1}(\\([\\w\\-\\.]+\\))?(!)?: ([\\w ])+([\\s\\S]*)",
+                  "on_property": "title",
+                  "target": "$1"
+                }
+              ]
+            }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v') || (github.ref == 'refs/heads/main' && steps.bump.outputs.tag)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref == 'refs/heads/main' && steps.bump.outputs.tag || '' }}
+          body: ${{ steps.changelog.outputs.changelog }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
