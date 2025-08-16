@@ -74,7 +74,7 @@ class KafkaMessageTracker[K, V](
 
   override def init(): Behavior[TrackerMessage] = {
     // message was sent; add the timestamps to the map
-    case messageSent: MessagePublished                           =>
+    case messageSent: MessagePublished =>
       val key = makeKeyForSentMessages(messageSent.matchId)
       logger.debug("Published with MatchId: {} Tracking Key: {}", new String(messageSent.matchId), key)
       sentMessages += key -> messageSent

@@ -1,14 +1,14 @@
 import Dependencies.*
 //import org.galaxio.performance.avro.RegistrySubject
 
-val scalaV      = "2.13.15"
+val scalaV      = "2.13.16"
 val avroSchemas = Seq() // for example Seq(RegistrySubject("test-hello-schema", 1))
 
 lazy val root = (project in file("."))
   .enablePlugins(GitVersioning, GatlingPlugin)
   .settings(
-    name         := "gatling-kafka-plugin",
-    scalaVersion := scalaV,
+    name                        := "gatling-kafka-plugin",
+    scalaVersion                := scalaV,
     libraryDependencies ++= gatling,
     libraryDependencies ++= gatlingTest,
     libraryDependencies ++= kafka,
@@ -18,7 +18,9 @@ lazy val root = (project in file("."))
     resolvers ++= Seq(
       "Confluent" at "https://packages.confluent.io/maven/",
     ),
-    resolvers ++= Resolver.sonatypeOssRepos("public"),
+    // Do not publish artifacts for Gatling-configured scopes (this is a library)
+    Gatling / publishArtifact   := false,
+    GatlingIt / publishArtifact := false,
     scalacOptions ++= Seq(
       "-encoding",
       "UTF-8",            // Option and arguments on same line
