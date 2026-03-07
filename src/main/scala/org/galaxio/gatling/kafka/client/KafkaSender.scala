@@ -39,6 +39,11 @@ object KafkaSender {
 
   def apply(producerSettings: Map[String, AnyRef])(implicit ec: ExecutionContext): KafkaSender = {
     val producer = new KafkaProducer[Array[Byte], Array[Byte]](producerSettings.asJava)
-    new Impl(producer)
+    fromProducer(producer)
   }
+
+  private[client] def fromProducer(
+      producer: Producer[Array[Byte], Array[Byte]],
+  )(implicit ec: ExecutionContext): KafkaSender =
+    new Impl(producer)
 }
