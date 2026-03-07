@@ -3,9 +3,8 @@ package org.galaxio.gatling.kafka.client
 import org.apache.kafka.clients.producer.{KafkaProducer, Producer, RecordMetadata}
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.ExecutionContext
 import scala.jdk.CollectionConverters._
-import scala.util.{Failure, Success}
 
 trait KafkaSender {
   val executionContext: ExecutionContext
@@ -21,10 +20,14 @@ object KafkaSender {
     override def send(
         protocolMessage: KafkaProtocolMessage,
     )(onSuccess: RecordMetadata => Unit, onFailure: Throwable => Unit): Unit = {
-      Future(producer.send(protocolMessage.toProducerRecord).get()).onComplete {
-        case Success(value)     => onSuccess(value)
-        case Failure(exception) => onFailure(exception)
-      }
+      producer.send(
+        protocolMessage.toProducerRecord,
+        (metadata: RecordMetadata, exception: Throwable) =>
+          if (exception == null)
+            onSuccess(metadata)
+          else
+            onFailure(exception),
+      )
 
     }
 
