@@ -35,10 +35,10 @@ object KafkaSender {
 
   def apply(producerSettings: Map[String, AnyRef]): KafkaSender = {
     val producer = new KafkaProducer[Array[Byte], Array[Byte]](producerSettings.asJava)
-    fromProducer(producer)
+    new Impl(producer)
   }
 
-  private[client] def fromProducer(
+  private[client] def apply(
       producer: Producer[Array[Byte], Array[Byte]],
   ): KafkaSender =
     new Impl(producer)
