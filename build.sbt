@@ -11,6 +11,7 @@ lazy val root = (project in file("."))
     scalaVersion                := scalaV,
     libraryDependencies ++= gatling,
     libraryDependencies ++= gatlingTest,
+    libraryDependencies ++= unitTest,
     libraryDependencies ++= kafka,
     libraryDependencies ++= Seq(avro4s, avroCore, avroSerdes, avroSerializers),
     schemaRegistrySubjects ++= avroSchemas,
@@ -21,6 +22,7 @@ lazy val root = (project in file("."))
     // Do not publish artifacts for Gatling-configured scopes (this is a library)
     Gatling / publishArtifact   := false,
     GatlingIt / publishArtifact := false,
+    Test / testFrameworks += new TestFramework("org.scalatest.tools.Framework"),
     scalacOptions ++= Seq(
       "-encoding",
       "UTF-8",            // Option and arguments on same line
