@@ -33,7 +33,8 @@ class KafkaRequestAction[K, V](
 
       outcome.onFailure(errorMessage => {
         logger.error(errorMessage)
-        statsEngine.logRequestCrash(session.scenario, session.groups, requestName, s"Failed to build request: $errorMessage")
+        if (!attr.silent.getOrElse(false))
+          statsEngine.logRequestCrash(session.scenario, session.groups, requestName, s"Failed to build request: $errorMessage")
       })
 
       outcome
@@ -68,6 +69,7 @@ class KafkaRequestAction[K, V](
       )
 
       val requestStartDate = clock.nowMillis
+      val silent           = kafkaAttributes.silent.getOrElse(false)
 
       producer.send(
         record,
@@ -75,16 +77,18 @@ class KafkaRequestAction[K, V](
 
           val requestEndDate = clock.nowMillis
 
-          statsEngine.logResponse(
-            session.scenario,
-            session.groups,
-            requestName,
-            startTimestamp = requestStartDate,
-            endTimestamp = requestEndDate,
-            if (e == null) OK else KO,
-            None,
-            if (e == null) None else Some(e.getMessage),
-          )
+          if (!silent) {
+            statsEngine.logResponse(
+              session.scenario,
+              session.groups,
+              requestName,
+              startTimestamp = requestStartDate,
+              endTimestamp = requestEndDate,
+              if (e == null) OK else KO,
+              None,
+              if (e == null) None else Some(e.getMessage),
+            )
+          }
 
           coreComponents.throttler match {
             case Some(th) if throttled => th.throttle(session.scenario, () => next ! session)

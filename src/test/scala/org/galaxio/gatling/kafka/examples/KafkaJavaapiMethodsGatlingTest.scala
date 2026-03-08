@@ -29,6 +29,7 @@ class KafkaJavaapiMethodsGatlingTest extends Simulation {
       .exec(
         kafka("Request String without headers and key")
           .send("testJavaWithoutKeyAndHeaders")
+          .silent()
           .asScala(),
       )
       .exec(

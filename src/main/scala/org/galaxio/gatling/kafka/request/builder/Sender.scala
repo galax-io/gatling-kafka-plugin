@@ -29,14 +29,18 @@ object Sender extends LowPriorSender {
   ): Sender[K, V] = new Sender[K, V] {
 
     override def send(requestName: Expression[String], payload: Expression[V]): RequestBuilder[Nothing, V] =
-      new KafkaAvro4sRequestBuilder[Nothing, V](Avro4sAttributes(requestName, None, payload, schema, format, fromRecord, None))
+      new KafkaAvro4sRequestBuilder[Nothing, V](
+        Avro4sAttributes(requestName, None, payload, schema, format, fromRecord, None, None),
+      )
 
     override def send(
         requestName: Expression[String],
         key: Option[Expression[K]],
         payload: Expression[V],
     ): RequestBuilder[K, V] =
-      new KafkaAvro4sRequestBuilder[K, V](Avro4sAttributes(requestName, key, payload, schema, format, fromRecord, None))
+      new KafkaAvro4sRequestBuilder[K, V](
+        Avro4sAttributes(requestName, key, payload, schema, format, fromRecord, None, None),
+      )
 
     override def send(
         requestName: Expression[String],
@@ -44,7 +48,9 @@ object Sender extends LowPriorSender {
         payload: Expression[V],
         headers: Option[Expression[Headers]],
     ): RequestBuilder[K, V] =
-      new KafkaAvro4sRequestBuilder[K, V](Avro4sAttributes(requestName, key, payload, schema, format, fromRecord, headers))
+      new KafkaAvro4sRequestBuilder[K, V](
+        Avro4sAttributes(requestName, key, payload, schema, format, fromRecord, headers, None),
+      )
   }
 
 }

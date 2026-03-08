@@ -159,6 +159,11 @@ class KafkaGatlingTest extends Simulation {
         .send[String]("foo"),
     )
     .exec(
+      kafka("Request String silent")
+        .send[String]("foo")
+        .silent,
+    )
+    .exec(
       kafka("Request Stirng With null key")
         .send[Any, String](null, "nullkey"),
     )

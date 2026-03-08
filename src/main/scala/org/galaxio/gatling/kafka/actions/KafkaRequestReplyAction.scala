@@ -98,20 +98,23 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
             session,
             next,
             requestNameString,
+            attributes.silent.getOrElse(false),
           )
       },
       e => {
         logger.error(e.getMessage, e)
-        statsEngine.logResponse(
-          session.scenario,
-          session.groups,
-          requestNameString,
-          now,
-          clock.nowMillis,
-          KO,
-          Some("500"),
-          Some(e.getMessage),
-        )
+        if (!attributes.silent.getOrElse(false)) {
+          statsEngine.logResponse(
+            session.scenario,
+            session.groups,
+            requestNameString,
+            now,
+            clock.nowMillis,
+            KO,
+            Some("500"),
+            Some(e.getMessage),
+          )
+        }
       },
     )
   }
