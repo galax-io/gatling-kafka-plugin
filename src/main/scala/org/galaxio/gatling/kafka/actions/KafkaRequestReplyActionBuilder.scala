@@ -12,6 +12,11 @@ import scala.reflect.ClassTag
 
 case class KafkaRequestReplyActionBuilder[K: ClassTag, V: ClassTag](attributes: KafkaRequestReplyAttributes[K, V])
     extends ActionBuilder {
+
+  def silent: KafkaRequestReplyActionBuilder[K, V] = this.modify(_.attributes.silent).setTo(Some(true))
+
+  def notSilent: KafkaRequestReplyActionBuilder[K, V] = this.modify(_.attributes.silent).setTo(Some(false))
+
   def check(checks: KafkaCheck*): KafkaRequestReplyActionBuilder[K, V] =
     this.modify(_.attributes.checks).using(_ ::: checks.toList)
 

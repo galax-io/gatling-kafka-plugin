@@ -2,6 +2,7 @@ package org.galaxio.gatling.kafka.request.builder
 
 import io.gatling.core.session._
 import org.apache.kafka.common.header.{Header, Headers}
+import org.apache.kafka.common.header.internals.RecordHeaders
 import org.apache.kafka.common.serialization.Serde
 import org.galaxio.gatling.kafka.actions.KafkaRequestReplyActionBuilder
 
@@ -10,6 +11,27 @@ import scala.reflect.ClassTag
 case class KafkaRequestBuilderBase(requestName: Expression[String]) {
 
   import org.galaxio.gatling.kafka.Predef._
+
+  def send[K, V](
+      key: K,
+      payload: V,
+      headers: Headers,
+      silent: Boolean,
+  )(implicit sender: Sender[K, V]): RequestBuilder[K, V] = {
+    val requestBuilder =
+      if (key == null)
+        sender.send(requestName, None, payload.expressionSuccess, Some(headers.expressionSuccess))
+      else
+        sender.send(requestName, Some(key.expressionSuccess), payload.expressionSuccess, Some(headers.expressionSuccess))
+    if (silent) requestBuilder.silent else requestBuilder.notSilent
+  }
+
+  def send[K, V](key: K, payload: V)(implicit sender: Sender[K, V]): RequestBuilder[K, V] =
+    send(key, payload, new RecordHeaders(), silent = false)
+
+  def send[K, V](key: K, payload: V, headers: Headers)(implicit sender: Sender[K, V]): RequestBuilder[K, V] =
+    send(key, payload, headers, silent = false)
+
   def send[K, V](
       key: Expression[K],
       payload: Expression[V],
@@ -23,8 +45,38 @@ case class KafkaRequestBuilderBase(requestName: Expression[String]) {
       sender.send(requestName, Some(key), payload, Some(headers))
   }
 
+  def send[K, V](
+      key: Expression[K],
+      payload: Expression[V],
+      headers: Expression[Headers],
+      silent: Boolean,
+  )(implicit sender: Sender[K, V]): RequestBuilder[K, V] = {
+    val requestBuilder = send(key, payload, headers)
+    if (silent) requestBuilder.silent else requestBuilder.notSilent
+  }
+
   def send[V](payload: Expression[V])(implicit sender: Sender[Nothing, V]): RequestBuilder[_, V] =
     sender.send(requestName, None, payload)
+
+  def send[V](payload: V)(implicit sender: Sender[Nothing, V]): RequestBuilder[_, V] =
+    send(payload, new RecordHeaders(), silent = false)
+
+  def send[V](payload: V, headers: Headers)(implicit sender: Sender[Nothing, V]): RequestBuilder[_, V] =
+    send(payload, headers, silent = false)
+
+  def send[V](payload: V, headers: Headers, silent: Boolean)(implicit sender: Sender[Nothing, V]): RequestBuilder[_, V] = {
+    val requestBuilder = sender.send(requestName, None, payload.expressionSuccess, Some(headers.expressionSuccess))
+    if (silent) requestBuilder.silent else requestBuilder.notSilent
+  }
+
+  def send[V](
+      payload: Expression[V],
+      headers: Expression[Headers],
+      silent: Boolean,
+  )(implicit sender: Sender[Nothing, V]): RequestBuilder[_, V] = {
+    val requestBuilder = sender.send(requestName, None, payload, Some(headers))
+    if (silent) requestBuilder.silent else requestBuilder.notSilent
+  }
 
   def requestReply: ReqRepBase.type = ReqRepBase
 
@@ -46,6 +98,7 @@ case class KafkaRequestBuilderBase(requestName: Expression[String]) {
             implicitly[Serde[K]].serializer(),
             implicitly[Serde[V]].serializer(),
             List.empty,
+            None,
           ),
         )
       }

@@ -28,6 +28,7 @@ object KafkaMessageTrackerActor {
       session: Session,
       next: Action,
       requestName: String,
+      silentRequest: Boolean,
   )
 
   case class MessageConsumed(
@@ -70,18 +71,22 @@ class KafkaMessageTrackerActor(statsEngine: StatsEngine, clock: Clock) extends A
       requestName: String,
       responseCode: Option[String],
       message: Option[String],
+      silentRequest: Boolean,
   ): Unit = {
-    statsEngine.logResponse(
-      session.scenario,
-      session.groups,
-      requestName,
-      sent,
-      received,
-      status,
-      responseCode,
-      message,
-    )
-    next ! session.logGroupRequestTimings(sent, received)
+    if (!silentRequest) {
+      statsEngine.logResponse(
+        session.scenario,
+        session.groups,
+        requestName,
+        sent,
+        received,
+        status,
+        responseCode,
+        message,
+      )
+      next ! session.logGroupRequestTimings(sent, received)
+    } else
+      next ! session
   }
 
   /** Processes a matched message
@@ -94,6 +99,7 @@ class KafkaMessageTrackerActor(statsEngine: StatsEngine, clock: Clock) extends A
       message: KafkaProtocolMessage,
       next: Action,
       requestName: String,
+      silentRequest: Boolean,
   ): Unit = {
     val (newSession, error) = Check.check(message, session, checks)
     error match {
@@ -107,9 +113,10 @@ class KafkaMessageTrackerActor(statsEngine: StatsEngine, clock: Clock) extends A
           requestName,
           message.responseCode,
           Some(errorMessage),
+          silentRequest,
         )
       case _                           =>
-        executeNext(newSession, sent, received, OK, next, requestName, None, None)
+        executeNext(newSession, sent, received, OK, next, requestName, None, None, silentRequest)
     }
   }
 
@@ -130,8 +137,8 @@ class KafkaMessageTrackerActor(statsEngine: StatsEngine, clock: Clock) extends A
     case MessageConsumed(replyId, received, message) =>
       // if key is missing, message was already acked and is a dup, or request timeout
       val key = makeKeyForSentMessages(replyId)
-      sentMessages.remove(key).foreach { case MessagePublished(_, sent, _, checks, session, next, requestName) =>
-        processMessage(session, sent, received, checks, message, next, requestName)
+      sentMessages.remove(key).foreach { case MessagePublished(_, sent, _, checks, session, next, requestName, silentRequest) =>
+        processMessage(session, sent, received, checks, message, next, requestName, silentRequest)
       }
 
     case TimeoutScan =>
@@ -142,7 +149,7 @@ class KafkaMessageTrackerActor(statsEngine: StatsEngine, clock: Clock) extends A
           timedOutMessages += messagePublished
         }
       }
-      for (MessagePublished(matchId, sent, receivedTimeout, _, session, next, requestName) <- timedOutMessages) {
+      for (MessagePublished(matchId, sent, receivedTimeout, _, session, next, requestName, silentRequest) <- timedOutMessages) {
         sentMessages.remove(makeKeyForSentMessages(matchId))
         executeNext(
           session.markAsFailed,
@@ -153,6 +160,7 @@ class KafkaMessageTrackerActor(statsEngine: StatsEngine, clock: Clock) extends A
           requestName,
           None,
           Some(s"Reply timeout after $receivedTimeout ms"),
+          silentRequest,
         )
       }
       timedOutMessages.clear()

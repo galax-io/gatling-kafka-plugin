@@ -280,6 +280,11 @@ public class KafkaRequestBuilderBase {
         ));
     }
 
+    public <K, V> RequestBuilder<K, V> send(ExpressionBuilder<K> key, ExpressionBuilder<V> payload, Headers headers, boolean silent) {
+        RequestBuilder<K, V> requestBuilder = send(key, payload, headers);
+        return silent ? requestBuilder.silent() : requestBuilder.notSilent();
+    }
+
     public <K, V> RequestBuilder<K, V> send(ExpressionBuilder<K> key, ExpressionBuilder<V> payload,
                                             JExpression<Headers> headers) {
         return new RequestBuilder<K, V>(wrapped.send(
@@ -290,6 +295,12 @@ public class KafkaRequestBuilderBase {
         ));
     }
 
+    public <K, V> RequestBuilder<K, V> send(ExpressionBuilder<K> key, ExpressionBuilder<V> payload,
+                                            JExpression<Headers> headers, boolean silent) {
+        RequestBuilder<K, V> requestBuilder = send(key, payload, headers);
+        return silent ? requestBuilder.silent() : requestBuilder.notSilent();
+    }
+
     public <V> RequestBuilder<Void, V> send(V payload) {
         return send(payload, new RecordHeaders());
     }
@@ -298,8 +309,16 @@ public class KafkaRequestBuilderBase {
         return send(null, payload, headers);
     }
 
+    public <V> RequestBuilder<Void, V> send(V payload, Headers headers, boolean silent) {
+        return send(null, payload, headers, silent);
+    }
+
     public <V> RequestBuilder<Void, V> send(V payload, JExpression<Headers> headers) {
         return send(null, payload, headers);
+    }
+
+    public <V> RequestBuilder<Void, V> send(V payload, JExpression<Headers> headers, boolean silent) {
+        return send(null, payload, headers, silent);
     }
 
     public <K, V> RequestBuilder<K, V> send(K key, V payload) {
@@ -316,6 +335,11 @@ public class KafkaRequestBuilderBase {
                 ));
     }
 
+    public <K, V> RequestBuilder<K, V> send(K key, V payload, Headers headers, boolean silent) {
+        RequestBuilder<K, V> requestBuilder = send(key, payload, headers);
+        return silent ? requestBuilder.silent() : requestBuilder.notSilent();
+    }
+
     public <K, V> RequestBuilder<K, V> send(K key, V payload, JExpression<Headers> headers) {
         return new RequestBuilder<K, V>(
                 wrapped.send(
@@ -324,6 +348,11 @@ public class KafkaRequestBuilderBase {
                         javaFunctionToExpression(headers),
                         org.galaxio.gatling.kafka.request.builder.Sender.noSchemaSender()
                 ));
+    }
+
+    public <K, V> RequestBuilder<K, V> send(K key, V payload, JExpression<Headers> headers, boolean silent) {
+        RequestBuilder<K, V> requestBuilder = send(key, payload, headers);
+        return silent ? requestBuilder.silent() : requestBuilder.notSilent();
     }
 
     public ReqRepBase requestReply() {
