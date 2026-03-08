@@ -69,12 +69,6 @@ Unit and integration compilation:
 sbt clean compile "Test/compile"
 ```
 
-Unit tests:
-
-```bash
-sbt testOnly org.galaxio.gatling.kafka.client.KafkaSenderSpec
-```
-
 ## Silent Requests (hide Gatling stats rows)
 
 Use `silent` when a Kafka request must be executed but should not appear as a request row in Gatling statistics.
