@@ -5,7 +5,7 @@
 
 # Introduction
 
-Plugin to support Kafka in Gatling (3.9.x)
+Plugin to support Kafka in Gatling (3.11.x).
 
 # Usage
 
@@ -37,19 +37,98 @@ Write this to your dependencies block in build.gradle:
 gatling("org.galaxio:gatling-kafka-plugin_2.13:<version>")
 ```
 
-## Example Scenarios
+## Examples and Tests
+
+- Scala examples: [src/test/scala/org/galaxio/gatling/kafka/examples](src/test/scala/org/galaxio/gatling/kafka/examples)
+- Java examples: [src/test/java/org/galaxio/gatling/kafka/javaapi/examples](src/test/java/org/galaxio/gatling/kafka/javaapi/examples)
+- Kotlin examples: [src/test/kotlin/org/galaxio/gatling/kafka/javaapi/examples](src/test/kotlin/org/galaxio/gatling/kafka/javaapi/examples)
+- Sender regression tests: [src/test/scala/org/galaxio/gatling/kafka/client/KafkaSenderSpec.scala](src/test/scala/org/galaxio/gatling/kafka/client/KafkaSenderSpec.scala)
+- Thread load Gatling simulation: [src/test/scala/org/galaxio/gatling/kafka/examples/KafkaThreadLoadSimulation.scala](src/test/scala/org/galaxio/gatling/kafka/examples/KafkaThreadLoadSimulation.scala)
+
+## Quick Start (local Kafka)
+
+Run local Kafka, ZooKeeper, Schema Registry, and auto-create topics:
+
+```bash
+docker compose -f docker-compose.kafka.yml up -d
+```
+
+Stop the stack:
+
+```bash
+docker compose -f docker-compose.kafka.yml down
+```
+
+Compose file: [docker-compose.kafka.yml](docker-compose.kafka.yml)
+
+## How to run tests
+
+Unit and integration compilation:
+
+```bash
+sbt clean compile "Test/compile"
+```
+
+Unit tests:
+
+```bash
+sbt testOnly org.galaxio.gatling.kafka.client.KafkaSenderSpec
+```
+
+## Silent Requests (hide Gatling stats rows)
+
+Use `silent` when a Kafka request must be executed but should not appear as a request row in Gatling statistics.
 
 ### Scala
 
-Examples [here](src/test/scala/org/galaxio/gatling/kafka/examples)
+```scala
+scenario("Silent requests")
+  .exec(
+    kafka("Request String")
+      .send[String]("foo")
+      .silent,
+  )
+  .exec(
+    kafka("Request Reply String").requestReply
+      .requestTopic("myTopic1")
+      .replyTopic("test.t1")
+      .send[String, String]("k", """{ "m": "v" }""")
+      .silent
+      .check(jsonPath("$.m").is("v")),
+  )
+```
 
 ### Java
 
-Examples [here](src/test/java/org/galaxio/gatling/kafka/javaapi/examples)
+```java
+scenario("Silent requests")
+  .exec(
+    kafka("Request String")
+      .send("payload", new RecordHeaders(), true)
+      .asScala()
+  );
+```
 
-### Kotlin
+You can also use `.silent()` / `.notSilent()` on Java `RequestBuilder`.
 
-Examples [here](src/test/kotlin/org/galaxio/gatling/kafka/javaapi/examples)
+## Run Gatling simulations
+
+Run a simulation class:
+
+```bash
+sbt "testOnly org.galaxio.gatling.kafka.examples.KafkaGatlingTest"
+```
+
+Thread load simulation for VisualVM checks:
+
+```bash
+sbt "testOnly org.galaxio.gatling.kafka.examples.KafkaThreadLoadSimulation" \
+  -Dgatling.kafka.bootstrapServers=localhost:9093 \
+  -Dgatling.kafka.topic=test.t2 \
+  -Dgatling.kafka.threadLoad.concurrentUsers=200 \
+  -Dgatling.kafka.threadLoad.durationSeconds=300 \
+  -Dgatling.kafka.threadLoad.pauseMillis=25
+```
 
 ## Download and create Avro schema
 
@@ -66,7 +145,7 @@ To run you should create scala object in root project directory and type `sbt ru
 
 ### Example download avro-schema
 
-Example [here](https://github.com/galax-io/gatling-kafka-plugin/tree/master/src/test/scala/org/galaxio/gatling/kafka/examples)
+Example [here](https://github.com/galax-io/gatling-kafka-plugin/tree/main/src/test/scala/org/galaxio/gatling/kafka/examples)
 
 ## Avro support in Request-Reply
 
