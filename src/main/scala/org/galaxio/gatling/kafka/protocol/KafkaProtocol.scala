@@ -7,9 +7,7 @@ import org.galaxio.gatling.kafka.client.{KafkaSender, TrackersPool}
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaMatcher
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 
-import java.util.concurrent.Executors
 import scala.concurrent.duration.FiniteDuration
-import scala.concurrent.{ExecutionContext, ExecutionContextExecutorService}
 
 object KafkaProtocol {
 
@@ -44,9 +42,6 @@ object KafkaProtocol {
 
     override def newComponents(coreComponents: CoreComponents): KafkaProtocol => KafkaComponents =
       kafkaProtocol => {
-        val blockingPool                                 = Executors.newCachedThreadPool()
-        implicit val ec: ExecutionContextExecutorService = ExecutionContext.fromExecutorService(blockingPool)
-
         val sender       = KafkaSender(kafkaProtocol.producerProperties)
         val trackersPool = new TrackersPool(
           kafkaProtocol.consumeProperties,
