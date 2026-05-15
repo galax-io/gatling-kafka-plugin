@@ -29,6 +29,9 @@ case class KafkaProtocolBuilderNew(
     messageMatcher: KafkaMatcher = KafkaKeyMatcher,
 ) extends {
 
+  def matchByKafkaMatcher(kafkaMatcher: KafkaMatcher): KafkaProtocolBuilderNew =
+    messageMatcher(kafkaMatcher)
+
   def matchByValue: KafkaProtocolBuilderNew =
     messageMatcher(KafkaValueMatcher)
 
