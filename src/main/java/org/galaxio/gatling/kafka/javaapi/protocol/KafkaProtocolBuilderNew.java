@@ -2,6 +2,7 @@ package org.galaxio.gatling.kafka.javaapi.protocol;
 
 import io.gatling.core.protocol.Protocol;
 import io.gatling.javaapi.core.ProtocolBuilder;
+import org.galaxio.gatling.kafka.protocol.KafkaProtocol;
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage;
 import scala.Function1;
 
@@ -23,11 +24,15 @@ public class KafkaProtocolBuilderNew implements ProtocolBuilder {
         return this;
     }
 
+    public KafkaProtocolBuilderNew matchByKafkaMatcher(KafkaProtocol.KafkaMatcher kafkaMatcher) {
+        this.wrapped = wrapped.matchByKafkaMatcher(kafkaMatcher);
+        return this;
+    }
+
     @Override
     public Protocol protocol() {
         return wrapped.build();
     }
 
 }
-
 

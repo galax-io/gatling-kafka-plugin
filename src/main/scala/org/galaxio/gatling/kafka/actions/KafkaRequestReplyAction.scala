@@ -11,11 +11,20 @@ import io.gatling.core.stats.StatsEngine
 import io.gatling.core.util.NameGen
 import org.apache.kafka.common.serialization.Serializer
 import org.galaxio.gatling.kafka.KafkaLogging
+import org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaMatcher
 import org.galaxio.gatling.kafka.protocol.KafkaComponents
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 import org.galaxio.gatling.kafka.request.builder.KafkaRequestReplyAttributes
 
 import scala.reflect.{ClassTag, classTag}
+
+object KafkaRequestReplyAction {
+  private[kafka] def requestMatchIdOrError(
+      protocolMessage: KafkaProtocolMessage,
+      messageMatcher: KafkaMatcher,
+  ): Either[String, Array[Byte]] =
+    Option(messageMatcher.requestMatch(protocolMessage)).toRight("request matcher returned null match id")
+}
 
 class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
     components: KafkaComponents,
@@ -87,19 +96,36 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
         if (logger.underlying.isDebugEnabled) {
           logMessage(s"Record sent user=${session.userId} key=${new String(msg.key)} topic=${rm.topic()}", msg)
         }
-        val id = components.kafkaProtocol.messageMatcher.requestMatch(msg)
-        components.trackersPool
-          .tracker(msg.inputTopic, msg.outputTopic, components.kafkaProtocol.messageMatcher, None)
-          .track(
-            id,
-            clock.nowMillis,
-            components.kafkaProtocol.timeout.toMillis,
-            attributes.checks,
-            session,
-            next,
-            requestNameString,
-            attributes.silent.getOrElse(false),
-          )
+        KafkaRequestReplyAction.requestMatchIdOrError(msg, components.kafkaProtocol.messageMatcher) match {
+          case Right(id)          =>
+            components.trackersPool
+              .tracker(msg.inputTopic, msg.outputTopic, components.kafkaProtocol.messageMatcher, None)
+              .track(
+                id,
+                clock.nowMillis,
+                components.kafkaProtocol.timeout.toMillis,
+                attributes.checks,
+                session,
+                next,
+                requestNameString,
+                attributes.silent.getOrElse(false),
+              )
+          case Left(errorMessage) =>
+            logger.error(errorMessage)
+            if (!attributes.silent.getOrElse(false)) {
+              statsEngine.logResponse(
+                session.scenario,
+                session.groups,
+                requestNameString,
+                now,
+                clock.nowMillis,
+                KO,
+                Some("500"),
+                Some(errorMessage),
+              )
+            }
+            next ! session.logGroupRequestTimings(now, clock.nowMillis).markAsFailed
+        }
       },
       e => {
         logger.error(e.getMessage, e)
