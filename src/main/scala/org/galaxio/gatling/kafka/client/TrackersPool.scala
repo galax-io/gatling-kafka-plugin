@@ -13,21 +13,49 @@ import org.galaxio.gatling.kafka.client.KafkaMessageTrackerActor.MessageConsumed
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaMatcher
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 
-import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.{ConcurrentHashMap, CountDownLatch, TimeUnit}
+import scala.concurrent.duration.DurationInt
 import scala.jdk.CollectionConverters._
+
+object TrackersPool {
+  private val ConsumerStartupTimeout = 30.seconds
+
+  private[client] def awaitRunning(
+      currentState: () => KafkaStreams.State,
+      registerListener: KafkaStreams.StateListener => Unit,
+      start: () => Unit,
+      timeoutMillis: Long,
+  ): Unit = {
+    if (currentState() == KafkaStreams.State.RUNNING) {
+      ()
+    } else {
+      val readyLatch = new CountDownLatch(1)
+      registerListener { (newState, _) =>
+        if (newState == KafkaStreams.State.RUNNING) {
+          readyLatch.countDown()
+        }
+      }
+      start()
+
+      if (currentState() != KafkaStreams.State.RUNNING && !readyLatch.await(timeoutMillis, TimeUnit.MILLISECONDS)) {
+        throw new IllegalStateException(s"Reply consumer did not reach RUNNING state within ${timeoutMillis} ms")
+      }
+    }
+  }
+}
 
 class TrackersPool(
     streamsSettings: Map[String, AnyRef],
     system: ActorSystem,
     statsEngine: StatsEngine,
     clock: Clock,
-) extends KafkaLogging with NameGen {
+) extends KafkaTrackerProvider with KafkaLogging with NameGen {
 
   private val trackers = new ConcurrentHashMap[String, KafkaMessageTracker]
   private val props    = new java.util.Properties()
   props.putAll(streamsSettings.asJava)
 
-  def tracker(
+  override def tracker(
       inputTopic: String,
       outputTopic: String,
       messageMatcher: KafkaMatcher,
@@ -73,8 +101,15 @@ class TrackersPool(
 
         val streams = new KafkaStreams(builder.build(), props)
 
-        streams.cleanUp()
-        streams.start()
+        TrackersPool.awaitRunning(
+          () => streams.state(),
+          streams.setStateListener,
+          () => {
+            streams.cleanUp()
+            streams.start()
+          },
+          TrackersPool.ConsumerStartupTimeout.toMillis,
+        )
 
         CoordinatedShutdown(system).addJvmShutdownHook(streams.close())
 
