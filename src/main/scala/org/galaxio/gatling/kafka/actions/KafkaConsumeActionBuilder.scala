@@ -85,6 +85,12 @@ case class KafkaConsumeActionBuilder(attributes: KafkaConsumeAttributes) extends
   def matchByKafkaMatcher(matcher: KafkaMatcher): KafkaConsumeActionBuilder =
     replyMatchBy(matcher.responseMatch)
 
+  def startTimeForTracking(startTime: Expression[Long]): KafkaConsumeActionBuilder =
+    this.modify(_.attributes.startTimestamp).setTo(Some(startTime))
+
+  def startTimeForTracking(sessionKey: String): KafkaConsumeActionBuilder =
+    startTimeForTracking(session => session(sessionKey).validate[Long])
+
   def saveAs(sessionKey: String)(extractor: KafkaProtocolMessage => Any): KafkaConsumeActionBuilder =
     this.modify(_.attributes.replyExtractions).using(_ :+ KafkaReplyExtraction(sessionKey, extractor))
 

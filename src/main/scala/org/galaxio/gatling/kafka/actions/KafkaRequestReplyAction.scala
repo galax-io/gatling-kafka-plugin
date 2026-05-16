@@ -86,11 +86,12 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
 
   override def sendRequest(session: Session): Validation[Unit] = {
     for {
-      rn  <- requestName(session)
-      msg <- resolveToProtocolMessage(session)
+      rn        <- requestName(session)
+      msg       <- resolveToProtocolMessage(session)
+      startTime <- attributes.startTimestamp.map(_(session)).getOrElse(Success(clock.nowMillis))
     } yield throttler
-      .fold(publishAndLogMessage(rn, msg, session))(
-        _.throttle(session.scenario, () => publishAndLogMessage(rn, msg, session)),
+      .fold(publishAndLogMessage(rn, msg, session, startTime))(
+        _.throttle(session.scenario, () => publishAndLogMessage(rn, msg, session, startTime)),
       )
 
   }
@@ -137,7 +138,12 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
         headers     <- optToVal(attributes.headers.map(_(s)))
       } yield KafkaProtocolMessage(key, value, inputTopic, outputTopic, headers)
 
-  private def publishAndLogMessage(requestNameString: String, msg: KafkaProtocolMessage, session: Session): Unit = {
+  private def publishAndLogMessage(
+      requestNameString: String,
+      msg: KafkaProtocolMessage,
+      session: Session,
+      startTime: Long,
+  ): Unit = {
     val now = clock.nowMillis
     KafkaRequestReplyAction.prepareTrackerOrError(msg, trackersPool, messageMatcher) match {
       case Right(preparedTracker) =>
@@ -149,7 +155,7 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
             preparedTracker.tracker
               .track(
                 preparedTracker.matchId,
-                clock.nowMillis,
+                startTime,
                 components.kafkaProtocol.timeout.toMillis,
                 attributes.checks,
                 attributes.replyExtractions,

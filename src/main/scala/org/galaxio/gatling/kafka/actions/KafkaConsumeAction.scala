@@ -64,9 +64,10 @@ class KafkaConsumeAction(
       rn         <- requestName(session)
       topic      <- attributes.topic(session)
       expectedId <- attributes.expectedMatchId.map(_(session)).getOrElse(Success(KafkaConsumeAttributes.ConsumeAnyMatchId))
+      startTime  <- attributes.startTimestamp.map(_(session)).getOrElse(Success(clock.nowMillis))
     } yield throttler
-      .fold(trackAndAwait(rn, topic, expectedId, session))(
-        _.throttle(session.scenario, () => trackAndAwait(rn, topic, expectedId, session)),
+      .fold(trackAndAwait(rn, topic, expectedId, session, startTime))(
+        _.throttle(session.scenario, () => trackAndAwait(rn, topic, expectedId, session, startTime)),
       )
 
   private def trackAndAwait(
@@ -74,14 +75,14 @@ class KafkaConsumeAction(
       topic: String,
       expectedId: Array[Byte],
       session: Session,
+      startTime: Long,
   ): Unit = {
-    val now = clock.nowMillis
     KafkaConsumeAction.expectedMatchIdOrError(expectedId) match {
       case Right(matchId)     =>
         val tracker: KafkaMessageTracker = trackersPool.tracker(topic, topic, messageMatcher, None)
         tracker.track(
           matchId,
-          now,
+          startTime,
           components.kafkaProtocol.timeout.toMillis,
           attributes.checks,
           attributes.replyExtractions,
@@ -91,6 +92,7 @@ class KafkaConsumeAction(
           attributes.silent.getOrElse(false),
         )
       case Left(errorMessage) =>
+        val now = clock.nowMillis
         logger.error(errorMessage)
         if (!attributes.silent.getOrElse(false)) {
           statsEngine.logResponse(

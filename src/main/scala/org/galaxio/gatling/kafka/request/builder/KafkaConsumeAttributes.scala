@@ -17,4 +17,5 @@ case class KafkaConsumeAttributes(
     consumeSettingsOverride: Option[Map[String, AnyRef]],
     responseMatchExtractor: Option[KafkaProtocolMessage => Array[Byte]],
     replyExtractions: List[KafkaReplyExtraction],
+    startTimestamp: Option[Expression[Long]] = None,
 )

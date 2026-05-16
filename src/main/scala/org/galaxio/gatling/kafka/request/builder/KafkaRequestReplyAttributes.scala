@@ -22,4 +22,5 @@ case class KafkaRequestReplyAttributes[K, V](
     requestMatchExtractor: Option[org.galaxio.gatling.kafka.request.KafkaProtocolMessage => Array[Byte]],
     responseMatchExtractor: Option[org.galaxio.gatling.kafka.request.KafkaProtocolMessage => Array[Byte]],
     replyExtractions: List[KafkaReplyExtraction],
+    startTimestamp: Option[Expression[Long]] = None,
 )
