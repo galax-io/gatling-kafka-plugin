@@ -22,9 +22,9 @@ object Dependencies {
   )
 
   lazy val unitTest: Seq[ModuleID] = Seq(
-    "org.scalatest" %% "scalatest" % Versions.scalaTest % Test,
+    "org.scalatest"     %% "scalatest"      % Versions.scalaTest      % Test,
     "org.testcontainers" % "testcontainers" % Versions.testcontainers % Test,
-    "org.testcontainers" % "kafka" % Versions.testcontainers % Test,
+    "org.testcontainers" % "kafka"          % Versions.testcontainers % Test,
   )
 
   lazy val kafka: Seq[ModuleID] = Seq(
