@@ -21,7 +21,7 @@ import org.galaxio.gatling.kafka.request.builder.{KafkaReplyExtraction, KafkaReq
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.funsuite.AnyFunSuite
 import org.testcontainers.DockerClientFactory
-import org.testcontainers.kafka.KafkaContainer
+import org.testcontainers.kafka.ConfluentKafkaContainer
 import org.testcontainers.utility.DockerImageName
 
 import java.nio.file.{Files, Paths}
@@ -37,9 +37,7 @@ import scala.util.Try
 
 class KafkaRequestReplyActionIntegrationSpec extends AnyFunSuite with BeforeAndAfterAll {
 
-  private val kafkaContainer       = new KafkaContainer(
-    DockerImageName.parse("confluentinc/cp-kafka:7.5.3").asCompatibleSubstituteFor("apache/kafka"),
-  )
+  private val kafkaContainer       = new ConfluentKafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.5.3"))
   private val actorSystem          = ActorSystem("kafka-request-reply-integration")
   private val clock                = new DefaultClock
   private lazy val dockerAvailable = dockerSocketLikelyPresent && Try(DockerClientFactory.instance().client()).isSuccess
