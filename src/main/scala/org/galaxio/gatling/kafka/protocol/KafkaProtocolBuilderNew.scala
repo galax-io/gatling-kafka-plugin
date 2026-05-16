@@ -49,7 +49,7 @@ case class KafkaProtocolBuilderNew(
     )
 
     val consumeDefaults = Map(
-      ConsumerConfig.GROUP_ID_CONFIG              -> s"gatling-test-${java.util.UUID.randomUUID()}",
+      ConsumerConfig.GROUP_ID_CONFIG                 -> s"gatling-test-${java.util.UUID.randomUUID()}",
       ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG   -> classOf[ByteArrayDeserializer].getName,
       ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG -> classOf[ByteArrayDeserializer].getName,
     )
