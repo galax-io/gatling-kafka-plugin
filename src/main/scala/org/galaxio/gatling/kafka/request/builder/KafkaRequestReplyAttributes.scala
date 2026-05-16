@@ -6,6 +6,8 @@ import org.apache.kafka.common.serialization.Serializer
 import org.galaxio.gatling.kafka.KafkaCheck
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaMatcher
 
+import scala.concurrent.duration.FiniteDuration
+
 case class KafkaRequestReplyAttributes[K, V](
     requestName: Expression[String],
     inputTopic: Expression[String],
@@ -23,4 +25,5 @@ case class KafkaRequestReplyAttributes[K, V](
     responseMatchExtractor: Option[org.galaxio.gatling.kafka.request.KafkaProtocolMessage => Array[Byte]],
     replyExtractions: List[KafkaReplyExtraction],
     startTimestamp: Option[Expression[Long]] = None,
+    timeout: Option[FiniteDuration] = None,
 )

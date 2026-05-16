@@ -2,7 +2,7 @@ package org.galaxio.gatling.kafka.protocol
 
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaKeyMatcher
 
-import scala.concurrent.duration.DurationInt
+import scala.concurrent.duration.{DurationInt, FiniteDuration}
 
 case object KafkaProtocolBuilder {
 
@@ -13,8 +13,10 @@ case object KafkaProtocolBuilder {
 
 }
 
-case class KafkaProtocolBuilder(topic: String, props: Map[String, Object]) {
+case class KafkaProtocolBuilder(topic: String, props: Map[String, Object], timeout: FiniteDuration = 60.seconds) {
 
-  def build = new KafkaProtocol(topic, props, props, 60.seconds, KafkaKeyMatcher)
+  def timeout(t: FiniteDuration): KafkaProtocolBuilder = copy(timeout = t)
+
+  def build = new KafkaProtocol(topic, props, props, timeout, KafkaKeyMatcher)
 
 }

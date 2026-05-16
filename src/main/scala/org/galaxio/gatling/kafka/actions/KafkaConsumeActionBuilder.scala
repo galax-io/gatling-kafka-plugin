@@ -14,6 +14,7 @@ import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 import org.galaxio.gatling.kafka.request.builder.{KafkaConsumeAttributes, KafkaReplyExtraction, KafkaSerializedExpression}
 
 import java.nio.charset.StandardCharsets
+import scala.concurrent.duration.FiniteDuration
 import scala.reflect.ClassTag
 
 object KafkaConsumeActionBuilder {
@@ -84,6 +85,9 @@ case class KafkaConsumeActionBuilder(attributes: KafkaConsumeAttributes) extends
 
   def matchByKafkaMatcher(matcher: KafkaMatcher): KafkaConsumeActionBuilder =
     replyMatchBy(matcher.responseMatch)
+
+  def timeout(duration: FiniteDuration): KafkaConsumeActionBuilder =
+    this.modify(_.attributes.timeout).setTo(Some(duration))
 
   def startTimeForTracking(startTime: Expression[Long]): KafkaConsumeActionBuilder =
     this.modify(_.attributes.startTimestamp).setTo(Some(startTime))

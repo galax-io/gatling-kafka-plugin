@@ -4,6 +4,8 @@ import io.gatling.core.session.Expression
 import org.galaxio.gatling.kafka.KafkaCheck
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 
+import scala.concurrent.duration.FiniteDuration
+
 object KafkaConsumeAttributes {
   val ConsumeAnyMatchId: Array[Byte] = "__consume_any__".getBytes(java.nio.charset.StandardCharsets.UTF_8)
 }
@@ -18,4 +20,5 @@ case class KafkaConsumeAttributes(
     responseMatchExtractor: Option[KafkaProtocolMessage => Array[Byte]],
     replyExtractions: List[KafkaReplyExtraction],
     startTimestamp: Option[Expression[Long]] = None,
+    timeout: Option[FiniteDuration] = None,
 )

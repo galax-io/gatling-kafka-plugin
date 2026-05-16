@@ -156,7 +156,7 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
               .track(
                 preparedTracker.matchId,
                 startTime,
-                components.kafkaProtocol.timeout.toMillis,
+                attributes.timeout.getOrElse(components.kafkaProtocol.timeout).toMillis,
                 attributes.checks,
                 attributes.replyExtractions,
                 session,

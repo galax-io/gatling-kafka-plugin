@@ -12,6 +12,7 @@ import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 import org.galaxio.gatling.kafka.request.builder.KafkaReplyExtraction
 import org.galaxio.gatling.kafka.request.builder.KafkaRequestReplyAttributes
 
+import scala.concurrent.duration.FiniteDuration
 import scala.reflect.ClassTag
 
 case class KafkaRequestReplyActionBuilder[K: ClassTag, V: ClassTag](attributes: KafkaRequestReplyAttributes[K, V])
@@ -41,6 +42,9 @@ case class KafkaRequestReplyActionBuilder[K: ClassTag, V: ClassTag](attributes: 
 
   def matchByKafkaMatcher(matcher: KafkaMatcher): KafkaRequestReplyActionBuilder[K, V] =
     requestMatchBy(matcher.requestMatch).replyMatchBy(matcher.responseMatch)
+
+  def timeout(duration: FiniteDuration): KafkaRequestReplyActionBuilder[K, V] =
+    this.modify(_.attributes.timeout).setTo(Some(duration))
 
   def startTimeForTracking(startTime: Expression[Long]): KafkaRequestReplyActionBuilder[K, V] =
     this.modify(_.attributes.startTimestamp).setTo(Some(startTime))

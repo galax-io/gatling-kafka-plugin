@@ -83,7 +83,7 @@ class KafkaConsumeAction(
         tracker.track(
           matchId,
           startTime,
-          components.kafkaProtocol.timeout.toMillis,
+          attributes.timeout.getOrElse(components.kafkaProtocol.timeout).toMillis,
           attributes.checks,
           attributes.replyExtractions,
           session,
