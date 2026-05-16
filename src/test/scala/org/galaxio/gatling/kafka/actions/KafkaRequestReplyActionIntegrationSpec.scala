@@ -37,28 +37,37 @@ import scala.util.Try
 
 class KafkaRequestReplyActionIntegrationSpec extends AnyFunSuite with BeforeAndAfterAll {
 
-  private val kafkaContainer       = new ConfluentKafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.5.3"))
-  private val actorSystem          = ActorSystem("kafka-request-reply-integration")
-  private val clock                = new DefaultClock
-  private lazy val dockerAvailable = dockerSocketLikelyPresent && Try(DockerClientFactory.instance().client()).isSuccess
+  private val externalBootstrap      = sys.env
+    .get("GATLING_KAFKA_TEST_BOOTSTRAP")
+    .orElse(sys.props.get("gatling.kafka.test.bootstrap"))
+  private val kafkaContainer         = new ConfluentKafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.5.3"))
+  private val actorSystem            = ActorSystem("kafka-request-reply-integration")
+  private val clock                  = new DefaultClock
+  private lazy val dockerAvailable   = dockerSocketLikelyPresent && Try(DockerClientFactory.instance().client()).isSuccess
+  private lazy val bootstrapServers  = externalBootstrap.getOrElse(kafkaContainer.getBootstrapServers)
+  private lazy val canRunIntegration =
+    externalBootstrap.isDefined || dockerAvailable
 
   override def beforeAll(): Unit = {
     super.beforeAll()
-    if (dockerAvailable) {
+    if (externalBootstrap.isEmpty && dockerAvailable) {
       kafkaContainer.start()
     }
   }
 
   override def afterAll(): Unit = {
     actorSystem.terminate()
-    if (dockerAvailable) {
+    if (externalBootstrap.isEmpty && dockerAvailable) {
       kafkaContainer.stop()
     }
     super.afterAll()
   }
 
   test("action-level broker overrides and reply extraction work end-to-end with asymmetric matcher") {
-    assume(dockerAvailable, "Docker environment is required to run Testcontainers integration tests")
+    assume(
+      canRunIntegration,
+      "Integration tests require either GATLING_KAFKA_TEST_BOOTSTRAP or a Docker environment for Testcontainers",
+    )
     val requestTopic = s"rr-request-${UUID.randomUUID()}"
     val replyTopic   = s"rr-reply-${UUID.randomUUID()}"
 
@@ -77,8 +86,8 @@ class KafkaRequestReplyActionIntegrationSpec extends AnyFunSuite with BeforeAndA
         replyTopic = replyTopic,
         key = "corr-override",
         value = "request-payload",
-        producerSettingsOverride = Some(Map(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG -> kafkaContainer.getBootstrapServers)),
-        consumeSettingsOverride = Some(Map("bootstrap.servers" -> kafkaContainer.getBootstrapServers)),
+        producerSettingsOverride = Some(Map(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG -> bootstrapServers)),
+        consumeSettingsOverride = Some(Map("bootstrap.servers" -> bootstrapServers)),
         requestMatchExtractor = Some(_.key),
         responseMatchExtractor = Some(_.value),
         replyExtractions = List(KafkaReplyExtraction("replyValue", msg => new String(msg.value))),
@@ -93,7 +102,10 @@ class KafkaRequestReplyActionIntegrationSpec extends AnyFunSuite with BeforeAndA
   }
 
   test("different action-level matchers on the same topics do not reuse an incompatible tracker") {
-    assume(dockerAvailable, "Docker environment is required to run Testcontainers integration tests")
+    assume(
+      canRunIntegration,
+      "Integration tests require either GATLING_KAFKA_TEST_BOOTSTRAP or a Docker environment for Testcontainers",
+    )
     val requestTopic = s"rr-shared-request-${UUID.randomUUID()}"
     val replyTopic   = s"rr-shared-reply-${UUID.randomUUID()}"
 
@@ -113,8 +125,8 @@ class KafkaRequestReplyActionIntegrationSpec extends AnyFunSuite with BeforeAndA
         replyTopic = replyTopic,
         key = "first-key",
         value = "first-payload",
-        producerSettingsOverride = Some(Map(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG -> kafkaContainer.getBootstrapServers)),
-        consumeSettingsOverride = Some(Map("bootstrap.servers" -> kafkaContainer.getBootstrapServers)),
+        producerSettingsOverride = Some(Map(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG -> bootstrapServers)),
+        consumeSettingsOverride = Some(Map("bootstrap.servers" -> bootstrapServers)),
         requestMatchExtractor = Some(_.key),
         responseMatchExtractor = Some(_.key),
         replyExtractions = List(KafkaReplyExtraction("firstReply", msg => new String(msg.value))),
@@ -126,8 +138,8 @@ class KafkaRequestReplyActionIntegrationSpec extends AnyFunSuite with BeforeAndA
         replyTopic = replyTopic,
         key = "second-key",
         value = "second-payload",
-        producerSettingsOverride = Some(Map(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG -> kafkaContainer.getBootstrapServers)),
-        consumeSettingsOverride = Some(Map("bootstrap.servers" -> kafkaContainer.getBootstrapServers)),
+        producerSettingsOverride = Some(Map(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG -> bootstrapServers)),
+        consumeSettingsOverride = Some(Map("bootstrap.servers" -> bootstrapServers)),
         requestMatchExtractor = Some(_.value),
         responseMatchExtractor = Some(_.value),
         replyExtractions = List(KafkaReplyExtraction("secondReply", msg => new String(msg.value))),
@@ -237,7 +249,7 @@ class KafkaRequestReplyActionIntegrationSpec extends AnyFunSuite with BeforeAndA
 
   private def createTopics(topics: String*): Unit = {
     val admin = AdminClient.create(
-      Map[String, AnyRef](AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG -> kafkaContainer.getBootstrapServers).asJava,
+      Map[String, AnyRef](AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG -> bootstrapServers).asJava,
     )
     try {
       admin.createTopics(topics.map(topic => new NewTopic(topic, 1, 1.toShort)).asJava).all().get(20, TimeUnit.SECONDS)
@@ -292,7 +304,7 @@ class KafkaRequestReplyActionIntegrationSpec extends AnyFunSuite with BeforeAndA
 
   private def producerProps: Properties = {
     val props = new Properties()
-    props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaContainer.getBootstrapServers)
+    props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers)
     props.put(ProducerConfig.ACKS_CONFIG, "1")
     props
   }
@@ -304,7 +316,7 @@ class KafkaRequestReplyActionIntegrationSpec extends AnyFunSuite with BeforeAndA
 
   private def consumerProps(groupId: String): Properties = {
     val props = new Properties()
-    props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaContainer.getBootstrapServers)
+    props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers)
     props.put(ConsumerConfig.GROUP_ID_CONFIG, s"$groupId-${UUID.randomUUID()}")
     props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest")
     props
