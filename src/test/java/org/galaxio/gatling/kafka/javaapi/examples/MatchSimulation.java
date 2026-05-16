@@ -101,7 +101,7 @@ public class MatchSimulation extends Simulation {
             .consumeSettings(Map.of("bootstrap.servers", "localhost:9092"))
             .requestMatchBy(KafkaProtocolMessage::key)
             .replyMatchBy(KafkaProtocolMessage::value)
-            .saveReplyAs("replyValue", msg -> new String(msg.value())));
+            .saveAs("replyValue", msg -> new String(msg.value())));
 
     {
         setUp(

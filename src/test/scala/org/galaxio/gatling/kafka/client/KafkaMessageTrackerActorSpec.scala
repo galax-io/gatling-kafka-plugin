@@ -99,6 +99,39 @@ class KafkaMessageTrackerActorSpec extends AnyFunSuite {
     assert(late.isEmpty)
   }
 
+  test("buffered reply can be consumed when tracking is registered after message arrival") {
+    val bufferedReplies = mutable.HashMap.empty[String, KafkaMessageTrackerActor.BufferedReply]
+    val message         = KafkaProtocolMessage("reply".getBytes(), "value".getBytes(), "requests", "replies")
+
+    KafkaMessageTrackerActor.bufferReply("reply".getBytes(), received = 5_000L, message, bufferedReplies)
+
+    val buffered = KafkaMessageTrackerActor.removeBufferedReply("reply".getBytes(), bufferedReplies)
+
+    assert(buffered.exists(_.message == message))
+    assert(bufferedReplies.isEmpty)
+  }
+
+  test("removeExpiredBufferedReplies evicts stale unmatched replies") {
+    val bufferedReplies = mutable.HashMap(
+      KafkaMessageTrackerActor.makeTrackingKey("stale".getBytes()) ->
+        KafkaMessageTrackerActor.BufferedReply(
+          "stale".getBytes(),
+          received = 1_000L,
+          KafkaProtocolMessage("stale".getBytes(), "value".getBytes(), "requests", "replies"),
+        ),
+      KafkaMessageTrackerActor.makeTrackingKey("fresh".getBytes()) ->
+        KafkaMessageTrackerActor.BufferedReply(
+          "fresh".getBytes(),
+          received = 59_500L,
+          KafkaProtocolMessage("fresh".getBytes(), "value".getBytes(), "requests", "replies"),
+        ),
+    )
+
+    KafkaMessageTrackerActor.removeExpiredBufferedReplies(now = 61_500L, bufferedReplies)
+
+    assert(bufferedReplies.keySet == Set(KafkaMessageTrackerActor.makeTrackingKey("fresh".getBytes())))
+  }
+
   test("applyReplyExtractions stores extracted values into Gatling session") {
     val session = Session("scenario", 1L, null)
     val message = KafkaProtocolMessage(
