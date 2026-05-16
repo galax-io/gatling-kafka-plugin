@@ -12,6 +12,11 @@ import org.apache.kafka.clients.producer._
 import org.galaxio.gatling.kafka.protocol.{KafkaComponents, KafkaProtocol}
 import org.galaxio.gatling.kafka.request.builder.KafkaAttributes
 
+object KafkaRequestAction {
+  private[actions] def nextSession(session: Session, exception: Exception): Session =
+    if (exception == null) session else session.markAsFailed
+}
+
 class KafkaRequestAction[K, V](
     val producer: KafkaProducer[K, V],
     val components: KafkaComponents,
@@ -92,8 +97,11 @@ class KafkaRequestAction[K, V](
           }
 
           coreComponents.throttler match {
-            case Some(th) if throttled => th.throttle(session.scenario, () => next ! session)
-            case _                     => next ! session
+            case Some(th) if throttled =>
+              val sessionAfterSend = KafkaRequestAction.nextSession(session, e)
+              th.throttle(session.scenario, () => next ! sessionAfterSend)
+            case _                     =>
+              next ! KafkaRequestAction.nextSession(session, e)
           }
 
         },
