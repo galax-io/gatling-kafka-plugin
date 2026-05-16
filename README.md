@@ -138,6 +138,74 @@ scenario("Request reply with explicit topics")
   )
 ```
 
+## Request-Reply Matching
+
+When using `requestReply`, the plugin must correlate each sent message with its reply.
+An extractor runs on the outgoing message to produce a byte array (the "request match ID"),
+and another extractor runs on every incoming message from the reply topic.
+When both extractors produce the same bytes, the reply is matched to the original request.
+
+### Protocol-Level Matchers
+
+Configure the default matching strategy on the protocol builder:
+
+```scala
+val proto = kafka.requestReply
+  .producerSettings(...)
+  .consumeSettings(...)
+  .timeout(5.seconds)
+  // Pick ONE:
+  // (default)          — correlates by msg.key on both sides
+  // .matchByValue      — correlates by msg.value on both sides
+  // .matchByMessage(fn) — applies fn to both sent and received messages
+  .matchByValue
+```
+
+| Method | Request extractor | Response extractor |
+|--------|------------------|--------------------|
+| *(default)* | `msg.key` | `msg.key` |
+| `.matchByValue` | `msg.value` | `msg.value` |
+| `.matchByMessage(fn)` | `fn(msg)` | `fn(msg)` |
+
+### Action-Level Overrides
+
+Override extractors on a single request-reply action when different actions need different matching logic:
+
+```scala
+kafka("custom match").requestReply
+  .requestTopic("input")
+  .replyTopic("output")
+  .send[String, String]("key", "payload")
+  .requestMatchBy(_.key)   // extractor for the SENT message
+  .replyMatchBy(_.value)   // extractor for the RECEIVED reply
+```
+
+Action-level extractors take precedence over the protocol-level matcher for that action only.
+
+### Matching by Header
+
+If your consumer transforms the key and value but copies a correlation ID into a header,
+neither the default key matcher nor `matchByValue` will work. Use a custom extractor that reads the header:
+
+```scala
+kafka("header match").requestReply
+  .requestTopic("requests")
+  .replyTopic("replies")
+  .send[String, String]("key", "payload")
+  .requestMatchBy(msg => msg.key) // correlation ID is the key on the request side
+  .replyMatchBy { msg =>
+    msg.headers
+      .map(_.lastHeader("correlation-id").value())
+      .getOrElse(Array.emptyByteArray)
+  }
+```
+
+> **Pitfall**: `matchByValue` requires that the reply's value is byte-identical to the request's value.
+> If your consumer modifies the payload in any way, matching will silently fail and requests will timeout.
+> Always ensure both extractors produce the exact same bytes for a given request-reply pair.
+
+For a full working example, see [MatchSimulation.scala](src/test/scala/org/galaxio/gatling/kafka/examples/MatchSimulation.scala).
+
 ## Consume-Only Tracking
 
 Use `consumeFrom(...)` when the scenario should wait for and validate a Kafka message without sending a Kafka request first.
