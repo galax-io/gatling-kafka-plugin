@@ -97,6 +97,8 @@ jobs:
         run: sbt clean compile
 
       - name: Test (Gatling targeted) 
+        env:
+          GATLING_KAFKA_TEST_BOOTSTRAP: localhost:9093
         run: sbt coverage "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaGatlingTest" "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaJavaapiMethodsGatlingTest" test coverageOff coverageReport
 
       - name: Upload coverage reports to Codecov
