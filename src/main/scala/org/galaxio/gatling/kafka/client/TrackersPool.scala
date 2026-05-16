@@ -42,6 +42,12 @@ object TrackersPool {
       }
     }
   }
+
+  private[client] def responseMatchIdOrError(
+      message: KafkaProtocolMessage,
+      messageMatcher: KafkaMatcher,
+  ): Either[String, Array[Byte]] =
+    Option(messageMatcher.responseMatch(message)).toRight("response matcher returned null match id")
 }
 
 class TrackersPool(
@@ -71,31 +77,31 @@ class TrackersPool(
 
         builder.stream[Array[Byte], Array[Byte]](outputTopic).foreach { case (k, v) =>
           val message = KafkaProtocolMessage(k, v, inputTopic, outputTopic)
-          if (messageMatcher.responseMatch(message) == null) {
-            logger.error(s"no messageMatcher key for read message")
-          } else {
-            if (k == null || v == null)
-              logger.info(s" --- received message with null key or value")
-            else
-              logger.info(s" --- received  ${new String(k)} ${new String(v)}")
-            val receivedTimestamp = clock.nowMillis
-            val replyId           = messageMatcher.responseMatch(message)
-            if (k != null)
-              logMessage(
-                s"Record received key=${new String(k)}",
-                message,
-              )
-            else
-              logMessage(
-                s"Record received key=null",
-                message,
-              )
+          TrackersPool.responseMatchIdOrError(message, messageMatcher) match {
+            case Left(_)        =>
+              logger.error(s"no messageMatcher key for read message")
+            case Right(replyId) =>
+              if (k == null || v == null)
+                logger.info(s" --- received message with null key or value")
+              else
+                logger.info(s" --- received  ${new String(k)} ${new String(v)}")
+              val receivedTimestamp = clock.nowMillis
+              if (k != null)
+                logMessage(
+                  s"Record received key=${new String(k)}",
+                  message,
+                )
+              else
+                logMessage(
+                  s"Record received key=null",
+                  message,
+                )
 
-            actor ! MessageConsumed(
-              replyId,
-              receivedTimestamp,
-              responseTransformer.map(_(message)).getOrElse(message),
-            )
+              actor ! MessageConsumed(
+                replyId,
+                receivedTimestamp,
+                responseTransformer.map(_(message)).getOrElse(message),
+              )
           }
         }
 

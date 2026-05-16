@@ -1,11 +1,42 @@
 package org.galaxio.gatling.kafka.client
 
 import org.apache.kafka.streams.KafkaStreams
+import org.galaxio.gatling.kafka.protocol.KafkaProtocol
+import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 import org.scalatest.funsuite.AnyFunSuite
 
 import java.util.concurrent.atomic.AtomicReference
 
 class TrackersPoolSpec extends AnyFunSuite {
+
+  private val protocolMessage = KafkaProtocolMessage(
+    key = "request-id".getBytes(),
+    value = "reply-id".getBytes(),
+    inputTopic = "requests",
+    outputTopic = "replies",
+  )
+
+  test("responseMatchIdOrError returns response match id independently from request match id") {
+    val matcher = new KafkaProtocol.KafkaMatcher {
+      override def requestMatch(msg: KafkaProtocolMessage): Array[Byte]  = msg.key
+      override def responseMatch(msg: KafkaProtocolMessage): Array[Byte] = msg.value
+    }
+
+    val result = TrackersPool.responseMatchIdOrError(protocolMessage, matcher)
+
+    assert(result.exists(_.sameElements("reply-id".getBytes())))
+  }
+
+  test("responseMatchIdOrError rejects null response match id") {
+    val matcher = new KafkaProtocol.KafkaMatcher {
+      override def requestMatch(msg: KafkaProtocolMessage): Array[Byte]  = msg.key
+      override def responseMatch(msg: KafkaProtocolMessage): Array[Byte] = null
+    }
+
+    val result = TrackersPool.responseMatchIdOrError(protocolMessage, matcher)
+
+    assert(result == Left("response matcher returned null match id"))
+  }
 
   test("awaitRunning starts the consumer and waits for RUNNING state") {
     val currentState = new AtomicReference(KafkaStreams.State.CREATED)
