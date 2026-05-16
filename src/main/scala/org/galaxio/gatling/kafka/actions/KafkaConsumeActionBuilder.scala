@@ -1,6 +1,7 @@
 package org.galaxio.gatling.kafka.actions
 
 import com.softwaremill.quicklens.ModifyPimp
+import io.gatling.commons.validation.Success
 import io.gatling.core.action.Action
 import io.gatling.core.action.builder.ActionBuilder
 import io.gatling.core.structure.ScenarioContext
@@ -26,6 +27,25 @@ object KafkaConsumeActionBuilder {
         consumeSettingsOverride = None,
         responseMatchExtractor = None,
         replyExtractions = List.empty,
+        consumeAny = false,
+      ),
+    )
+
+  def createAny(
+      requestName: io.gatling.core.session.Expression[String],
+      topic: io.gatling.core.session.Expression[String],
+  ): KafkaConsumeActionBuilder =
+    KafkaConsumeActionBuilder(
+      KafkaConsumeAttributes(
+        requestName = requestName,
+        topic = topic,
+        expectedMatchId = _ => Success(KafkaConsumeAttributes.ConsumeAnyMatchId),
+        checks = List.empty,
+        silent = None,
+        consumeSettingsOverride = None,
+        responseMatchExtractor = Some(_ => KafkaConsumeAttributes.ConsumeAnyMatchId),
+        replyExtractions = List.empty,
+        consumeAny = true,
       ),
     )
 }

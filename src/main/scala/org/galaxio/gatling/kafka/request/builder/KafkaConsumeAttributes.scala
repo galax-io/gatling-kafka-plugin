@@ -4,6 +4,10 @@ import io.gatling.core.session.Expression
 import org.galaxio.gatling.kafka.KafkaCheck
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 
+object KafkaConsumeAttributes {
+  val ConsumeAnyMatchId: Array[Byte] = "__consume_any__".getBytes(java.nio.charset.StandardCharsets.UTF_8)
+}
+
 case class KafkaConsumeAttributes(
     requestName: Expression[String],
     topic: Expression[String],
@@ -13,4 +17,5 @@ case class KafkaConsumeAttributes(
     consumeSettingsOverride: Option[Map[String, AnyRef]],
     responseMatchExtractor: Option[KafkaProtocolMessage => Array[Byte]],
     replyExtractions: List[KafkaReplyExtraction],
+    consumeAny: Boolean,
 )

@@ -207,6 +207,18 @@ scenario("Consume only with custom matcher")
   )
 ```
 
+Read the first available message without correlation data:
+
+```scala
+scenario("Consume any event")
+  .exec(
+    kafka("consume first available")
+      .consumeAny("events")
+      .check(bodyString.exists)
+      .saveAs("payload")(message => new String(message.value)),
+  )
+```
+
 Forward consumed data in the next step:
 
 ```scala
@@ -236,6 +248,17 @@ scenario("Consume only")
       .matchIdForTracking(byteArrayExp(session -> (byte[]) session.get("matchId")))
       .replyMatchBy(KafkaProtocolMessage::value)
       .saveAs("replyValue", message -> new String(message.value()))
+  );
+```
+
+Or consume the first available message:
+
+```java
+scenario("Consume any event")
+  .exec(
+    kafka("consume first available")
+      .consumeAny("events")
+      .saveAs("payload", message -> new String(message.value()))
   );
 ```
 

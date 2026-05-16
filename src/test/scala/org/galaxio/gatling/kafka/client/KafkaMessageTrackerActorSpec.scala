@@ -13,40 +13,46 @@ class KafkaMessageTrackerActorSpec extends AnyFunSuite {
   test("timedOutMessages selects only entries whose timeout has elapsed") {
     val sentMessages = mutable.HashMap(
       KafkaMessageTrackerActor.makeTrackingKey("late".getBytes())      ->
-        MessagePublished(
-          "late".getBytes(),
-          sent = 1_000L,
-          replyTimeout = 2_000L,
-          Nil,
-          Nil,
-          null,
-          null,
-          "req",
-          silentRequest = false,
+        mutable.Queue(
+          MessagePublished(
+            "late".getBytes(),
+            sent = 1_000L,
+            replyTimeout = 2_000L,
+            Nil,
+            Nil,
+            null,
+            null,
+            "req",
+            silentRequest = false,
+          ),
         ),
       KafkaMessageTrackerActor.makeTrackingKey("ontime".getBytes())    ->
-        MessagePublished(
-          "ontime".getBytes(),
-          sent = 4_000L,
-          replyTimeout = 2_000L,
-          Nil,
-          Nil,
-          null,
-          null,
-          "req",
-          silentRequest = false,
+        mutable.Queue(
+          MessagePublished(
+            "ontime".getBytes(),
+            sent = 4_000L,
+            replyTimeout = 2_000L,
+            Nil,
+            Nil,
+            null,
+            null,
+            "req",
+            silentRequest = false,
+          ),
         ),
       KafkaMessageTrackerActor.makeTrackingKey("notimeout".getBytes()) ->
-        MessagePublished(
-          "notimeout".getBytes(),
-          sent = 1_000L,
-          replyTimeout = 0L,
-          Nil,
-          Nil,
-          null,
-          null,
-          "req",
-          silentRequest = false,
+        mutable.Queue(
+          MessagePublished(
+            "notimeout".getBytes(),
+            sent = 1_000L,
+            replyTimeout = 0L,
+            Nil,
+            Nil,
+            null,
+            null,
+            "req",
+            silentRequest = false,
+          ),
         ),
     )
 
@@ -68,7 +74,8 @@ class KafkaMessageTrackerActorSpec extends AnyFunSuite {
         "req",
         silentRequest = false,
       )
-    val sent                        = mutable.HashMap(KafkaMessageTrackerActor.makeTrackingKey("reply".getBytes()) -> published)
+    val sent                        =
+      mutable.HashMap(KafkaMessageTrackerActor.makeTrackingKey("reply".getBytes()) -> mutable.Queue(published))
 
     val beforeTimeout = KafkaMessageTrackerActor.removeTrackedMessage("reply".getBytes(), sent)
     val afterTimeout  = KafkaMessageTrackerActor.removeTrackedMessage("reply".getBytes(), sent)
@@ -90,7 +97,8 @@ class KafkaMessageTrackerActorSpec extends AnyFunSuite {
         "req",
         silentRequest = false,
       )
-    val sent                        = mutable.HashMap(KafkaMessageTrackerActor.makeTrackingKey("reply".getBytes()) -> published)
+    val sent                        =
+      mutable.HashMap(KafkaMessageTrackerActor.makeTrackingKey("reply".getBytes()) -> mutable.Queue(published))
 
     val removed = KafkaMessageTrackerActor.removeTimedOutMessages(List(published), sent)
     val late    = KafkaMessageTrackerActor.removeTrackedMessage("reply".getBytes(), sent)
@@ -100,7 +108,7 @@ class KafkaMessageTrackerActorSpec extends AnyFunSuite {
   }
 
   test("buffered reply can be consumed when tracking is registered after message arrival") {
-    val bufferedReplies = mutable.HashMap.empty[String, KafkaMessageTrackerActor.BufferedReply]
+    val bufferedReplies = mutable.HashMap.empty[String, mutable.Queue[KafkaMessageTrackerActor.BufferedReply]]
     val message         = KafkaProtocolMessage("reply".getBytes(), "value".getBytes(), "requests", "replies")
 
     KafkaMessageTrackerActor.bufferReply("reply".getBytes(), received = 5_000L, message, bufferedReplies)
@@ -111,19 +119,37 @@ class KafkaMessageTrackerActorSpec extends AnyFunSuite {
     assert(bufferedReplies.isEmpty)
   }
 
+  test("removeTrackedMessage dequeues pending waiters sharing the same match id in FIFO order") {
+    val first  = MessagePublished("same".getBytes(), 1_000L, 5_000L, Nil, Nil, null, null, "first", silentRequest = false)
+    val second = MessagePublished("same".getBytes(), 2_000L, 5_000L, Nil, Nil, null, null, "second", silentRequest = false)
+    val sent   =
+      mutable.HashMap(KafkaMessageTrackerActor.makeTrackingKey("same".getBytes()) -> mutable.Queue(first, second))
+
+    val firstRemoved  = KafkaMessageTrackerActor.removeTrackedMessage("same".getBytes(), sent)
+    val secondRemoved = KafkaMessageTrackerActor.removeTrackedMessage("same".getBytes(), sent)
+
+    assert(firstRemoved.contains(first))
+    assert(secondRemoved.contains(second))
+    assert(sent.isEmpty)
+  }
+
   test("removeExpiredBufferedReplies evicts stale unmatched replies") {
     val bufferedReplies = mutable.HashMap(
       KafkaMessageTrackerActor.makeTrackingKey("stale".getBytes()) ->
-        KafkaMessageTrackerActor.BufferedReply(
-          "stale".getBytes(),
-          received = 1_000L,
-          KafkaProtocolMessage("stale".getBytes(), "value".getBytes(), "requests", "replies"),
+        mutable.Queue(
+          KafkaMessageTrackerActor.BufferedReply(
+            "stale".getBytes(),
+            received = 1_000L,
+            KafkaProtocolMessage("stale".getBytes(), "value".getBytes(), "requests", "replies"),
+          ),
         ),
       KafkaMessageTrackerActor.makeTrackingKey("fresh".getBytes()) ->
-        KafkaMessageTrackerActor.BufferedReply(
-          "fresh".getBytes(),
-          received = 59_500L,
-          KafkaProtocolMessage("fresh".getBytes(), "value".getBytes(), "requests", "replies"),
+        mutable.Queue(
+          KafkaMessageTrackerActor.BufferedReply(
+            "fresh".getBytes(),
+            received = 59_500L,
+            KafkaProtocolMessage("fresh".getBytes(), "value".getBytes(), "requests", "replies"),
+          ),
         ),
     )
 

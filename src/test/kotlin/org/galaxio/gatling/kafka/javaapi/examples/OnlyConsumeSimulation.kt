@@ -28,6 +28,11 @@ class OnlyConsumeSimulation : Simulation() {
                 .replyMatchBy { message -> message.value }
                 .saveAs("replyValue") { message -> String(message.value) }
         )
+        .exec(
+            KafkaDsl.kafka("Consume any")
+                .consumeAny("events")
+                .saveAs("firstPayload") { message -> String(message.value) }
+        )
 
     init {
         setUp(scn.injectOpen(atOnceUsers(1))).protocols(protocol)

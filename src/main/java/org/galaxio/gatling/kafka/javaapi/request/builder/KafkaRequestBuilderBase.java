@@ -367,4 +367,12 @@ public class KafkaRequestBuilderBase {
         return new ReceiveFromStep(javaFunctionToExpression(topic), toStringExpression(requestName));
     }
 
+    public ConsumeActionBuilder consumeAny(String topic) {
+        return receiveFrom(topic).anyMessage();
+    }
+
+    public ConsumeActionBuilder consumeAny(JExpression<String> topic) {
+        return receiveFrom(topic).anyMessage();
+    }
+
 }

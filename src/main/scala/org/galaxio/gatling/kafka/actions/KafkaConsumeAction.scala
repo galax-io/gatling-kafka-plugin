@@ -20,14 +20,20 @@ object KafkaConsumeAction {
       protocolMatcher: KafkaMatcher,
       attributes: KafkaConsumeAttributes,
   ): KafkaMatcher =
-    attributes.responseMatchExtractor match {
-      case Some(responseExtractor) =>
-        new KafkaMatcher {
-          override def requestMatch(msg: KafkaProtocolMessage): Array[Byte]  = protocolMatcher.requestMatch(msg)
-          override def responseMatch(msg: KafkaProtocolMessage): Array[Byte] = responseExtractor(msg)
-        }
-      case None                    => protocolMatcher
-    }
+    if (attributes.consumeAny) {
+      new KafkaMatcher {
+        override def requestMatch(msg: KafkaProtocolMessage): Array[Byte]  = KafkaConsumeAttributes.ConsumeAnyMatchId
+        override def responseMatch(msg: KafkaProtocolMessage): Array[Byte] = KafkaConsumeAttributes.ConsumeAnyMatchId
+      }
+    } else
+      attributes.responseMatchExtractor match {
+        case Some(responseExtractor) =>
+          new KafkaMatcher {
+            override def requestMatch(msg: KafkaProtocolMessage): Array[Byte]  = protocolMatcher.requestMatch(msg)
+            override def responseMatch(msg: KafkaProtocolMessage): Array[Byte] = responseExtractor(msg)
+          }
+        case None                    => protocolMatcher
+      }
 
   private[kafka] def effectiveConsumeSettings(
       components: KafkaComponents,

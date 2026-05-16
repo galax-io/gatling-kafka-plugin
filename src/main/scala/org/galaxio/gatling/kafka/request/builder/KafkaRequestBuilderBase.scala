@@ -137,8 +137,12 @@ case class KafkaRequestBuilderBase(requestName: Expression[String]) {
             consumeSettingsOverride = None,
             responseMatchExtractor = None,
             replyExtractions = List.empty,
+            consumeAny = false,
           ),
         )
+
+      def anyMessage: KafkaConsumeActionBuilder =
+        KafkaConsumeActionBuilder.createAny(requestName, topic)
 
       def matchIdForTracking(matchId: Array[Byte]): KafkaConsumeActionBuilder =
         matchIdForTracking(matchId.expressionSuccess)
@@ -181,5 +185,9 @@ case class KafkaRequestBuilderBase(requestName: Expression[String]) {
 
     def topic(outputTopic: Expression[String]): ConsumeTopicStep = ConsumeTopicStep(outputTopic)
   }
+
+  def consumeAny(topic: Expression[String]): KafkaConsumeActionBuilder = ConsumeBase.topic(topic).anyMessage
+
+  def consumeAny(topic: String): KafkaConsumeActionBuilder = consumeAny(topic.expressionSuccess)
 
 }

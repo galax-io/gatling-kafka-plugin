@@ -86,6 +86,7 @@ class KafkaConsumeActionIntegrationSpec extends AnyFunSuite with BeforeAndAfterA
         KafkaReplyExtraction("consumedPayload", message => new String(message.value)),
         KafkaReplyExtraction("consumedKey", message => Option(message.key).map(new String(_)).orNull),
       ),
+      consumeAny = false,
     )
 
     val resultSession = awaitConsumeResult(invalidBaseProtocol, attributes) {
@@ -135,6 +136,7 @@ class KafkaConsumeActionIntegrationSpec extends AnyFunSuite with BeforeAndAfterA
               .orNull,
         ),
       ),
+      consumeAny = false,
     )
 
     val resultSession = awaitConsumeResult(invalidBaseProtocol, attributes) {
@@ -174,6 +176,7 @@ class KafkaConsumeActionIntegrationSpec extends AnyFunSuite with BeforeAndAfterA
       ),
       responseMatchExtractor = Some(_.key),
       replyExtractions = List(KafkaReplyExtraction("eventBody", msg => new String(msg.value))),
+      consumeAny = false,
     )
 
     val resultSession = awaitConsumeResult(invalidBaseProtocol, attributes) {
@@ -182,6 +185,40 @@ class KafkaConsumeActionIntegrationSpec extends AnyFunSuite with BeforeAndAfterA
 
     assert(!resultSession.isFailed)
     assert(resultSession("eventBody").as[String] == "event-body")
+  }
+
+  test("consumeAny semantics can read the first available message without correlation data") {
+    assume(
+      canRunIntegration,
+      "Integration tests require either GATLING_KAFKA_TEST_BOOTSTRAP or a Docker environment for Testcontainers",
+    )
+
+    val topic = s"consume-any-${UUID.randomUUID()}"
+    createTopics(topic)
+
+    val attributes = KafkaConsumeAttributes(
+      requestName = _ => Success("consume-any-integration"),
+      topic = _ => Success(topic),
+      expectedMatchId = _ => Success(org.galaxio.gatling.kafka.request.builder.KafkaConsumeAttributes.ConsumeAnyMatchId),
+      checks = List(bodyBytes.is("first-available".getBytes())),
+      silent = Some(false),
+      consumeSettingsOverride = Some(
+        Map(
+          "bootstrap.servers" -> bootstrapServers,
+          "auto.offset.reset" -> "earliest",
+        ),
+      ),
+      responseMatchExtractor = Some(_ => org.galaxio.gatling.kafka.request.builder.KafkaConsumeAttributes.ConsumeAnyMatchId),
+      replyExtractions = List(KafkaReplyExtraction("anyPayload", msg => new String(msg.value))),
+      consumeAny = true,
+    )
+
+    val resultSession = awaitConsumeResult(invalidBaseProtocol, attributes) {
+      publish(topic, key = "unused".getBytes(), value = "first-available".getBytes())
+    }
+
+    assert(!resultSession.isFailed)
+    assert(resultSession("anyPayload").as[String] == "first-available")
   }
 
   private def invalidBaseProtocol: KafkaProtocol =

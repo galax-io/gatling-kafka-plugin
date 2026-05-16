@@ -31,6 +31,11 @@ public class OnlyConsumeSimulation extends Simulation {
                             .matchIdForTracking(byteArrayExp(session -> (byte[]) session.get("matchId")))
                             .replyMatchBy(message -> message.value())
                             .saveAs("replyValue", message -> new String(message.value()))
+            )
+            .exec(
+                    KafkaDsl.kafka("Consume any")
+                            .consumeAny("events")
+                            .saveAs("firstPayload", message -> new String(message.value()))
             );
 
     {

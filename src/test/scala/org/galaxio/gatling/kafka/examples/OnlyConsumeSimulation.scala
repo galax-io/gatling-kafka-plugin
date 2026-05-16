@@ -30,6 +30,11 @@ class OnlyConsumeSimulation extends Simulation {
         .headerForTracking("correlation-id", "#{correlationId}")
         .saveAs("replyValue")(message => new String(message.value)),
     )
+    .exec(
+      kafka("Consume any")
+        .consumeAny("events")
+        .saveAs("firstPayload")(message => new String(message.value)),
+    )
 
   setUp(scn.inject(atOnceUsers(1))).protocols(protocol)
 }

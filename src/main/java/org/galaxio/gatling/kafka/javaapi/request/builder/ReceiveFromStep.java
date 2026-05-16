@@ -46,4 +46,13 @@ public class ReceiveFromStep {
     public ConsumeActionBuilder expectMatchId(ExpressionBuilder<byte[]> expectedMatchId) {
         return matchIdForTracking(expectedMatchId);
     }
+
+    public ConsumeActionBuilder anyMessage() {
+        return new ConsumeActionBuilder(
+                org.galaxio.gatling.kafka.actions.KafkaConsumeActionBuilder.createAny(
+                        requestNameExpression,
+                        topicExpression
+                )
+        );
+    }
 }
