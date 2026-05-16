@@ -23,10 +23,15 @@ class OnlyConsumeSimulation : Simulation() {
         .exec { session -> session.set("matchId", "corr-42".toByteArray()) }
         .exec(
             KafkaDsl.kafka("Consume only")
-                .receiveFrom("events")
+                .consumeFrom("events")
                 .matchIdForTracking(byteArrayExp { session -> session.get("matchId") as ByteArray })
                 .replyMatchBy { message -> message.value }
                 .saveAs("replyValue") { message -> String(message.value) }
+        )
+        .exec(
+            KafkaDsl.kafka("Consume any")
+                .consumeAny("events")
+                .saveAs("firstPayload") { message -> String(message.value) }
         )
 
     init {

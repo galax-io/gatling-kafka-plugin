@@ -7,7 +7,6 @@ import org.apache.kafka.common.serialization.Serde
 import org.galaxio.gatling.kafka.actions.KafkaConsumeActionBuilder
 import org.galaxio.gatling.kafka.actions.KafkaRequestReplyActionBuilder
 
-import java.nio.charset.StandardCharsets
 import scala.reflect.ClassTag
 
 case class KafkaRequestBuilderBase(requestName: Expression[String]) {
@@ -82,11 +81,9 @@ case class KafkaRequestBuilderBase(requestName: Expression[String]) {
 
   def requestReply: ReqRepBase.type = ReqRepBase
 
-  def receiveFrom: ConsumeBase.type = ConsumeBase
+  def consumeFrom(topic: Expression[String]): KafkaConsumeActionBuilder = KafkaConsumeActionBuilder.create(requestName, topic)
 
-  def receiveFrom(topic: Expression[String]): ConsumeBase.ConsumeTopicStep = ConsumeBase.topic(topic)
-
-  def receiveFrom(topic: String): ConsumeBase.ConsumeTopicStep = ConsumeBase.topic(topic.expressionSuccess)
+  def consumeFrom(topic: String): KafkaConsumeActionBuilder = consumeFrom(topic.expressionSuccess)
 
   object ReqRepBase {
     case class RROutTopicStep(inputTopic: Expression[String], outputTopic: Expression[String]) {
@@ -123,63 +120,8 @@ case class KafkaRequestBuilderBase(requestName: Expression[String]) {
     def requestTopic(rt: Expression[String]): RRInTopicStep = RRInTopicStep(rt)
 
   }
+  def consumeAny(topic: Expression[String]): KafkaConsumeActionBuilder = consumeFrom(topic)
 
-  object ConsumeBase {
-    case class ConsumeTopicStep(topic: Expression[String]) {
-      def matchIdForTracking(matchId: Expression[Array[Byte]]): KafkaConsumeActionBuilder =
-        KafkaConsumeActionBuilder(
-          KafkaConsumeAttributes(
-            requestName = requestName,
-            topic = topic,
-            expectedMatchId = matchId,
-            checks = List.empty,
-            silent = None,
-            consumeSettingsOverride = None,
-            responseMatchExtractor = None,
-            replyExtractions = List.empty,
-          ),
-        )
-
-      def matchIdForTracking(matchId: Array[Byte]): KafkaConsumeActionBuilder =
-        matchIdForTracking(matchId.expressionSuccess)
-
-      def keyForTracking[K: Serde: ClassTag](key: Expression[K]): KafkaConsumeActionBuilder =
-        matchIdForTracking(KafkaSerializedExpression(topic, key)).replyMatchBy(_.key)
-
-      def keyForTracking[K: Serde: ClassTag](key: K): KafkaConsumeActionBuilder =
-        matchIdForTracking(KafkaSerializedExpression.static(topic, key)).replyMatchBy(_.key)
-
-      def payloadForTracking[V: Serde: ClassTag](payload: Expression[V]): KafkaConsumeActionBuilder =
-        matchIdForTracking(KafkaSerializedExpression(topic, payload)).replyMatchBy(_.value)
-
-      def payloadForTracking[V: Serde: ClassTag](payload: V): KafkaConsumeActionBuilder =
-        matchIdForTracking(KafkaSerializedExpression.static(topic, payload)).replyMatchBy(_.value)
-
-      def headerForTracking(headerName: String, headerValue: Expression[String]): KafkaConsumeActionBuilder =
-        matchIdForTracking(headerValue.map(_.getBytes(StandardCharsets.UTF_8))).replyMatchBy { message =>
-          message.headers
-            .flatMap(headers => Option(headers.lastHeader(headerName)))
-            .map(_.value())
-            .orNull
-        }
-
-      def headerForTracking(headerName: String, headerValue: String): KafkaConsumeActionBuilder =
-        headerForTracking(headerName, headerValue.expressionSuccess)
-
-      def expectMatchId(matchId: Expression[Array[Byte]]): KafkaConsumeActionBuilder = matchIdForTracking(matchId)
-
-      def expectMatchId(matchId: Array[Byte]): KafkaConsumeActionBuilder = matchIdForTracking(matchId)
-
-      def expectKey[K: Serde: ClassTag](key: Expression[K]): KafkaConsumeActionBuilder = keyForTracking(key)
-
-      def expectKey[K: Serde: ClassTag](key: K): KafkaConsumeActionBuilder = keyForTracking(key)
-
-      def expectPayload[V: Serde: ClassTag](payload: Expression[V]): KafkaConsumeActionBuilder = payloadForTracking(payload)
-
-      def expectPayload[V: Serde: ClassTag](payload: V): KafkaConsumeActionBuilder = payloadForTracking(payload)
-    }
-
-    def topic(outputTopic: Expression[String]): ConsumeTopicStep = ConsumeTopicStep(outputTopic)
-  }
+  def consumeAny(topic: String): KafkaConsumeActionBuilder = consumeAny(topic.expressionSuccess)
 
 }

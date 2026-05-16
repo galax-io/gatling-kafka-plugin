@@ -140,12 +140,15 @@ scenario("Request reply with explicit topics")
 
 ## Consume-Only Tracking
 
-Use `receiveFrom(...)` when the scenario should wait for and validate a Kafka message without sending a Kafka request first.
+Use `consumeFrom(...)` when the scenario should wait for and validate a Kafka message without sending a Kafka request first.
+Use `consumeAny(...)` when the same read flow should consume the first available message instead of correlating by a tracking id.
 
 This is useful for:
 - Kafka consumer load testing
 - mixed protocol flows such as `HTTP -> Kafka`
 - workflow verification where the correlation id already exists in the Gatling `Session`
+
+Both methods share the same runtime path: the action always reads from Kafka, and correlation becomes active only when you configure tracking data such as `matchIdForTracking(...)`, `keyForTracking(...)`, `payloadForTracking(...)`, or `headerForTracking(...)`.
 
 `saveAs(...)` stores extracted values from the consumed Kafka message into the Gatling `Session`.
 It does not publish anything to another topic by itself. If you want to forward the consumed data,
@@ -160,7 +163,7 @@ scenario("Consume only by payload")
   .exec(session => session.set("correlationId", "corr-42"))
   .exec(
     kafka("consume event")
-      .receiveFrom("events")
+      .consumeFrom("events")
       .payloadForTracking("#{correlationId}")
       .saveAs("replyValue")(message => new String(message.value)),
   )
@@ -173,7 +176,7 @@ scenario("Consume only by key")
   .exec(session => session.set("eventKey", "order-42"))
   .exec(
     kafka("consume event")
-      .receiveFrom("events")
+      .consumeFrom("events")
       .keyForTracking("#{eventKey}")
       .check(bodyString.exists)
       .saveAs("eventBody")(message => new String(message.value)),
@@ -187,7 +190,7 @@ scenario("Consume only by header")
   .exec(session => session.set("correlationId", "corr-42"))
   .exec(
     kafka("consume event")
-      .receiveFrom("events")
+      .consumeFrom("events")
       .headerForTracking("correlation-id", "#{correlationId}")
       .saveAs("replyValue")(message => new String(message.value)),
   )
@@ -200,10 +203,22 @@ scenario("Consume only with custom matcher")
   .exec(session => session.set("expectedMatchId", "corr-42".getBytes))
   .exec(
     kafka("consume event")
-      .receiveFrom("events")
+      .consumeFrom("events")
       .matchIdForTracking(session => session("expectedMatchId").validate[Array[Byte]])
       .replyMatchBy(message => message.value)
       .saveAs("rawValue")(message => message.value),
+  )
+```
+
+Read the first available message without correlation data:
+
+```scala
+scenario("Consume any event")
+  .exec(
+    kafka("consume first available")
+      .consumeAny("events")
+      .check(bodyString.exists)
+      .saveAs("payload")(message => new String(message.value)),
   )
 ```
 
@@ -214,7 +229,7 @@ scenario("Consume and resend")
   .exec(session => session.set("correlationId", "corr-42"))
   .exec(
     kafka("consume event")
-      .receiveFrom("events")
+      .consumeFrom("events")
       .headerForTracking("correlation-id", "#{correlationId}")
       .saveAs("consumedPayload")(message => new String(message.value)),
   )
@@ -232,10 +247,21 @@ scenario("Consume only")
   .exec(session -> session.set("matchId", "corr-42".getBytes()))
   .exec(
     kafka("consume event")
-      .receiveFrom("events")
+      .consumeFrom("events")
       .matchIdForTracking(byteArrayExp(session -> (byte[]) session.get("matchId")))
       .replyMatchBy(KafkaProtocolMessage::value)
       .saveAs("replyValue", message -> new String(message.value()))
+  );
+```
+
+Or consume the first available message:
+
+```java
+scenario("Consume any event")
+  .exec(
+    kafka("consume first available")
+      .consumeAny("events")
+      .saveAs("payload", message -> new String(message.value()))
   );
 ```
 

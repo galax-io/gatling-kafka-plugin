@@ -72,7 +72,7 @@ class KafkaConsumeActionIntegrationSpec extends AnyFunSuite with BeforeAndAfterA
     val attributes = KafkaConsumeAttributes(
       requestName = _ => Success("consume-integration"),
       topic = _ => Success(topic),
-      expectedMatchId = _ => Success("tracked-payload".getBytes()),
+      expectedMatchId = Some(_ => Success("tracked-payload".getBytes())),
       checks = List(bodyBytes.is("tracked-payload".getBytes())),
       silent = Some(false),
       consumeSettingsOverride = Some(
@@ -109,7 +109,7 @@ class KafkaConsumeActionIntegrationSpec extends AnyFunSuite with BeforeAndAfterA
     val attributes = KafkaConsumeAttributes(
       requestName = _ => Success("consume-header-integration"),
       topic = _ => Success(topic),
-      expectedMatchId = _ => Success("corr-123".getBytes()),
+      expectedMatchId = Some(_ => Success("corr-123".getBytes())),
       checks = Nil,
       silent = Some(false),
       consumeSettingsOverride = Some(
@@ -163,7 +163,7 @@ class KafkaConsumeActionIntegrationSpec extends AnyFunSuite with BeforeAndAfterA
     val attributes = KafkaConsumeAttributes(
       requestName = _ => Success("consume-key-integration"),
       topic = _ => Success(topic),
-      expectedMatchId = _ => Success("order-42".getBytes()),
+      expectedMatchId = Some(_ => Success("order-42".getBytes())),
       checks = List(bodyBytes.is("event-body".getBytes())),
       silent = Some(false),
       consumeSettingsOverride = Some(
@@ -182,6 +182,39 @@ class KafkaConsumeActionIntegrationSpec extends AnyFunSuite with BeforeAndAfterA
 
     assert(!resultSession.isFailed)
     assert(resultSession("eventBody").as[String] == "event-body")
+  }
+
+  test("consumeAny semantics can read the first available message without correlation data") {
+    assume(
+      canRunIntegration,
+      "Integration tests require either GATLING_KAFKA_TEST_BOOTSTRAP or a Docker environment for Testcontainers",
+    )
+
+    val topic = s"consume-any-${UUID.randomUUID()}"
+    createTopics(topic)
+
+    val attributes = KafkaConsumeAttributes(
+      requestName = _ => Success("consume-any-integration"),
+      topic = _ => Success(topic),
+      expectedMatchId = None,
+      checks = List(bodyBytes.is("first-available".getBytes())),
+      silent = Some(false),
+      consumeSettingsOverride = Some(
+        Map(
+          "bootstrap.servers" -> bootstrapServers,
+          "auto.offset.reset" -> "earliest",
+        ),
+      ),
+      responseMatchExtractor = None,
+      replyExtractions = List(KafkaReplyExtraction("anyPayload", msg => new String(msg.value))),
+    )
+
+    val resultSession = awaitConsumeResult(invalidBaseProtocol, attributes) {
+      publish(topic, key = "unused".getBytes(), value = "first-available".getBytes())
+    }
+
+    assert(!resultSession.isFailed)
+    assert(resultSession("anyPayload").as[String] == "first-available")
   }
 
   private def invalidBaseProtocol: KafkaProtocol =

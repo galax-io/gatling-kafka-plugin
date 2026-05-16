@@ -54,45 +54,93 @@ object KafkaMessageTrackerActor {
 
   private[client] def timedOutMessages(
       now: Long,
-      sentMessages: mutable.HashMap[String, MessagePublished],
+      sentMessages: mutable.HashMap[String, mutable.Queue[MessagePublished]],
   ): List[MessagePublished] =
-    sentMessages.valuesIterator.filter { messagePublished =>
-      val replyTimeout = messagePublished.replyTimeout
-      replyTimeout > 0 && (now - messagePublished.sent) > replyTimeout
-    }.toList
+    sentMessages.valuesIterator
+      .flatMap(_.iterator)
+      .filter { messagePublished =>
+        val replyTimeout = messagePublished.replyTimeout
+        replyTimeout > 0 && (now - messagePublished.sent) > replyTimeout
+      }
+      .toList
 
   private[client] def removeTrackedMessage(
       matchId: Array[Byte],
-      sentMessages: mutable.HashMap[String, MessagePublished],
-  ): Option[MessagePublished] =
-    sentMessages.remove(makeTrackingKey(matchId))
+      sentMessages: mutable.HashMap[String, mutable.Queue[MessagePublished]],
+  ): Option[MessagePublished] = {
+    val key = makeTrackingKey(matchId)
+    sentMessages.get(key).flatMap { queue =>
+      if (queue.nonEmpty) {
+        val published = queue.dequeue()
+        if (queue.isEmpty) {
+          sentMessages.remove(key)
+        }
+        Some(published)
+      } else {
+        sentMessages.remove(key)
+        None
+      }
+    }
+  }
 
   private[client] def removeTimedOutMessages(
       timedOutMessages: List[MessagePublished],
-      sentMessages: mutable.HashMap[String, MessagePublished],
+      sentMessages: mutable.HashMap[String, mutable.Queue[MessagePublished]],
   ): List[MessagePublished] =
-    timedOutMessages.filter(message => removeTrackedMessage(message.matchId, sentMessages).isDefined)
+    timedOutMessages.filter { message =>
+      val key = makeTrackingKey(message.matchId)
+      sentMessages.get(key).exists { queue =>
+        val index = queue.indexWhere(_ eq message)
+        if (index >= 0) {
+          queue.remove(index)
+          if (queue.isEmpty) {
+            sentMessages.remove(key)
+          }
+          true
+        } else {
+          false
+        }
+      }
+    }
 
   private[client] def bufferReply(
       replyId: Array[Byte],
       received: Long,
       message: KafkaProtocolMessage,
-      bufferedReplies: mutable.HashMap[String, BufferedReply],
+      bufferedReplies: mutable.HashMap[String, mutable.Queue[BufferedReply]],
   ): Unit =
-    bufferedReplies.update(makeTrackingKey(replyId), BufferedReply(replyId, received, message))
+    bufferedReplies.getOrElseUpdate(makeTrackingKey(replyId), mutable.Queue.empty) += BufferedReply(replyId, received, message)
 
   private[client] def removeBufferedReply(
       matchId: Array[Byte],
-      bufferedReplies: mutable.HashMap[String, BufferedReply],
-  ): Option[BufferedReply] =
-    bufferedReplies.remove(makeTrackingKey(matchId))
+      bufferedReplies: mutable.HashMap[String, mutable.Queue[BufferedReply]],
+  ): Option[BufferedReply] = {
+    val key = makeTrackingKey(matchId)
+    bufferedReplies.get(key).flatMap { queue =>
+      if (queue.nonEmpty) {
+        val reply = queue.dequeue()
+        if (queue.isEmpty) {
+          bufferedReplies.remove(key)
+        }
+        Some(reply)
+      } else {
+        bufferedReplies.remove(key)
+        None
+      }
+    }
+  }
 
   private[client] def removeExpiredBufferedReplies(
       now: Long,
-      bufferedReplies: mutable.HashMap[String, BufferedReply],
+      bufferedReplies: mutable.HashMap[String, mutable.Queue[BufferedReply]],
       retentionMillis: Long = BufferedReplyRetentionMillis,
   ): Unit =
-    bufferedReplies.filterInPlace((_, bufferedReply) => (now - bufferedReply.received) <= retentionMillis)
+    bufferedReplies.filterInPlace { (_, replies) =>
+      val freshReplies = replies.filter(reply => (now - reply.received) <= retentionMillis)
+      replies.clear()
+      replies ++= freshReplies
+      replies.nonEmpty
+    }
 
   private[client] def applyReplyExtractions(
       session: Session,
@@ -114,9 +162,9 @@ class KafkaMessageTrackerActor(statsEngine: StatsEngine, clock: Clock) extends A
   import KafkaMessageTrackerActor._
   def triggerPeriodicTimeoutScan(
       periodicTimeoutScanTriggered: Boolean,
-      sentMessages: mutable.HashMap[String, MessagePublished],
+      sentMessages: mutable.HashMap[String, mutable.Queue[MessagePublished]],
       timedOutMessages: mutable.ArrayBuffer[MessagePublished],
-      bufferedReplies: mutable.HashMap[String, BufferedReply],
+      bufferedReplies: mutable.HashMap[String, mutable.Queue[BufferedReply]],
   ): Unit =
     if (!periodicTimeoutScanTriggered && (sentMessages.nonEmpty || bufferedReplies.nonEmpty)) {
       context.become(onMessage(periodicTimeoutScanTriggered = true, sentMessages, timedOutMessages, bufferedReplies))
@@ -126,9 +174,9 @@ class KafkaMessageTrackerActor(statsEngine: StatsEngine, clock: Clock) extends A
   override def receive: Receive =
     onMessage(
       periodicTimeoutScanTriggered = false,
-      mutable.HashMap.empty[String, MessagePublished],
+      mutable.HashMap.empty[String, mutable.Queue[MessagePublished]],
       mutable.ArrayBuffer.empty[MessagePublished],
-      mutable.HashMap.empty[String, BufferedReply],
+      mutable.HashMap.empty[String, mutable.Queue[BufferedReply]],
     )
 
   private def executeNext(
@@ -207,9 +255,9 @@ class KafkaMessageTrackerActor(statsEngine: StatsEngine, clock: Clock) extends A
 
   private def onMessage(
       periodicTimeoutScanTriggered: Boolean,
-      sentMessages: mutable.HashMap[String, MessagePublished],
+      sentMessages: mutable.HashMap[String, mutable.Queue[MessagePublished]],
       timedOutMessages: mutable.ArrayBuffer[MessagePublished],
-      bufferedReplies: mutable.HashMap[String, BufferedReply],
+      bufferedReplies: mutable.HashMap[String, mutable.Queue[BufferedReply]],
   ): Receive = {
     // message was sent; add the timestamps to the map
     case messageSent: MessagePublished =>
@@ -228,7 +276,7 @@ class KafkaMessageTrackerActor(statsEngine: StatsEngine, clock: Clock) extends A
           )
         case None                                      =>
           val key = makeTrackingKey(messageSent.matchId)
-          sentMessages += key -> messageSent
+          sentMessages.getOrElseUpdate(key, mutable.Queue.empty) += messageSent
           if (messageSent.replyTimeout > 0 || bufferedReplies.nonEmpty) {
             triggerPeriodicTimeoutScan(periodicTimeoutScanTriggered, sentMessages, timedOutMessages, bufferedReplies)
           }

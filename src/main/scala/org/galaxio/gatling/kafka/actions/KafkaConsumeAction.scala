@@ -20,14 +20,20 @@ object KafkaConsumeAction {
       protocolMatcher: KafkaMatcher,
       attributes: KafkaConsumeAttributes,
   ): KafkaMatcher =
-    attributes.responseMatchExtractor match {
-      case Some(responseExtractor) =>
-        new KafkaMatcher {
-          override def requestMatch(msg: KafkaProtocolMessage): Array[Byte]  = protocolMatcher.requestMatch(msg)
-          override def responseMatch(msg: KafkaProtocolMessage): Array[Byte] = responseExtractor(msg)
-        }
-      case None                    => protocolMatcher
-    }
+    if (attributes.expectedMatchId.isEmpty) {
+      new KafkaMatcher {
+        override def requestMatch(msg: KafkaProtocolMessage): Array[Byte]  = KafkaConsumeAttributes.ConsumeAnyMatchId
+        override def responseMatch(msg: KafkaProtocolMessage): Array[Byte] = KafkaConsumeAttributes.ConsumeAnyMatchId
+      }
+    } else
+      attributes.responseMatchExtractor match {
+        case Some(responseExtractor) =>
+          new KafkaMatcher {
+            override def requestMatch(msg: KafkaProtocolMessage): Array[Byte]  = protocolMatcher.requestMatch(msg)
+            override def responseMatch(msg: KafkaProtocolMessage): Array[Byte] = responseExtractor(msg)
+          }
+        case None                    => protocolMatcher
+      }
 
   private[kafka] def effectiveConsumeSettings(
       components: KafkaComponents,
@@ -57,7 +63,7 @@ class KafkaConsumeAction(
     for {
       rn         <- requestName(session)
       topic      <- attributes.topic(session)
-      expectedId <- attributes.expectedMatchId(session)
+      expectedId <- attributes.expectedMatchId.map(_(session)).getOrElse(Success(KafkaConsumeAttributes.ConsumeAnyMatchId))
     } yield throttler
       .fold(trackAndAwait(rn, topic, expectedId, session))(
         _.throttle(session.scenario, () => trackAndAwait(rn, topic, expectedId, session)),

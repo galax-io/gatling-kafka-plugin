@@ -359,12 +359,30 @@ public class KafkaRequestBuilderBase {
         return new ReqRepBase(requestName);
     }
 
-    public ReceiveFromStep receiveFrom(String topic) {
-        return new ReceiveFromStep(toStringExpression(topic), toStringExpression(requestName));
+    public ConsumeActionBuilder consumeFrom(String topic) {
+        return new ConsumeActionBuilder(
+                org.galaxio.gatling.kafka.actions.KafkaConsumeActionBuilder.create(
+                        toStringExpression(requestName),
+                        toStringExpression(topic)
+                )
+        );
     }
 
-    public ReceiveFromStep receiveFrom(JExpression<String> topic) {
-        return new ReceiveFromStep(javaFunctionToExpression(topic), toStringExpression(requestName));
+    public ConsumeActionBuilder consumeFrom(JExpression<String> topic) {
+        return new ConsumeActionBuilder(
+                org.galaxio.gatling.kafka.actions.KafkaConsumeActionBuilder.create(
+                        toStringExpression(requestName),
+                        javaFunctionToExpression(topic)
+                )
+        );
+    }
+
+    public ConsumeActionBuilder consumeAny(String topic) {
+        return consumeFrom(topic);
+    }
+
+    public ConsumeActionBuilder consumeAny(JExpression<String> topic) {
+        return consumeFrom(topic);
     }
 
 }
