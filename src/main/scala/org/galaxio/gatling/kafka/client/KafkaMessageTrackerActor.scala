@@ -39,8 +39,29 @@ object KafkaMessageTrackerActor {
 
   case object TimeoutScan
 
-  private def makeKeyForSentMessages(m: Array[Byte]): String =
+  private[client] def makeTrackingKey(m: Array[Byte]): String =
     Option(m).map(java.util.Base64.getEncoder.encodeToString).getOrElse("")
+
+  private[client] def timedOutMessages(
+      now: Long,
+      sentMessages: mutable.HashMap[String, MessagePublished],
+  ): List[MessagePublished] =
+    sentMessages.valuesIterator.filter { messagePublished =>
+      val replyTimeout = messagePublished.replyTimeout
+      replyTimeout > 0 && (now - messagePublished.sent) > replyTimeout
+    }.toList
+
+  private[client] def removeTrackedMessage(
+      matchId: Array[Byte],
+      sentMessages: mutable.HashMap[String, MessagePublished],
+  ): Option[MessagePublished] =
+    sentMessages.remove(makeTrackingKey(matchId))
+
+  private[client] def removeTimedOutMessages(
+      timedOutMessages: List[MessagePublished],
+      sentMessages: mutable.HashMap[String, MessagePublished],
+  ): List[MessagePublished] =
+    timedOutMessages.filter(message => removeTrackedMessage(message.matchId, sentMessages).isDefined)
 }
 
 class KafkaMessageTrackerActor(statsEngine: StatsEngine, clock: Clock) extends Actor with Timers with LazyLogging {
@@ -127,7 +148,7 @@ class KafkaMessageTrackerActor(statsEngine: StatsEngine, clock: Clock) extends A
   ): Receive = {
     // message was sent; add the timestamps to the map
     case messageSent: MessagePublished =>
-      val key = makeKeyForSentMessages(messageSent.matchId)
+      val key = makeTrackingKey(messageSent.matchId)
       sentMessages += key -> messageSent
       if (messageSent.replyTimeout > 0) {
         triggerPeriodicTimeoutScan(periodicTimeoutScanTriggered, sentMessages, timedOutMessages)
@@ -136,21 +157,18 @@ class KafkaMessageTrackerActor(statsEngine: StatsEngine, clock: Clock) extends A
     // message was received; publish stats and remove from the map
     case MessageConsumed(replyId, received, message) =>
       // if key is missing, message was already acked and is a dup, or request timeout
-      val key = makeKeyForSentMessages(replyId)
-      sentMessages.remove(key).foreach { case MessagePublished(_, sent, _, checks, session, next, requestName, silentRequest) =>
-        processMessage(session, sent, received, checks, message, next, requestName, silentRequest)
+      removeTrackedMessage(replyId, sentMessages).foreach {
+        case MessagePublished(_, sent, _, checks, session, next, requestName, silentRequest) =>
+          processMessage(session, sent, received, checks, message, next, requestName, silentRequest)
       }
 
     case TimeoutScan =>
       val now = clock.nowMillis
-      sentMessages.valuesIterator.foreach { messagePublished =>
-        val replyTimeout = messagePublished.replyTimeout
-        if (replyTimeout > 0 && (now - messagePublished.sent) > replyTimeout) {
-          timedOutMessages += messagePublished
-        }
-      }
-      for (MessagePublished(matchId, sent, receivedTimeout, _, session, next, requestName, silentRequest) <- timedOutMessages) {
-        sentMessages.remove(makeKeyForSentMessages(matchId))
+      timedOutMessages ++= KafkaMessageTrackerActor.timedOutMessages(now, sentMessages)
+      for (
+        MessagePublished(matchId, sent, receivedTimeout, _, session, next, requestName, silentRequest) <-
+          removeTimedOutMessages(timedOutMessages.toList, sentMessages)
+      ) {
         executeNext(
           session.markAsFailed,
           sent,
