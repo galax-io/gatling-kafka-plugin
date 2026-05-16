@@ -124,7 +124,17 @@ class KafkaConsumeActionIntegrationSpec extends AnyFunSuite with BeforeAndAfterA
           .map(_.value())
           .orNull
       },
-      replyExtractions = List(KafkaReplyExtraction("headerPayload", msg => new String(msg.value))),
+      replyExtractions = List(
+        KafkaReplyExtraction("headerPayload", msg => new String(msg.value)),
+        KafkaReplyExtraction(
+          "headerCorrelationId",
+          msg =>
+            msg.headers
+              .flatMap(headers => Option(headers.lastHeader("correlation-id")))
+              .map(header => new String(header.value()))
+              .orNull,
+        ),
+      ),
     )
 
     val resultSession = awaitConsumeResult(invalidBaseProtocol, attributes) {
@@ -138,6 +148,40 @@ class KafkaConsumeActionIntegrationSpec extends AnyFunSuite with BeforeAndAfterA
 
     assert(!resultSession.isFailed)
     assert(resultSession("headerPayload").as[String] == "header-payload")
+    assert(resultSession("headerCorrelationId").as[String] == "corr-123")
+  }
+
+  test("consume-only action can correlate by key and preserve message payload") {
+    assume(
+      canRunIntegration,
+      "Integration tests require either GATLING_KAFKA_TEST_BOOTSTRAP or a Docker environment for Testcontainers",
+    )
+
+    val topic = s"consume-keys-${UUID.randomUUID()}"
+    createTopics(topic)
+
+    val attributes = KafkaConsumeAttributes(
+      requestName = _ => Success("consume-key-integration"),
+      topic = _ => Success(topic),
+      expectedMatchId = _ => Success("order-42".getBytes()),
+      checks = List(bodyBytes.is("event-body".getBytes())),
+      silent = Some(false),
+      consumeSettingsOverride = Some(
+        Map(
+          "bootstrap.servers" -> bootstrapServers,
+          "auto.offset.reset" -> "earliest",
+        ),
+      ),
+      responseMatchExtractor = Some(_.key),
+      replyExtractions = List(KafkaReplyExtraction("eventBody", msg => new String(msg.value))),
+    )
+
+    val resultSession = awaitConsumeResult(invalidBaseProtocol, attributes) {
+      publish(topic, key = "order-42".getBytes(), value = "event-body".getBytes())
+    }
+
+    assert(!resultSession.isFailed)
+    assert(resultSession("eventBody").as[String] == "event-body")
   }
 
   private def invalidBaseProtocol: KafkaProtocol =
