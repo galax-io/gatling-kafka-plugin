@@ -2,6 +2,7 @@ package org.galaxio.gatling.kafka.client
 
 import org.apache.kafka.streams.KafkaStreams
 import org.apache.kafka.streams.StreamsConfig
+import org.apache.kafka.common.header.internals.RecordHeaders
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 import org.scalatest.funsuite.AnyFunSuite
@@ -116,6 +117,26 @@ class TrackersPoolSpec extends AnyFunSuite {
       firstProps.getProperty(StreamsConfig.APPLICATION_ID_CONFIG) != secondProps.getProperty(
         StreamsConfig.APPLICATION_ID_CONFIG,
       ),
+    )
+  }
+
+  test("consumedMessage keeps Kafka headers for header-based matching") {
+    val headers = new RecordHeaders()
+    headers.add("correlation-id", "corr-123".getBytes())
+
+    val message = TrackersPool.consumedMessage(
+      key = "key".getBytes(),
+      value = "value".getBytes(),
+      inputTopic = "requests",
+      outputTopic = "replies",
+      headers = headers,
+    )
+
+    assert(
+      message.headers
+        .flatMap(h => Option(h.lastHeader("correlation-id")))
+        .map(_.value())
+        .exists(_.sameElements("corr-123".getBytes())),
     )
   }
 }
