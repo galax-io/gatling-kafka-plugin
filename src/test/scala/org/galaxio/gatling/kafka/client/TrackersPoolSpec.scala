@@ -1,13 +1,10 @@
 package org.galaxio.gatling.kafka.client
 
-import org.apache.kafka.streams.KafkaStreams
-import org.apache.kafka.streams.StreamsConfig
+import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.common.header.internals.RecordHeaders
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 import org.scalatest.funsuite.AnyFunSuite
-
-import java.util.concurrent.atomic.AtomicReference
 
 class TrackersPoolSpec extends AnyFunSuite {
 
@@ -40,41 +37,6 @@ class TrackersPoolSpec extends AnyFunSuite {
     assert(result == Left("response matcher returned null match id"))
   }
 
-  test("awaitRunning starts the consumer and waits for RUNNING state") {
-    val currentState = new AtomicReference(KafkaStreams.State.CREATED)
-    val started      = new AtomicReference(false)
-    val listenerRef  = new AtomicReference[KafkaStreams.StateListener]()
-
-    TrackersPool.awaitRunning(
-      () => currentState.get(),
-      listener => listenerRef.set(listener),
-      () => {
-        started.set(true)
-        currentState.set(KafkaStreams.State.RUNNING)
-        Option(listenerRef.get()).foreach(_.onChange(KafkaStreams.State.RUNNING, KafkaStreams.State.REBALANCING))
-      },
-      timeoutMillis = 100,
-    )
-
-    assert(started.get())
-    assert(listenerRef.get() != null)
-  }
-
-  test("awaitRunning fails when the consumer never reaches RUNNING") {
-    val currentState = new AtomicReference(KafkaStreams.State.CREATED)
-
-    val error = intercept[IllegalStateException] {
-      TrackersPool.awaitRunning(
-        () => currentState.get(),
-        _ => (),
-        () => currentState.set(KafkaStreams.State.REBALANCING),
-        timeoutMillis = 10,
-      )
-    }
-
-    assert(error.getMessage.contains("did not reach RUNNING state"))
-  }
-
   test("tracker cache key isolates same topic across different matchers") {
     val requestMatcher  = new KafkaProtocol.KafkaMatcher {
       override def requestMatch(msg: KafkaProtocolMessage): Array[Byte]  = msg.key
@@ -91,7 +53,7 @@ class TrackersPoolSpec extends AnyFunSuite {
     assert(left != right)
   }
 
-  test("trackerProperties derives a unique application id per tracker key") {
+  test("consumerProperties derives a unique group id per tracker key") {
     val firstMatcher  = new KafkaProtocol.KafkaMatcher {
       override def requestMatch(msg: KafkaProtocolMessage): Array[Byte]  = msg.key
       override def responseMatch(msg: KafkaProtocolMessage): Array[Byte] = msg.key
@@ -101,21 +63,21 @@ class TrackersPoolSpec extends AnyFunSuite {
       override def responseMatch(msg: KafkaProtocolMessage): Array[Byte] = msg.value
     }
 
-    val baseSettings = Map[String, AnyRef](StreamsConfig.APPLICATION_ID_CONFIG -> "gatling-test-base")
-    val firstProps   = TrackersPool.trackerProperties(
+    val baseSettings = Map[String, AnyRef](ConsumerConfig.GROUP_ID_CONFIG -> "gatling-test-base")
+    val firstProps   = TrackersPool.consumerProperties(
       baseSettings,
       TrackersPool.TrackerCacheKey("requests", "replies", firstMatcher, None),
     )
-    val secondProps  = TrackersPool.trackerProperties(
+    val secondProps  = TrackersPool.consumerProperties(
       baseSettings,
       TrackersPool.TrackerCacheKey("requests", "replies", secondMatcher, None),
     )
 
-    assert(firstProps.getProperty(StreamsConfig.APPLICATION_ID_CONFIG).startsWith("gatling-test-base-"))
-    assert(secondProps.getProperty(StreamsConfig.APPLICATION_ID_CONFIG).startsWith("gatling-test-base-"))
+    assert(firstProps.getProperty(ConsumerConfig.GROUP_ID_CONFIG).startsWith("gatling-test-base-"))
+    assert(secondProps.getProperty(ConsumerConfig.GROUP_ID_CONFIG).startsWith("gatling-test-base-"))
     assert(
-      firstProps.getProperty(StreamsConfig.APPLICATION_ID_CONFIG) != secondProps.getProperty(
-        StreamsConfig.APPLICATION_ID_CONFIG,
+      firstProps.getProperty(ConsumerConfig.GROUP_ID_CONFIG) != secondProps.getProperty(
+        ConsumerConfig.GROUP_ID_CONFIG,
       ),
     )
   }

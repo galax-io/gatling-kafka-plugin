@@ -2,7 +2,6 @@ package org.galaxio.gatling.kafka.request
 
 import io.confluent.kafka.schemaregistry.client.CachedSchemaRegistryClient
 import io.confluent.kafka.serializers.{KafkaAvroDeserializer, KafkaAvroSerializer}
-import io.confluent.kafka.streams.serdes.avro.GenericAvroSerde
 import org.apache.avro.generic.GenericRecord
 import org.apache.kafka.common.serialization.{Deserializer, Serde, Serializer, Serdes => JSerdes}
 import org.apache.kafka.streams.kstream.WindowedSerdes
@@ -42,6 +41,9 @@ trait KafkaSerdesImplicits {
     ).asInstanceOf[Deserializer[T]]
   }
 
-  implicit val avroSerde: Serde[GenericRecord] = new GenericAvroSerde()
+  implicit val avroSerde: Serde[GenericRecord] = JSerdes.serdeFrom(
+    new KafkaAvroSerializer().asInstanceOf[Serializer[GenericRecord]],
+    new KafkaAvroDeserializer().asInstanceOf[Deserializer[GenericRecord]],
+  )
 
 }

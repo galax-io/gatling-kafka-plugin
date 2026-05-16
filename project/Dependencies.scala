@@ -30,7 +30,7 @@ object Dependencies {
   lazy val kafka: Seq[ModuleID] = Seq(
     ("org.apache.kafka"  % "kafka-clients"       % Versions.kafka)
       .exclude("org.slf4j", "slf4j-api"),
-    ("org.apache.kafka" %% "kafka-streams-scala" % Versions.kafka)
+    ("org.apache.kafka" %% "kafka-streams-scala" % Versions.kafka % "provided")
       .exclude("org.slf4j", "slf4j-api"),
   )
 

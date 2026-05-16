@@ -4,20 +4,18 @@ import akka.actor.{ActorSystem, CoordinatedShutdown}
 import io.gatling.commons.util.Clock
 import io.gatling.core.stats.StatsEngine
 import io.gatling.core.util.NameGen
-import org.apache.kafka.streams.KafkaStreams
-import org.apache.kafka.streams.processor.api.{ContextualProcessor, Record}
-import org.apache.kafka.streams.StreamsConfig
-import org.apache.kafka.streams.scala.ImplicitConversions._
-import org.apache.kafka.streams.scala.StreamsBuilder
-import org.apache.kafka.streams.scala.serialization.Serdes._
+import org.apache.kafka.clients.consumer.{ConsumerConfig, KafkaConsumer}
+import org.apache.kafka.common.serialization.ByteArrayDeserializer
 import org.galaxio.gatling.kafka.KafkaLogging
 import org.galaxio.gatling.kafka.client.KafkaMessageTrackerActor.MessageConsumed
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaMatcher
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 
 import java.nio.charset.StandardCharsets
-import java.util.{Properties, UUID}
+import java.time.Duration
+import java.util.{Collections, Properties, UUID}
 import java.util.concurrent.{ConcurrentHashMap, CountDownLatch, TimeUnit}
+import java.util.concurrent.atomic.AtomicBoolean
 import scala.concurrent.duration.DurationInt
 import scala.jdk.CollectionConverters._
 
@@ -30,29 +28,6 @@ object TrackersPool {
       messageMatcher: KafkaMatcher,
       responseTransformer: Option[KafkaProtocolMessage => KafkaProtocolMessage],
   )
-
-  private[client] def awaitRunning(
-      currentState: () => KafkaStreams.State,
-      registerListener: KafkaStreams.StateListener => Unit,
-      start: () => Unit,
-      timeoutMillis: Long,
-  ): Unit = {
-    if (currentState() == KafkaStreams.State.RUNNING) {
-      ()
-    } else {
-      val readyLatch = new CountDownLatch(1)
-      registerListener { (newState, _) =>
-        if (newState == KafkaStreams.State.RUNNING) {
-          readyLatch.countDown()
-        }
-      }
-      start()
-
-      if (currentState() != KafkaStreams.State.RUNNING && !readyLatch.await(timeoutMillis, TimeUnit.MILLISECONDS)) {
-        throw new IllegalStateException(s"Reply consumer did not reach RUNNING state within ${timeoutMillis} ms")
-      }
-    }
-  }
 
   private[client] def responseMatchIdOrError(
       message: KafkaProtocolMessage,
@@ -78,21 +53,27 @@ object TrackersPool {
     s"$baseApplicationId-$fingerprint"
   }
 
-  private[client] def trackerProperties(
-      streamsSettings: Map[String, AnyRef],
+  private[client] def consumerProperties(
+      consumerSettings: Map[String, AnyRef],
       trackerKey: TrackerCacheKey,
   ): Properties = {
     val props             = new Properties()
-    props.putAll(streamsSettings.asJava)
-    val baseApplicationId =
-      streamsSettings.getOrElse(StreamsConfig.APPLICATION_ID_CONFIG, "gatling-test").toString
-    props.put(StreamsConfig.APPLICATION_ID_CONFIG, trackerApplicationId(baseApplicationId, trackerKey))
+    props.putAll(consumerSettings.asJava)
+    val baseGroupId =
+      consumerSettings.getOrElse(ConsumerConfig.GROUP_ID_CONFIG, "gatling-test").toString
+    props.put(ConsumerConfig.GROUP_ID_CONFIG, trackerApplicationId(baseGroupId, trackerKey))
+    props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, classOf[ByteArrayDeserializer].getName)
+    props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, classOf[ByteArrayDeserializer].getName)
+    props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "true")
+    if (!consumerSettings.contains(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG)) {
+      props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest")
+    }
     props
   }
 }
 
 class TrackersPool(
-    streamsSettings: Map[String, AnyRef],
+    consumerSettings: Map[String, AnyRef],
     system: ActorSystem,
     statsEngine: StatsEngine,
     clock: Clock,
@@ -112,61 +93,72 @@ class TrackersPool(
         val actor =
           system.actorOf(KafkaMessageTrackerActor.props(statsEngine, clock), genName("kafkaTrackerActor"))
 
-        val builder = new StreamsBuilder
+        val props = TrackersPool.consumerProperties(consumerSettings, trackerKey)
+        val consumer = new KafkaConsumer[Array[Byte], Array[Byte]](props)
+        consumer.subscribe(Collections.singletonList(outputTopic))
 
-        builder
-          .stream[Array[Byte], Array[Byte]](outputTopic)
-          .process(() =>
-            new ContextualProcessor[Array[Byte], Array[Byte], Void, Void] {
-              override def process(record: Record[Array[Byte], Array[Byte]]): Unit = {
-                val message = TrackersPool.consumedMessage(
-                  record.key(),
-                  record.value(),
-                  inputTopic,
-                  outputTopic,
-                  record.headers(),
-                )
-                TrackersPool.responseMatchIdOrError(message, messageMatcher) match {
-                  case Left(_)        =>
-                    logger.error(s"no messageMatcher key for read message")
-                  case Right(replyId) =>
-                    val receivedTimestamp = clock.nowMillis
-                    if (logger.underlying.isDebugEnabled) {
-                      if (record.key() != null)
-                        logMessage(
-                          s"Record received key=${new String(record.key())}",
-                          message,
-                        )
-                      else
-                        logMessage(
-                          s"Record received key=null",
-                          message,
-                        )
-                    }
+        val shutdown = new AtomicBoolean(false)
+        val readyLatch = new CountDownLatch(1)
 
-                    actor ! MessageConsumed(
-                      replyId,
-                      receivedTimestamp,
-                      responseTransformer.map(_(message)).getOrElse(message),
-                    )
+        val thread = new Thread(
+          () => {
+            try {
+              while (!shutdown.get()) {
+                val records = consumer.poll(Duration.ofMillis(100))
+                readyLatch.countDown()
+                records.forEach { record =>
+                  val message = TrackersPool.consumedMessage(
+                    record.key(),
+                    record.value(),
+                    inputTopic,
+                    outputTopic,
+                    record.headers(),
+                  )
+                  TrackersPool.responseMatchIdOrError(message, messageMatcher) match {
+                    case Left(_)        =>
+                      logger.error(s"no messageMatcher key for read message")
+                    case Right(replyId) =>
+                      val receivedTimestamp = clock.nowMillis
+                      if (logger.underlying.isDebugEnabled) {
+                        if (record.key() != null)
+                          logMessage(
+                            s"Record received key=${new String(record.key())}",
+                            message,
+                          )
+                        else
+                          logMessage(
+                            s"Record received key=null",
+                            message,
+                          )
+                      }
+
+                      actor ! MessageConsumed(
+                        replyId,
+                        receivedTimestamp,
+                        responseTransformer.map(_(message)).getOrElse(message),
+                      )
+                  }
                 }
               }
-            },
-          )
-
-        val streams = new KafkaStreams(builder.build(), TrackersPool.trackerProperties(streamsSettings, trackerKey))
-
-        TrackersPool.awaitRunning(
-          () => streams.state(),
-          streams.setStateListener,
-          () => {
-            streams.cleanUp()
-            streams.start()
+            } finally {
+              consumer.close()
+            }
           },
-          TrackersPool.ConsumerStartupTimeout.toMillis,
+          s"kafka-tracker-${TrackersPool.trackerApplicationId("poll", trackerKey)}",
         )
+        thread.setDaemon(true)
+        thread.start()
 
-        CoordinatedShutdown(system).addJvmShutdownHook(streams.close())
+        if (!readyLatch.await(TrackersPool.ConsumerStartupTimeout.toMillis, TimeUnit.MILLISECONDS)) {
+          throw new IllegalStateException(
+            s"Reply consumer did not start within ${TrackersPool.ConsumerStartupTimeout.toMillis} ms",
+          )
+        }
+
+        CoordinatedShutdown(system).addJvmShutdownHook {
+          shutdown.set(true)
+          consumer.wakeup()
+        }
 
         new KafkaMessageTracker(actor)
       },
