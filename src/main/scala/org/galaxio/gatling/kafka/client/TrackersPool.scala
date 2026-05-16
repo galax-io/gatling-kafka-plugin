@@ -5,6 +5,7 @@ import io.gatling.commons.util.Clock
 import io.gatling.core.stats.StatsEngine
 import io.gatling.core.util.NameGen
 import org.apache.kafka.streams.KafkaStreams
+import org.apache.kafka.streams.StreamsConfig
 import org.apache.kafka.streams.scala.ImplicitConversions._
 import org.apache.kafka.streams.scala.StreamsBuilder
 import org.apache.kafka.streams.scala.serialization.Serdes._
@@ -13,6 +14,8 @@ import org.galaxio.gatling.kafka.client.KafkaMessageTrackerActor.MessageConsumed
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaMatcher
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 
+import java.nio.charset.StandardCharsets
+import java.util.{Properties, UUID}
 import java.util.concurrent.{ConcurrentHashMap, CountDownLatch, TimeUnit}
 import scala.concurrent.duration.DurationInt
 import scala.jdk.CollectionConverters._
@@ -55,6 +58,27 @@ object TrackersPool {
       messageMatcher: KafkaMatcher,
   ): Either[String, Array[Byte]] =
     Option(messageMatcher.responseMatch(message)).toRight("response matcher returned null match id")
+
+  private[client] def trackerApplicationId(baseApplicationId: String, trackerKey: TrackerCacheKey): String = {
+    val fingerprint = UUID.nameUUIDFromBytes(
+      s"${trackerKey.inputTopic}|${trackerKey.outputTopic}|${System.identityHashCode(trackerKey.messageMatcher)}|${trackerKey.responseTransformer
+          .fold("none")(transformer => System.identityHashCode(transformer).toString)}"
+        .getBytes(StandardCharsets.UTF_8),
+    )
+    s"$baseApplicationId-$fingerprint"
+  }
+
+  private[client] def trackerProperties(
+      streamsSettings: Map[String, AnyRef],
+      trackerKey: TrackerCacheKey,
+  ): Properties = {
+    val props             = new Properties()
+    props.putAll(streamsSettings.asJava)
+    val baseApplicationId =
+      streamsSettings.getOrElse(StreamsConfig.APPLICATION_ID_CONFIG, "gatling-test").toString
+    props.put(StreamsConfig.APPLICATION_ID_CONFIG, trackerApplicationId(baseApplicationId, trackerKey))
+    props
+  }
 }
 
 class TrackersPool(
@@ -65,8 +89,6 @@ class TrackersPool(
 ) extends KafkaTrackerProvider with KafkaLogging with NameGen {
 
   private val trackers = new ConcurrentHashMap[TrackersPool.TrackerCacheKey, KafkaMessageTracker]
-  private val props    = new java.util.Properties()
-  props.putAll(streamsSettings.asJava)
 
   override def tracker(
       inputTopic: String,
@@ -76,7 +98,7 @@ class TrackersPool(
   ): KafkaMessageTracker =
     trackers.computeIfAbsent(
       TrackersPool.TrackerCacheKey(inputTopic, outputTopic, messageMatcher, responseTransformer),
-      _ => {
+      trackerKey => {
         val actor =
           system.actorOf(KafkaMessageTrackerActor.props(statsEngine, clock), genName("kafkaTrackerActor"))
 
@@ -112,7 +134,7 @@ class TrackersPool(
           }
         }
 
-        val streams = new KafkaStreams(builder.build(), props)
+        val streams = new KafkaStreams(builder.build(), TrackersPool.trackerProperties(streamsSettings, trackerKey))
 
         TrackersPool.awaitRunning(
           () => streams.state(),
