@@ -72,4 +72,20 @@ class TrackersPoolSpec extends AnyFunSuite {
 
     assert(error.getMessage.contains("did not reach RUNNING state"))
   }
+
+  test("tracker cache key isolates same topic across different matchers") {
+    val requestMatcher  = new KafkaProtocol.KafkaMatcher {
+      override def requestMatch(msg: KafkaProtocolMessage): Array[Byte]  = msg.key
+      override def responseMatch(msg: KafkaProtocolMessage): Array[Byte] = msg.key
+    }
+    val responseMatcher = new KafkaProtocol.KafkaMatcher {
+      override def requestMatch(msg: KafkaProtocolMessage): Array[Byte]  = msg.value
+      override def responseMatch(msg: KafkaProtocolMessage): Array[Byte] = msg.value
+    }
+
+    val left  = TrackersPool.TrackerCacheKey("requests", "replies", requestMatcher, None)
+    val right = TrackersPool.TrackerCacheKey("requests", "replies", responseMatcher, None)
+
+    assert(left != right)
+  }
 }

@@ -99,6 +99,11 @@ case class KafkaRequestBuilderBase(requestName: Expression[String]) {
             implicitly[Serde[V]].serializer(),
             List.empty,
             None,
+            None,
+            None,
+            None,
+            None,
+            List.empty,
           ),
         )
       }

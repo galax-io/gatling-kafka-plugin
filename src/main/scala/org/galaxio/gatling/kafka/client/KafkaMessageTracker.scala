@@ -5,6 +5,7 @@ import io.gatling.core.action.Action
 import io.gatling.core.session.Session
 import org.galaxio.gatling.kafka.KafkaCheck
 import org.galaxio.gatling.kafka.client.KafkaMessageTrackerActor.MessagePublished
+import org.galaxio.gatling.kafka.request.builder.KafkaReplyExtraction
 
 class KafkaMessageTracker(actor: ActorRef) {
 
@@ -13,6 +14,7 @@ class KafkaMessageTracker(actor: ActorRef) {
       sent: Long,
       replyTimeout: Long,
       checks: List[KafkaCheck],
+      replyExtractions: List[KafkaReplyExtraction],
       session: Session,
       next: Action,
       requestName: String,
@@ -23,6 +25,7 @@ class KafkaMessageTracker(actor: ActorRef) {
       sent,
       replyTimeout,
       checks,
+      replyExtractions,
       session,
       next,
       requestName,

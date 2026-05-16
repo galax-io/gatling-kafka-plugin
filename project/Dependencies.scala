@@ -8,6 +8,7 @@ object Dependencies {
     val avro           = "1.12.1"
     val kafkaAvroSerde = "7.9.5"
     val scalaTest      = "3.2.19"
+    val testcontainers = "1.20.4"
   }
 
   lazy val gatling: Seq[ModuleID] = Seq(
@@ -22,6 +23,8 @@ object Dependencies {
 
   lazy val unitTest: Seq[ModuleID] = Seq(
     "org.scalatest" %% "scalatest" % Versions.scalaTest % Test,
+    "org.testcontainers" % "testcontainers" % Versions.testcontainers % Test,
+    "org.testcontainers" % "kafka" % Versions.testcontainers % Test,
   )
 
   lazy val kafka: Seq[ModuleID] = Seq(

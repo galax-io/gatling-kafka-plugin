@@ -1,6 +1,9 @@
 package org.galaxio.gatling.kafka.client
 
+import io.gatling.core.session.Session
 import org.galaxio.gatling.kafka.client.KafkaMessageTrackerActor.MessagePublished
+import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
+import org.galaxio.gatling.kafka.request.builder.KafkaReplyExtraction
 import org.scalatest.funsuite.AnyFunSuite
 
 import scala.collection.mutable
@@ -15,6 +18,7 @@ class KafkaMessageTrackerActorSpec extends AnyFunSuite {
           sent = 1_000L,
           replyTimeout = 2_000L,
           Nil,
+          Nil,
           null,
           null,
           "req",
@@ -26,6 +30,7 @@ class KafkaMessageTrackerActorSpec extends AnyFunSuite {
           sent = 4_000L,
           replyTimeout = 2_000L,
           Nil,
+          Nil,
           null,
           null,
           "req",
@@ -36,6 +41,7 @@ class KafkaMessageTrackerActorSpec extends AnyFunSuite {
           "notimeout".getBytes(),
           sent = 1_000L,
           replyTimeout = 0L,
+          Nil,
           Nil,
           null,
           null,
@@ -50,9 +56,19 @@ class KafkaMessageTrackerActorSpec extends AnyFunSuite {
   }
 
   test("removeTrackedMessage returns published message before timeout and none after cleanup") {
-    val published =
-      MessagePublished("reply".getBytes(), sent = 1_000L, replyTimeout = 2_000L, Nil, null, null, "req", silentRequest = false)
-    val sent      = mutable.HashMap(KafkaMessageTrackerActor.makeTrackingKey("reply".getBytes()) -> published)
+    val published: MessagePublished =
+      MessagePublished(
+        "reply".getBytes(),
+        sent = 1_000L,
+        replyTimeout = 2_000L,
+        Nil,
+        Nil,
+        null,
+        null,
+        "req",
+        silentRequest = false,
+      )
+    val sent                        = mutable.HashMap(KafkaMessageTrackerActor.makeTrackingKey("reply".getBytes()) -> published)
 
     val beforeTimeout = KafkaMessageTrackerActor.removeTrackedMessage("reply".getBytes(), sent)
     val afterTimeout  = KafkaMessageTrackerActor.removeTrackedMessage("reply".getBytes(), sent)
@@ -62,14 +78,55 @@ class KafkaMessageTrackerActorSpec extends AnyFunSuite {
   }
 
   test("removeTimedOutMessages clears timed out entry so late replies are ignored") {
-    val published =
-      MessagePublished("reply".getBytes(), sent = 1_000L, replyTimeout = 2_000L, Nil, null, null, "req", silentRequest = false)
-    val sent      = mutable.HashMap(KafkaMessageTrackerActor.makeTrackingKey("reply".getBytes()) -> published)
+    val published: MessagePublished =
+      MessagePublished(
+        "reply".getBytes(),
+        sent = 1_000L,
+        replyTimeout = 2_000L,
+        Nil,
+        Nil,
+        null,
+        null,
+        "req",
+        silentRequest = false,
+      )
+    val sent                        = mutable.HashMap(KafkaMessageTrackerActor.makeTrackingKey("reply".getBytes()) -> published)
 
     val removed = KafkaMessageTrackerActor.removeTimedOutMessages(List(published), sent)
     val late    = KafkaMessageTrackerActor.removeTrackedMessage("reply".getBytes(), sent)
 
     assert(removed == List(published))
     assert(late.isEmpty)
+  }
+
+  test("applyReplyExtractions stores extracted values into Gatling session") {
+    val session = Session("scenario", 1L, null)
+    val message = KafkaProtocolMessage(
+      key = "request-key".getBytes(),
+      value = "reply-value".getBytes(),
+      inputTopic = "requests",
+      outputTopic = "replies",
+    )
+
+    val result = KafkaMessageTrackerActor.applyReplyExtractions(
+      session,
+      message,
+      List(
+        KafkaReplyExtraction("replyValue", msg => new String(msg.value)),
+        KafkaReplyExtraction("replyKey", msg => new String(msg.key)),
+      ),
+    )
+
+    assert(result.exists(_.attributes == Map("replyValue" -> "reply-value", "replyKey" -> "request-key")))
+  }
+
+  test("applyReplyExtractions rejects null extracted values") {
+    val result = KafkaMessageTrackerActor.applyReplyExtractions(
+      Session("scenario", 1L, null),
+      KafkaProtocolMessage("k".getBytes(), "v".getBytes(), "requests", "replies"),
+      List(KafkaReplyExtraction("replyValue", _ => null)),
+    )
+
+    assert(result == Left("reply extraction 'replyValue' returned null"))
   }
 }

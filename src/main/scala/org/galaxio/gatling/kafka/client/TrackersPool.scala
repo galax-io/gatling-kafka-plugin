@@ -20,6 +20,13 @@ import scala.jdk.CollectionConverters._
 object TrackersPool {
   private val ConsumerStartupTimeout = 30.seconds
 
+  private[client] final case class TrackerCacheKey(
+      inputTopic: String,
+      outputTopic: String,
+      messageMatcher: KafkaMatcher,
+      responseTransformer: Option[KafkaProtocolMessage => KafkaProtocolMessage],
+  )
+
   private[client] def awaitRunning(
       currentState: () => KafkaStreams.State,
       registerListener: KafkaStreams.StateListener => Unit,
@@ -57,7 +64,7 @@ class TrackersPool(
     clock: Clock,
 ) extends KafkaTrackerProvider with KafkaLogging with NameGen {
 
-  private val trackers = new ConcurrentHashMap[String, KafkaMessageTracker]
+  private val trackers = new ConcurrentHashMap[TrackersPool.TrackerCacheKey, KafkaMessageTracker]
   private val props    = new java.util.Properties()
   props.putAll(streamsSettings.asJava)
 
@@ -68,7 +75,7 @@ class TrackersPool(
       responseTransformer: Option[KafkaProtocolMessage => KafkaProtocolMessage],
   ): KafkaMessageTracker =
     trackers.computeIfAbsent(
-      outputTopic,
+      TrackersPool.TrackerCacheKey(inputTopic, outputTopic, messageMatcher, responseTransformer),
       _ => {
         val actor =
           system.actorOf(KafkaMessageTrackerActor.props(statsEngine, clock), genName("kafkaTrackerActor"))

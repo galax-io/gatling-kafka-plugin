@@ -11,8 +11,8 @@ import io.gatling.core.stats.StatsEngine
 import io.gatling.core.util.NameGen
 import org.apache.kafka.common.serialization.Serializer
 import org.galaxio.gatling.kafka.KafkaLogging
-import org.galaxio.gatling.kafka.client.{KafkaMessageTracker, KafkaTrackerProvider}
-import org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaMatcher
+import org.galaxio.gatling.kafka.client.{KafkaMessageTracker, KafkaSender, KafkaTrackerProvider}
+import org.galaxio.gatling.kafka.protocol.KafkaProtocol.{KafkaMatcher, KafkaMessageMatcher}
 import org.galaxio.gatling.kafka.protocol.KafkaComponents
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 import org.galaxio.gatling.kafka.request.builder.KafkaRequestReplyAttributes
@@ -42,6 +42,30 @@ object KafkaRequestReplyAction {
         trackersPool.tracker(protocolMessage.inputTopic, protocolMessage.outputTopic, messageMatcher, None),
       )
     }
+
+  private[kafka] def effectiveMessageMatcher(
+      protocolMatcher: KafkaMatcher,
+      attributes: KafkaRequestReplyAttributes[_, _],
+  ): KafkaMatcher =
+    new KafkaMatcher {
+      override def requestMatch(msg: KafkaProtocolMessage): Array[Byte] =
+        attributes.requestMatchExtractor.getOrElse(protocolMatcher.requestMatch _)(msg)
+
+      override def responseMatch(msg: KafkaProtocolMessage): Array[Byte] =
+        attributes.responseMatchExtractor.getOrElse(protocolMatcher.responseMatch _)(msg)
+    }
+
+  private[kafka] def effectiveProducerSettings(
+      components: KafkaComponents,
+      attributes: KafkaRequestReplyAttributes[_, _],
+  ): Map[String, AnyRef] =
+    components.kafkaProtocol.producerProperties ++ attributes.producerSettingsOverride.getOrElse(Map.empty)
+
+  private[kafka] def effectiveConsumeSettings(
+      components: KafkaComponents,
+      attributes: KafkaRequestReplyAttributes[_, _],
+  ): Map[String, AnyRef] =
+    components.kafkaProtocol.consumeProperties ++ attributes.consumeSettingsOverride.getOrElse(Map.empty)
 }
 
 class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
@@ -52,7 +76,13 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
     val next: Action,
     throttler: Option[Throttler],
 ) extends RequestAction with KafkaLogging with NameGen {
-  override def requestName: Expression[String] = attributes.requestName
+  override def requestName: Expression[String]   = attributes.requestName
+  private val messageMatcher                     =
+    KafkaRequestReplyAction.effectiveMessageMatcher(components.kafkaProtocol.messageMatcher, attributes)
+  private val sender: KafkaSender                =
+    components.senderProvider.sender(KafkaRequestReplyAction.effectiveProducerSettings(components, attributes))
+  private val trackersPool: KafkaTrackerProvider =
+    components.trackersPoolFactory.trackerProvider(KafkaRequestReplyAction.effectiveConsumeSettings(components, attributes))
 
   override def sendRequest(session: Session): Validation[Unit] = {
     for {
@@ -109,9 +139,9 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
 
   private def publishAndLogMessage(requestNameString: String, msg: KafkaProtocolMessage, session: Session): Unit = {
     val now = clock.nowMillis
-    KafkaRequestReplyAction.prepareTrackerOrError(msg, components.trackersPool, components.kafkaProtocol.messageMatcher) match {
+    KafkaRequestReplyAction.prepareTrackerOrError(msg, trackersPool, messageMatcher) match {
       case Right(preparedTracker) =>
-        components.sender.send(msg)(
+        sender.send(msg)(
           rm => {
             if (logger.underlying.isDebugEnabled) {
               logMessage(s"Record sent user=${session.userId} key=${new String(msg.key)} topic=${rm.topic()}", msg)
@@ -122,6 +152,7 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
                 clock.nowMillis,
                 components.kafkaProtocol.timeout.toMillis,
                 attributes.checks,
+                attributes.replyExtractions,
                 session,
                 next,
                 requestNameString,

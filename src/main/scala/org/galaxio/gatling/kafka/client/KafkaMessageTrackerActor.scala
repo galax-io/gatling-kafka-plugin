@@ -11,9 +11,11 @@ import io.gatling.core.session.Session
 import io.gatling.core.stats.StatsEngine
 import org.galaxio.gatling.kafka.KafkaCheck
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
+import org.galaxio.gatling.kafka.request.builder.KafkaReplyExtraction
 
 import scala.collection.mutable
 import scala.concurrent.duration.DurationInt
+import scala.util.Try
 
 object KafkaMessageTrackerActor {
 
@@ -25,6 +27,7 @@ object KafkaMessageTrackerActor {
       sent: Long,
       replyTimeout: Long,
       checks: List[KafkaCheck],
+      replyExtractions: List[KafkaReplyExtraction],
       session: Session,
       next: Action,
       requestName: String,
@@ -62,6 +65,21 @@ object KafkaMessageTrackerActor {
       sentMessages: mutable.HashMap[String, MessagePublished],
   ): List[MessagePublished] =
     timedOutMessages.filter(message => removeTrackedMessage(message.matchId, sentMessages).isDefined)
+
+  private[client] def applyReplyExtractions(
+      session: Session,
+      message: KafkaProtocolMessage,
+      replyExtractions: List[KafkaReplyExtraction],
+  ): Either[String, Session] =
+    replyExtractions.foldLeft[Either[String, Session]](Right(session)) { case (acc, extraction) =>
+      acc.flatMap { currentSession =>
+        Try(extraction.extractor(message)).toEither.left.map(_.getMessage).flatMap { extractedValue =>
+          Option(extractedValue)
+            .toRight(s"reply extraction '${extraction.sessionKey}' returned null")
+            .map(currentSession.set(extraction.sessionKey, _))
+        }
+      }
+    }
 }
 
 class KafkaMessageTrackerActor(statsEngine: StatsEngine, clock: Clock) extends Actor with Timers with LazyLogging {
@@ -117,16 +135,17 @@ class KafkaMessageTrackerActor(statsEngine: StatsEngine, clock: Clock) extends A
       sent: Long,
       received: Long,
       checks: List[KafkaCheck],
+      replyExtractions: List[KafkaReplyExtraction],
       message: KafkaProtocolMessage,
       next: Action,
       requestName: String,
       silentRequest: Boolean,
   ): Unit = {
-    val (newSession, error) = Check.check(message, session, checks)
+    val (checkedSession, error) = Check.check(message, session, checks)
     error match {
       case Some(Failure(errorMessage)) =>
         executeNext(
-          newSession.markAsFailed,
+          checkedSession.markAsFailed,
           sent,
           received,
           KO,
@@ -137,7 +156,22 @@ class KafkaMessageTrackerActor(statsEngine: StatsEngine, clock: Clock) extends A
           silentRequest,
         )
       case _                           =>
-        executeNext(newSession, sent, received, OK, next, requestName, None, None, silentRequest)
+        KafkaMessageTrackerActor.applyReplyExtractions(checkedSession, message, replyExtractions) match {
+          case Left(errorMessage) =>
+            executeNext(
+              checkedSession.markAsFailed,
+              sent,
+              received,
+              KO,
+              next,
+              requestName,
+              message.responseCode,
+              Some(errorMessage),
+              silentRequest,
+            )
+          case Right(newSession)  =>
+            executeNext(newSession, sent, received, OK, next, requestName, None, None, silentRequest)
+        }
     }
   }
 
@@ -158,15 +192,15 @@ class KafkaMessageTrackerActor(statsEngine: StatsEngine, clock: Clock) extends A
     case MessageConsumed(replyId, received, message) =>
       // if key is missing, message was already acked and is a dup, or request timeout
       removeTrackedMessage(replyId, sentMessages).foreach {
-        case MessagePublished(_, sent, _, checks, session, next, requestName, silentRequest) =>
-          processMessage(session, sent, received, checks, message, next, requestName, silentRequest)
+        case MessagePublished(_, sent, _, checks, replyExtractions, session, next, requestName, silentRequest) =>
+          processMessage(session, sent, received, checks, replyExtractions, message, next, requestName, silentRequest)
       }
 
     case TimeoutScan =>
       val now = clock.nowMillis
       timedOutMessages ++= KafkaMessageTrackerActor.timedOutMessages(now, sentMessages)
       for (
-        MessagePublished(matchId, sent, receivedTimeout, _, session, next, requestName, silentRequest) <-
+        MessagePublished(matchId, sent, receivedTimeout, _, _, session, next, requestName, silentRequest) <-
           removeTimedOutMessages(timedOutMessages.toList, sentMessages)
       ) {
         executeNext(

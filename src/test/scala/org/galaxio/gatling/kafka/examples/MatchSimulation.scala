@@ -61,7 +61,12 @@ class MatchSimulation extends Simulation {
       kafka("ReqRep").requestReply
         .requestTopic("test.t")
         .replyTopic("test.t")
-        .send[String, String]("#{kekey}", """{ "m": "dkf" }"""),
+        .send[String, String]("#{kekey}", """{ "m": "dkf" }""")
+        .producerSettings(Map(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG -> "localhost:9092"))
+        .consumeSettings(Map("bootstrap.servers" -> "localhost:9092"))
+        .requestMatchBy(_.key)
+        .replyMatchBy(_.value)
+        .saveReplyAs("replyValue")(msg => new String(msg.value)),
     )
 
   setUp(scn.inject(atOnceUsers(1))).protocols(kafkaProtocolMatchByMessage).maxDuration(120.seconds)
