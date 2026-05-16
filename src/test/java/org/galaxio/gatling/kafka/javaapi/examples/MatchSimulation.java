@@ -96,7 +96,12 @@ public class MatchSimulation extends Simulation {
             .replyTopic("test.t")
         .send("#{kekey}", """
                 { "m": "dkf" }
-                """, String.class, String.class));
+                """, String.class, String.class)
+            .producerSettings(Map.of(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092"))
+            .consumeSettings(Map.of("bootstrap.servers", "localhost:9092"))
+            .requestMatchBy(KafkaProtocolMessage::key)
+            .replyMatchBy(KafkaProtocolMessage::value)
+            .saveReplyAs("replyValue", msg -> new String(msg.value())));
 
     {
         setUp(

@@ -89,6 +89,11 @@ class MatchSimulation : Simulation() {
                     String::class.java,
                     String::class.java
                 )
+                .producerSettings(mapOf(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to "localhost:9092"))
+                .consumeSettings(mapOf("bootstrap.servers" to "localhost:9092"))
+                .requestMatchBy { message: KafkaProtocolMessage -> message.key }
+                .replyMatchBy { message: KafkaProtocolMessage -> message.value }
+                .saveReplyAs("replyValue") { message: KafkaProtocolMessage -> String(message.value) }
         )
 
         init
