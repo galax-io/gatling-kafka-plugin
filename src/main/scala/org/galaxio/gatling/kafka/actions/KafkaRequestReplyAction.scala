@@ -11,6 +11,7 @@ import io.gatling.core.stats.StatsEngine
 import io.gatling.core.util.NameGen
 import org.apache.kafka.common.serialization.Serializer
 import org.galaxio.gatling.kafka.KafkaLogging
+import org.galaxio.gatling.kafka.client.{KafkaMessageTracker, KafkaTrackerProvider}
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaMatcher
 import org.galaxio.gatling.kafka.protocol.KafkaComponents
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
@@ -19,11 +20,28 @@ import org.galaxio.gatling.kafka.request.builder.KafkaRequestReplyAttributes
 import scala.reflect.{ClassTag, classTag}
 
 object KafkaRequestReplyAction {
+  private[kafka] final case class PreparedTracker(
+      matchId: Array[Byte],
+      tracker: KafkaMessageTracker,
+  )
+
   private[kafka] def requestMatchIdOrError(
       protocolMessage: KafkaProtocolMessage,
       messageMatcher: KafkaMatcher,
   ): Either[String, Array[Byte]] =
     Option(messageMatcher.requestMatch(protocolMessage)).toRight("request matcher returned null match id")
+
+  private[kafka] def prepareTrackerOrError(
+      protocolMessage: KafkaProtocolMessage,
+      trackersPool: KafkaTrackerProvider,
+      messageMatcher: KafkaMatcher,
+  ): Either[String, PreparedTracker] =
+    requestMatchIdOrError(protocolMessage, messageMatcher).map { matchId =>
+      PreparedTracker(
+        matchId,
+        trackersPool.tracker(protocolMessage.inputTopic, protocolMessage.outputTopic, messageMatcher, None),
+      )
+    }
 }
 
 class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
@@ -91,17 +109,16 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
 
   private def publishAndLogMessage(requestNameString: String, msg: KafkaProtocolMessage, session: Session): Unit = {
     val now = clock.nowMillis
-    components.sender.send(msg)(
-      rm => {
-        if (logger.underlying.isDebugEnabled) {
-          logMessage(s"Record sent user=${session.userId} key=${new String(msg.key)} topic=${rm.topic()}", msg)
-        }
-        KafkaRequestReplyAction.requestMatchIdOrError(msg, components.kafkaProtocol.messageMatcher) match {
-          case Right(id)          =>
-            components.trackersPool
-              .tracker(msg.inputTopic, msg.outputTopic, components.kafkaProtocol.messageMatcher, None)
+    KafkaRequestReplyAction.prepareTrackerOrError(msg, components.trackersPool, components.kafkaProtocol.messageMatcher) match {
+      case Right(preparedTracker) =>
+        components.sender.send(msg)(
+          rm => {
+            if (logger.underlying.isDebugEnabled) {
+              logMessage(s"Record sent user=${session.userId} key=${new String(msg.key)} topic=${rm.topic()}", msg)
+            }
+            preparedTracker.tracker
               .track(
-                id,
+                preparedTracker.matchId,
                 clock.nowMillis,
                 components.kafkaProtocol.timeout.toMillis,
                 attributes.checks,
@@ -110,8 +127,9 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
                 requestNameString,
                 attributes.silent.getOrElse(false),
               )
-          case Left(errorMessage) =>
-            logger.error(errorMessage)
+          },
+          e => {
+            logger.error(e.getMessage, e)
             if (!attributes.silent.getOrElse(false)) {
               statsEngine.logResponse(
                 session.scenario,
@@ -121,14 +139,13 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
                 clock.nowMillis,
                 KO,
                 Some("500"),
-                Some(errorMessage),
+                Some(e.getMessage),
               )
             }
-            next ! session.logGroupRequestTimings(now, clock.nowMillis).markAsFailed
-        }
-      },
-      e => {
-        logger.error(e.getMessage, e)
+          },
+        )
+      case Left(errorMessage)     =>
+        logger.error(errorMessage)
         if (!attributes.silent.getOrElse(false)) {
           statsEngine.logResponse(
             session.scenario,
@@ -138,11 +155,11 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
             clock.nowMillis,
             KO,
             Some("500"),
-            Some(e.getMessage),
+            Some(errorMessage),
           )
         }
-      },
-    )
+        next ! session.logGroupRequestTimings(now, clock.nowMillis).markAsFailed
+    }
   }
 
   override def name: String = genName("kafkaRequestReply")
