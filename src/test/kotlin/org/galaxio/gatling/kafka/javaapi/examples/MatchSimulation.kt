@@ -5,6 +5,7 @@ import io.gatling.javaapi.core.Simulation
 import org.apache.kafka.clients.producer.ProducerConfig
 import org.galaxio.gatling.kafka.javaapi.*
 import org.galaxio.gatling.kafka.javaapi.KafkaDsl.*
+import org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaMatcher
 import org.galaxio.gatling.kafka.request.*
 import java.time.Duration
 import java.util.concurrent.atomic.AtomicInteger
@@ -46,6 +47,29 @@ class MatchSimulation : Simulation() {
         )
         .timeout(Duration.ofSeconds(5))
         .matchByMessage { message: KafkaProtocolMessage -> matchByOwnVal(message) }
+
+    private val kafkaProtocolMatchByKafkaMatcher = kafka().requestReply()
+        .producerSettings(
+            mapOf<String, Any>(
+                ProducerConfig.ACKS_CONFIG to "1",
+                ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to "localhost:9092"
+            )
+        )
+        .consumeSettings(
+            mapOf<String, Any>(
+                "bootstrap.servers" to "localhost:9092"
+            )
+        )
+        .timeout(Duration.ofSeconds(5))
+        .matchByKafkaMatcher(object : KafkaMatcher {
+            override fun requestMatch(msg: KafkaProtocolMessage): ByteArray {
+                return msg.key
+            }
+
+            override fun responseMatch(msg: KafkaProtocolMessage): ByteArray {
+                return msg.value
+            }
+        })
 
     private val c = AtomicInteger(0)
 
