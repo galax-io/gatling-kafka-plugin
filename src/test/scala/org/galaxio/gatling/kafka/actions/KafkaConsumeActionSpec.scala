@@ -17,13 +17,12 @@ class KafkaConsumeActionSpec extends AnyFunSuite {
     KafkaConsumeAttributes(
       requestName = _ => Success("consume"),
       topic = _ => Success("events"),
-      expectedMatchId = _ => Success("match-id".getBytes()),
+      expectedMatchId = Some(_ => Success("match-id".getBytes())),
       checks = Nil,
       silent = None,
       consumeSettingsOverride = consumeSettingsOverride,
       responseMatchExtractor = responseMatchExtractor,
       replyExtractions = Nil,
-      consumeAny = false,
     )
 
   private val protocolMessage = KafkaProtocolMessage(
@@ -85,7 +84,7 @@ class KafkaConsumeActionSpec extends AnyFunSuite {
     assert(result == Left("consume-only matcher returned null expected match id"))
   }
 
-  test("effectiveMessageMatcher uses consumeAny sentinel matcher when consumeAny is enabled") {
+  test("effectiveMessageMatcher uses consumeAny sentinel matcher when no explicit tracking id is configured") {
     val protocolMatcher = new KafkaProtocol.KafkaMatcher {
       override def requestMatch(msg: KafkaProtocolMessage): Array[Byte]  = "protocol-request".getBytes()
       override def responseMatch(msg: KafkaProtocolMessage): Array[Byte] = "protocol-response".getBytes()
@@ -93,7 +92,7 @@ class KafkaConsumeActionSpec extends AnyFunSuite {
 
     val effective = KafkaConsumeAction.effectiveMessageMatcher(
       protocolMatcher,
-      attributes().copy(consumeAny = true),
+      attributes().copy(expectedMatchId = None),
     )
 
     assert(effective.requestMatch(protocolMessage).sameElements(KafkaConsumeAttributes.ConsumeAnyMatchId))

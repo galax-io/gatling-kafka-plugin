@@ -5,6 +5,7 @@ import io.gatling.javaapi.core.CheckBuilder;
 import org.galaxio.gatling.kafka.javaapi.checks.KafkaChecks;
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol;
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage;
+import org.galaxio.gatling.kafka.javaapi.request.expressions.ExpressionBuilder;
 
 import java.util.Arrays;
 import java.util.List;
@@ -13,6 +14,7 @@ import java.util.function.Function;
 
 import scala.jdk.javaapi.CollectionConverters;
 import scala.jdk.javaapi.FunctionConverters;
+import static io.gatling.javaapi.core.internal.Expressions.toStaticValueExpression;
 
 public class ConsumeActionBuilder implements ActionBuilder {
 
@@ -34,6 +36,24 @@ public class ConsumeActionBuilder implements ActionBuilder {
     public ConsumeActionBuilder consumeSettings(Map<String, Object> settings) {
         this.wrapped = wrapped.consumeSettings(scalaMap(settings));
         return this;
+    }
+
+    public ConsumeActionBuilder matchIdForTracking(byte[] expectedMatchId) {
+        this.wrapped = wrapped.matchIdForTracking(toStaticValueExpression(expectedMatchId));
+        return this;
+    }
+
+    public ConsumeActionBuilder matchIdForTracking(ExpressionBuilder<byte[]> expectedMatchId) {
+        this.wrapped = wrapped.matchIdForTracking(expectedMatchId.gatlingExpression());
+        return this;
+    }
+
+    public ConsumeActionBuilder expectMatchId(byte[] expectedMatchId) {
+        return matchIdForTracking(expectedMatchId);
+    }
+
+    public ConsumeActionBuilder expectMatchId(ExpressionBuilder<byte[]> expectedMatchId) {
+        return matchIdForTracking(expectedMatchId);
     }
 
     public ConsumeActionBuilder replyMatchBy(Function<KafkaProtocolMessage, byte[]> extractor) {

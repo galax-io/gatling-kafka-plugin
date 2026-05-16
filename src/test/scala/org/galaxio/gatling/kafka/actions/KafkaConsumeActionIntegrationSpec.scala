@@ -72,7 +72,7 @@ class KafkaConsumeActionIntegrationSpec extends AnyFunSuite with BeforeAndAfterA
     val attributes = KafkaConsumeAttributes(
       requestName = _ => Success("consume-integration"),
       topic = _ => Success(topic),
-      expectedMatchId = _ => Success("tracked-payload".getBytes()),
+      expectedMatchId = Some(_ => Success("tracked-payload".getBytes())),
       checks = List(bodyBytes.is("tracked-payload".getBytes())),
       silent = Some(false),
       consumeSettingsOverride = Some(
@@ -86,7 +86,6 @@ class KafkaConsumeActionIntegrationSpec extends AnyFunSuite with BeforeAndAfterA
         KafkaReplyExtraction("consumedPayload", message => new String(message.value)),
         KafkaReplyExtraction("consumedKey", message => Option(message.key).map(new String(_)).orNull),
       ),
-      consumeAny = false,
     )
 
     val resultSession = awaitConsumeResult(invalidBaseProtocol, attributes) {
@@ -110,7 +109,7 @@ class KafkaConsumeActionIntegrationSpec extends AnyFunSuite with BeforeAndAfterA
     val attributes = KafkaConsumeAttributes(
       requestName = _ => Success("consume-header-integration"),
       topic = _ => Success(topic),
-      expectedMatchId = _ => Success("corr-123".getBytes()),
+      expectedMatchId = Some(_ => Success("corr-123".getBytes())),
       checks = Nil,
       silent = Some(false),
       consumeSettingsOverride = Some(
@@ -136,7 +135,6 @@ class KafkaConsumeActionIntegrationSpec extends AnyFunSuite with BeforeAndAfterA
               .orNull,
         ),
       ),
-      consumeAny = false,
     )
 
     val resultSession = awaitConsumeResult(invalidBaseProtocol, attributes) {
@@ -165,7 +163,7 @@ class KafkaConsumeActionIntegrationSpec extends AnyFunSuite with BeforeAndAfterA
     val attributes = KafkaConsumeAttributes(
       requestName = _ => Success("consume-key-integration"),
       topic = _ => Success(topic),
-      expectedMatchId = _ => Success("order-42".getBytes()),
+      expectedMatchId = Some(_ => Success("order-42".getBytes())),
       checks = List(bodyBytes.is("event-body".getBytes())),
       silent = Some(false),
       consumeSettingsOverride = Some(
@@ -176,7 +174,6 @@ class KafkaConsumeActionIntegrationSpec extends AnyFunSuite with BeforeAndAfterA
       ),
       responseMatchExtractor = Some(_.key),
       replyExtractions = List(KafkaReplyExtraction("eventBody", msg => new String(msg.value))),
-      consumeAny = false,
     )
 
     val resultSession = awaitConsumeResult(invalidBaseProtocol, attributes) {
@@ -199,7 +196,7 @@ class KafkaConsumeActionIntegrationSpec extends AnyFunSuite with BeforeAndAfterA
     val attributes = KafkaConsumeAttributes(
       requestName = _ => Success("consume-any-integration"),
       topic = _ => Success(topic),
-      expectedMatchId = _ => Success(org.galaxio.gatling.kafka.request.builder.KafkaConsumeAttributes.ConsumeAnyMatchId),
+      expectedMatchId = None,
       checks = List(bodyBytes.is("first-available".getBytes())),
       silent = Some(false),
       consumeSettingsOverride = Some(
@@ -208,9 +205,8 @@ class KafkaConsumeActionIntegrationSpec extends AnyFunSuite with BeforeAndAfterA
           "auto.offset.reset" -> "earliest",
         ),
       ),
-      responseMatchExtractor = Some(_ => org.galaxio.gatling.kafka.request.builder.KafkaConsumeAttributes.ConsumeAnyMatchId),
+      responseMatchExtractor = None,
       replyExtractions = List(KafkaReplyExtraction("anyPayload", msg => new String(msg.value))),
-      consumeAny = true,
     )
 
     val resultSession = awaitConsumeResult(invalidBaseProtocol, attributes) {

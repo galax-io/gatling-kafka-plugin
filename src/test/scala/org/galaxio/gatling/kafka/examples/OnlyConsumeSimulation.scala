@@ -26,7 +26,7 @@ class OnlyConsumeSimulation extends Simulation {
     .exec(session => session.set("correlationId", "corr-42"))
     .exec(
       kafka("Consume only")
-        .receiveFrom("events")
+        .consumeFrom("events")
         .headerForTracking("correlation-id", "#{correlationId}")
         .saveAs("replyValue")(message => new String(message.value)),
     )

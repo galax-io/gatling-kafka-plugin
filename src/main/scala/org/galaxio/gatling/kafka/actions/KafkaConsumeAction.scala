@@ -20,7 +20,7 @@ object KafkaConsumeAction {
       protocolMatcher: KafkaMatcher,
       attributes: KafkaConsumeAttributes,
   ): KafkaMatcher =
-    if (attributes.consumeAny) {
+    if (attributes.expectedMatchId.isEmpty) {
       new KafkaMatcher {
         override def requestMatch(msg: KafkaProtocolMessage): Array[Byte]  = KafkaConsumeAttributes.ConsumeAnyMatchId
         override def responseMatch(msg: KafkaProtocolMessage): Array[Byte] = KafkaConsumeAttributes.ConsumeAnyMatchId
@@ -63,7 +63,7 @@ class KafkaConsumeAction(
     for {
       rn         <- requestName(session)
       topic      <- attributes.topic(session)
-      expectedId <- attributes.expectedMatchId(session)
+      expectedId <- attributes.expectedMatchId.map(_(session)).getOrElse(Success(KafkaConsumeAttributes.ConsumeAnyMatchId))
     } yield throttler
       .fold(trackAndAwait(rn, topic, expectedId, session))(
         _.throttle(session.scenario, () => trackAndAwait(rn, topic, expectedId, session)),

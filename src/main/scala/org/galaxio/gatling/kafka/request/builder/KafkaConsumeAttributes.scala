@@ -11,11 +11,10 @@ object KafkaConsumeAttributes {
 case class KafkaConsumeAttributes(
     requestName: Expression[String],
     topic: Expression[String],
-    expectedMatchId: Expression[Array[Byte]],
+    expectedMatchId: Option[Expression[Array[Byte]]],
     checks: List[KafkaCheck],
     silent: Option[Boolean],
     consumeSettingsOverride: Option[Map[String, AnyRef]],
     responseMatchExtractor: Option[KafkaProtocolMessage => Array[Byte]],
     replyExtractions: List[KafkaReplyExtraction],
-    consumeAny: Boolean,
 )
