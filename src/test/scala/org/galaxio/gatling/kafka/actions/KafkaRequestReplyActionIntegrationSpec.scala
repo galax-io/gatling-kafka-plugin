@@ -220,6 +220,9 @@ class KafkaRequestReplyActionIntegrationSpec extends AnyFunSuite with BeforeAndA
     val nextAction = new Action {
       override def name: String = "capture-next"
 
+      override def !(session: Session): Unit =
+        execute(session)
+
       override def execute(session: Session): Unit = {
         out = Some(session)
         latch.countDown()
