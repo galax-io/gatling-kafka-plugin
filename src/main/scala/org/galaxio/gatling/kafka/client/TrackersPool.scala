@@ -57,7 +57,7 @@ object TrackersPool {
       consumerSettings: Map[String, AnyRef],
       trackerKey: TrackerCacheKey,
   ): Properties = {
-    val props             = new Properties()
+    val props       = new Properties()
     props.putAll(consumerSettings.asJava)
     val baseGroupId =
       consumerSettings.getOrElse(ConsumerConfig.GROUP_ID_CONFIG, "gatling-test").toString
@@ -93,11 +93,11 @@ class TrackersPool(
         val actor =
           system.actorOf(KafkaMessageTrackerActor.props(statsEngine, clock), genName("kafkaTrackerActor"))
 
-        val props = TrackersPool.consumerProperties(consumerSettings, trackerKey)
+        val props    = TrackersPool.consumerProperties(consumerSettings, trackerKey)
         val consumer = new KafkaConsumer[Array[Byte], Array[Byte]](props)
         consumer.subscribe(Collections.singletonList(outputTopic))
 
-        val shutdown = new AtomicBoolean(false)
+        val shutdown   = new AtomicBoolean(false)
         val readyLatch = new CountDownLatch(1)
 
         val thread = new Thread(
