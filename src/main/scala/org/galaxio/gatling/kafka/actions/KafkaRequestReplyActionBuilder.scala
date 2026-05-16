@@ -3,6 +3,7 @@ package org.galaxio.gatling.kafka.actions
 import com.softwaremill.quicklens.ModifyPimp
 import io.gatling.core.action.Action
 import io.gatling.core.action.builder.ActionBuilder
+import io.gatling.core.session.Expression
 import io.gatling.core.structure.ScenarioContext
 import org.galaxio.gatling.kafka.KafkaCheck
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol.{KafkaMatcher, KafkaMessageMatcher}
@@ -40,6 +41,12 @@ case class KafkaRequestReplyActionBuilder[K: ClassTag, V: ClassTag](attributes: 
 
   def matchByKafkaMatcher(matcher: KafkaMatcher): KafkaRequestReplyActionBuilder[K, V] =
     requestMatchBy(matcher.requestMatch).replyMatchBy(matcher.responseMatch)
+
+  def startTimeForTracking(startTime: Expression[Long]): KafkaRequestReplyActionBuilder[K, V] =
+    this.modify(_.attributes.startTimestamp).setTo(Some(startTime))
+
+  def startTimeForTracking(sessionKey: String): KafkaRequestReplyActionBuilder[K, V] =
+    startTimeForTracking(session => session(sessionKey).validate[Long])
 
   def saveAs(sessionKey: String)(extractor: KafkaProtocolMessage => Any): KafkaRequestReplyActionBuilder[K, V] =
     this.modify(_.attributes.replyExtractions).using(_ :+ KafkaReplyExtraction(sessionKey, extractor))
