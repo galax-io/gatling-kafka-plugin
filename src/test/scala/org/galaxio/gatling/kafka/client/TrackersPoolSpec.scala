@@ -1,6 +1,7 @@
 package org.galaxio.gatling.kafka.client
 
 import org.apache.kafka.streams.KafkaStreams
+import org.apache.kafka.streams.StreamsConfig
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 import org.scalatest.funsuite.AnyFunSuite
@@ -87,5 +88,34 @@ class TrackersPoolSpec extends AnyFunSuite {
     val right = TrackersPool.TrackerCacheKey("requests", "replies", responseMatcher, None)
 
     assert(left != right)
+  }
+
+  test("trackerProperties derives a unique application id per tracker key") {
+    val firstMatcher  = new KafkaProtocol.KafkaMatcher {
+      override def requestMatch(msg: KafkaProtocolMessage): Array[Byte]  = msg.key
+      override def responseMatch(msg: KafkaProtocolMessage): Array[Byte] = msg.key
+    }
+    val secondMatcher = new KafkaProtocol.KafkaMatcher {
+      override def requestMatch(msg: KafkaProtocolMessage): Array[Byte]  = msg.value
+      override def responseMatch(msg: KafkaProtocolMessage): Array[Byte] = msg.value
+    }
+
+    val baseSettings = Map[String, AnyRef](StreamsConfig.APPLICATION_ID_CONFIG -> "gatling-test-base")
+    val firstProps   = TrackersPool.trackerProperties(
+      baseSettings,
+      TrackersPool.TrackerCacheKey("requests", "replies", firstMatcher, None),
+    )
+    val secondProps  = TrackersPool.trackerProperties(
+      baseSettings,
+      TrackersPool.TrackerCacheKey("requests", "replies", secondMatcher, None),
+    )
+
+    assert(firstProps.getProperty(StreamsConfig.APPLICATION_ID_CONFIG).startsWith("gatling-test-base-"))
+    assert(secondProps.getProperty(StreamsConfig.APPLICATION_ID_CONFIG).startsWith("gatling-test-base-"))
+    assert(
+      firstProps.getProperty(StreamsConfig.APPLICATION_ID_CONFIG) != secondProps.getProperty(
+        StreamsConfig.APPLICATION_ID_CONFIG,
+      ),
+    )
   }
 }
