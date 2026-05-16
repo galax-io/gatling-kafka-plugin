@@ -25,7 +25,8 @@ lazy val root = (project in file("."))
     Test / testFrameworks += new TestFramework("org.scalatest.tools.Framework"),
     javacOptions ++= Seq("--release", "11"),
     scalacOptions ++= Seq(
-      "-release", "11",
+      "-release",
+      "11",
       "-encoding",
       "UTF-8",            // Option and arguments on same line
       "-Xfatal-warnings", // New lines for each options
