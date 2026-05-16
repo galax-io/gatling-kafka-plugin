@@ -138,6 +138,108 @@ scenario("Request reply with explicit topics")
   )
 ```
 
+## Consume-Only Tracking
+
+Use `receiveFrom(...)` when the scenario should wait for and validate a Kafka message without sending a Kafka request first.
+
+This is useful for:
+- Kafka consumer load testing
+- mixed protocol flows such as `HTTP -> Kafka`
+- workflow verification where the correlation id already exists in the Gatling `Session`
+
+`saveAs(...)` stores extracted values from the consumed Kafka message into the Gatling `Session`.
+It does not publish anything to another topic by itself. If you want to forward the consumed data,
+use `saveAs(...)` first and then a later `exec(kafka(...).send(...))`.
+
+### Scala
+
+Track by payload:
+
+```scala
+scenario("Consume only by payload")
+  .exec(session => session.set("correlationId", "corr-42"))
+  .exec(
+    kafka("consume event")
+      .receiveFrom("events")
+      .payloadForTracking("#{correlationId}")
+      .saveAs("replyValue")(message => new String(message.value)),
+  )
+```
+
+Track by key:
+
+```scala
+scenario("Consume only by key")
+  .exec(session => session.set("eventKey", "order-42"))
+  .exec(
+    kafka("consume event")
+      .receiveFrom("events")
+      .keyForTracking("#{eventKey}")
+      .check(bodyString.exists)
+      .saveAs("eventBody")(message => new String(message.value)),
+  )
+```
+
+Track by header:
+
+```scala
+scenario("Consume only by header")
+  .exec(session => session.set("correlationId", "corr-42"))
+  .exec(
+    kafka("consume event")
+      .receiveFrom("events")
+      .headerForTracking("correlation-id", "#{correlationId}")
+      .saveAs("replyValue")(message => new String(message.value)),
+  )
+```
+
+For fully custom correlation you can provide the tracking bytes directly and customize how consumed messages are matched:
+
+```scala
+scenario("Consume only with custom matcher")
+  .exec(session => session.set("expectedMatchId", "corr-42".getBytes))
+  .exec(
+    kafka("consume event")
+      .receiveFrom("events")
+      .matchIdForTracking(session => session("expectedMatchId").validate[Array[Byte]])
+      .replyMatchBy(message => message.value)
+      .saveAs("rawValue")(message => message.value),
+  )
+```
+
+Forward consumed data in the next step:
+
+```scala
+scenario("Consume and resend")
+  .exec(session => session.set("correlationId", "corr-42"))
+  .exec(
+    kafka("consume event")
+      .receiveFrom("events")
+      .headerForTracking("correlation-id", "#{correlationId}")
+      .saveAs("consumedPayload")(message => new String(message.value)),
+  )
+  .exec(
+    kafka("forward event")
+      .send("#{correlationId}", "#{consumedPayload}")
+      .topic("forwarded-events"),
+  )
+```
+
+### Java
+
+```java
+scenario("Consume only")
+  .exec(session -> session.set("matchId", "corr-42".getBytes()))
+  .exec(
+    kafka("consume event")
+      .receiveFrom("events")
+      .matchIdForTracking(byteArrayExp(session -> (byte[]) session.get("matchId")))
+      .replyMatchBy(KafkaProtocolMessage::value)
+      .saveAs("replyValue", message -> new String(message.value()))
+  );
+```
+
+
 ## Run Gatling simulations
 
 Run a simulation class:

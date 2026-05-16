@@ -359,4 +359,12 @@ public class KafkaRequestBuilderBase {
         return new ReqRepBase(requestName);
     }
 
+    public ReceiveFromStep receiveFrom(String topic) {
+        return new ReceiveFromStep(toStringExpression(topic), toStringExpression(requestName));
+    }
+
+    public ReceiveFromStep receiveFrom(JExpression<String> topic) {
+        return new ReceiveFromStep(javaFunctionToExpression(topic), toStringExpression(requestName));
+    }
+
 }

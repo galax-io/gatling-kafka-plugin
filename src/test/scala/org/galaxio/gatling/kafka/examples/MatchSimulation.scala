@@ -66,7 +66,7 @@ class MatchSimulation extends Simulation {
         .consumeSettings(Map("bootstrap.servers" -> "localhost:9092"))
         .requestMatchBy(_.key)
         .replyMatchBy(_.value)
-        .saveReplyAs("replyValue")(msg => new String(msg.value)),
+        .saveAs("replyValue")(msg => new String(msg.value)),
     )
 
   setUp(scn.inject(atOnceUsers(1))).protocols(kafkaProtocolMatchByMessage).maxDuration(120.seconds)

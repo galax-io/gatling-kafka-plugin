@@ -14,58 +14,58 @@ import java.util.function.Function;
 import scala.jdk.javaapi.CollectionConverters;
 import scala.jdk.javaapi.FunctionConverters;
 
-public class RequestReplyBuilder<K, V> implements ActionBuilder {
+public class ConsumeActionBuilder implements ActionBuilder {
 
-    private org.galaxio.gatling.kafka.actions.KafkaRequestReplyActionBuilder<K, V> wrapped;
+    private org.galaxio.gatling.kafka.actions.KafkaConsumeActionBuilder wrapped;
 
-    public RequestReplyBuilder(org.galaxio.gatling.kafka.actions.KafkaRequestReplyActionBuilder<K,V> wrapped) {
+    public ConsumeActionBuilder(org.galaxio.gatling.kafka.actions.KafkaConsumeActionBuilder wrapped) {
         this.wrapped = wrapped;
     }
 
-    public RequestReplyBuilder<K, V> check(CheckBuilder... checks) {
+    public ConsumeActionBuilder check(CheckBuilder... checks) {
         return check(Arrays.asList(checks));
     }
 
-    public RequestReplyBuilder<K, V> check(List<CheckBuilder> checks) {
+    public ConsumeActionBuilder check(List<CheckBuilder> checks) {
         this.wrapped = wrapped.check(KafkaChecks.toScalaChecks(checks));
         return this;
     }
 
-    public RequestReplyBuilder<K, V> producerSettings(Map<String, Object> settings) {
-        this.wrapped = wrapped.producerSettings(scalaMap(settings));
-        return this;
-    }
-
-    public RequestReplyBuilder<K, V> consumeSettings(Map<String, Object> settings) {
+    public ConsumeActionBuilder consumeSettings(Map<String, Object> settings) {
         this.wrapped = wrapped.consumeSettings(scalaMap(settings));
         return this;
     }
 
-    public RequestReplyBuilder<K, V> requestMatchBy(Function<KafkaProtocolMessage, byte[]> extractor) {
-        this.wrapped = wrapped.requestMatchBy(FunctionConverters.asScalaFromFunction(extractor));
-        return this;
-    }
-
-    public RequestReplyBuilder<K, V> replyMatchBy(Function<KafkaProtocolMessage, byte[]> extractor) {
+    public ConsumeActionBuilder replyMatchBy(Function<KafkaProtocolMessage, byte[]> extractor) {
         this.wrapped = wrapped.replyMatchBy(FunctionConverters.asScalaFromFunction(extractor));
         return this;
     }
 
-    public RequestReplyBuilder<K, V> matchByMessage(Function<KafkaProtocolMessage, byte[]> extractor) {
+    public ConsumeActionBuilder matchByMessage(Function<KafkaProtocolMessage, byte[]> extractor) {
         this.wrapped = wrapped.matchByMessage(FunctionConverters.asScalaFromFunction(extractor));
         return this;
     }
 
-    public RequestReplyBuilder<K, V> matchByKafkaMatcher(KafkaProtocol.KafkaMatcher matcher) {
+    public ConsumeActionBuilder matchByKafkaMatcher(KafkaProtocol.KafkaMatcher matcher) {
         this.wrapped = wrapped.matchByKafkaMatcher(matcher);
         return this;
     }
 
-    public <T> RequestReplyBuilder<K, V> saveAs(String sessionKey, Function<KafkaProtocolMessage, T> extractor) {
+    public <T> ConsumeActionBuilder saveAs(String sessionKey, Function<KafkaProtocolMessage, T> extractor) {
         this.wrapped = wrapped.saveAs(
                 sessionKey,
                 FunctionConverters.asScalaFromFunction((Function<KafkaProtocolMessage, Object>) extractor::apply)
         );
+        return this;
+    }
+
+    public ConsumeActionBuilder silent() {
+        this.wrapped = wrapped.silent();
+        return this;
+    }
+
+    public ConsumeActionBuilder notSilent() {
+        this.wrapped = wrapped.notSilent();
         return this;
     }
 

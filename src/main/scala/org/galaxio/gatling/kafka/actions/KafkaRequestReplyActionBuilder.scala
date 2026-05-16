@@ -41,7 +41,7 @@ case class KafkaRequestReplyActionBuilder[K: ClassTag, V: ClassTag](attributes: 
   def matchByKafkaMatcher(matcher: KafkaMatcher): KafkaRequestReplyActionBuilder[K, V] =
     requestMatchBy(matcher.requestMatch).replyMatchBy(matcher.responseMatch)
 
-  def saveReplyAs(sessionKey: String)(extractor: KafkaProtocolMessage => Any): KafkaRequestReplyActionBuilder[K, V] =
+  def saveAs(sessionKey: String)(extractor: KafkaProtocolMessage => Any): KafkaRequestReplyActionBuilder[K, V] =
     this.modify(_.attributes.replyExtractions).using(_ :+ KafkaReplyExtraction(sessionKey, extractor))
 
   override def build(ctx: ScenarioContext, next: Action): Action = {

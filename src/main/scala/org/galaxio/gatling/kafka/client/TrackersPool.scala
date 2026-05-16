@@ -5,6 +5,7 @@ import io.gatling.commons.util.Clock
 import io.gatling.core.stats.StatsEngine
 import io.gatling.core.util.NameGen
 import org.apache.kafka.streams.KafkaStreams
+import org.apache.kafka.streams.processor.api.{ContextualProcessor, Record}
 import org.apache.kafka.streams.StreamsConfig
 import org.apache.kafka.streams.scala.ImplicitConversions._
 import org.apache.kafka.streams.scala.StreamsBuilder
@@ -59,6 +60,15 @@ object TrackersPool {
   ): Either[String, Array[Byte]] =
     Option(messageMatcher.responseMatch(message)).toRight("response matcher returned null match id")
 
+  private[client] def consumedMessage(
+      key: Array[Byte],
+      value: Array[Byte],
+      inputTopic: String,
+      outputTopic: String,
+      headers: org.apache.kafka.common.header.Headers,
+  ): KafkaProtocolMessage =
+    KafkaProtocolMessage(key, value, inputTopic, outputTopic, Option(headers))
+
   private[client] def trackerApplicationId(baseApplicationId: String, trackerKey: TrackerCacheKey): String = {
     val fingerprint = UUID.nameUUIDFromBytes(
       s"${trackerKey.inputTopic}|${trackerKey.outputTopic}|${System.identityHashCode(trackerKey.messageMatcher)}|${trackerKey.responseTransformer
@@ -104,35 +114,47 @@ class TrackersPool(
 
         val builder = new StreamsBuilder
 
-        builder.stream[Array[Byte], Array[Byte]](outputTopic).foreach { case (k, v) =>
-          val message = KafkaProtocolMessage(k, v, inputTopic, outputTopic)
-          TrackersPool.responseMatchIdOrError(message, messageMatcher) match {
-            case Left(_)        =>
-              logger.error(s"no messageMatcher key for read message")
-            case Right(replyId) =>
-              if (k == null || v == null)
-                logger.info(s" --- received message with null key or value")
-              else
-                logger.info(s" --- received  ${new String(k)} ${new String(v)}")
-              val receivedTimestamp = clock.nowMillis
-              if (k != null)
-                logMessage(
-                  s"Record received key=${new String(k)}",
-                  message,
+        builder
+          .stream[Array[Byte], Array[Byte]](outputTopic)
+          .process(() =>
+            new ContextualProcessor[Array[Byte], Array[Byte], Void, Void] {
+              override def process(record: Record[Array[Byte], Array[Byte]]): Unit = {
+                val message = TrackersPool.consumedMessage(
+                  record.key(),
+                  record.value(),
+                  inputTopic,
+                  outputTopic,
+                  record.headers(),
                 )
-              else
-                logMessage(
-                  s"Record received key=null",
-                  message,
-                )
+                TrackersPool.responseMatchIdOrError(message, messageMatcher) match {
+                  case Left(_)        =>
+                    logger.error(s"no messageMatcher key for read message")
+                  case Right(replyId) =>
+                    if (record.key() == null || record.value() == null)
+                      logger.info(s" --- received message with null key or value")
+                    else
+                      logger.info(s" --- received  ${new String(record.key())} ${new String(record.value())}")
+                    val receivedTimestamp = clock.nowMillis
+                    if (record.key() != null)
+                      logMessage(
+                        s"Record received key=${new String(record.key())}",
+                        message,
+                      )
+                    else
+                      logMessage(
+                        s"Record received key=null",
+                        message,
+                      )
 
-              actor ! MessageConsumed(
-                replyId,
-                receivedTimestamp,
-                responseTransformer.map(_(message)).getOrElse(message),
-              )
-          }
-        }
+                    actor ! MessageConsumed(
+                      replyId,
+                      receivedTimestamp,
+                      responseTransformer.map(_(message)).getOrElse(message),
+                    )
+                }
+              }
+            },
+          )
 
         val streams = new KafkaStreams(builder.build(), TrackersPool.trackerProperties(streamsSettings, trackerKey))
 

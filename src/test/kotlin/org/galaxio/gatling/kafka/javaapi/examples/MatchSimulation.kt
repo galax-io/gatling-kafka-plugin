@@ -93,7 +93,7 @@ class MatchSimulation : Simulation() {
                 .consumeSettings(mapOf("bootstrap.servers" to "localhost:9092"))
                 .requestMatchBy { message: KafkaProtocolMessage -> message.key }
                 .replyMatchBy { message: KafkaProtocolMessage -> message.value }
-                .saveReplyAs("replyValue") { message: KafkaProtocolMessage -> String(message.value) }
+                .saveAs("replyValue") { message: KafkaProtocolMessage -> String(message.value) }
         )
 
         init
