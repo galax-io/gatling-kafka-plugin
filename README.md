@@ -426,3 +426,40 @@ Example [scala](src/test/scala/org/galaxio/gatling/kafka/examples/AvroClassWithR
 Example [java](src/test/java/org/galaxio/gatling/kafka/javaapi/examples/AvroClassWithRequestReplySimulation.java)
 
 Example [kotlin](src/test/kotlin/org/galaxio/gatling/kafka/javaapi/examples/AvroClassWithRequestReplySimulation.kt)
+
+## Migration Guide
+
+### Migrating to Consumer-based reply tracking (from KafkaStreams)
+
+Starting from this version, the plugin uses a plain `KafkaConsumer` instead of `KafkaStreams` for reply message consumption. This resolves compatibility issues with Confluent 7.9+ / Kafka 8.0 (`AbstractMethodError` in `SubscriptionInfoData`).
+
+#### Breaking changes
+
+1. **`consumeSettings` keys renamed**:
+
+| Before (Streams) | After (Consumer) |
+|---|---|
+| `application.id` | `group.id` |
+| `default.key.serde` | _(no longer needed, ignored)_ |
+| `default.value.serde` | _(no longer needed, ignored)_ |
+
+Example:
+```scala
+// Before
+.consumeSettings(Map(
+  "bootstrap.servers" -> "localhost:9092",
+  "application.id" -> "my-test-group",
+))
+
+// After
+.consumeSettings(Map(
+  "bootstrap.servers" -> "localhost:9092",
+  "group.id" -> "my-test-group",
+))
+```
+
+2. **`kafka-streams-scala` is now a `provided` dependency**. If your test code uses `WindowedSerdes.SessionWindowedSerde` from the plugin's implicits, add the dependency explicitly:
+
+```scala
+libraryDependencies += "org.apache.kafka" %% "kafka-streams-scala" % "7.9.5-ce" % Test
+```
