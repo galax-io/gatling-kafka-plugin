@@ -1,0 +1,90 @@
+{
+  "template": "# 🚀 Release #{{TO_TAG}}\n\n#{{CHANGELOG}}\n\n<details>\n<summary>📦 Other changes</summary>\n\n#{{UNCATEGORIZED}}\n</details>",
+  "empty_template": "# 🚀 Release #{{TO_TAG}}\n\nNo user-facing changes were detected.",
+  "commit_template": "- #{{TITLE}} by @#{{AUTHOR}} (#{{MERGE_SHA}})",
+  "categories": [
+    {
+      "title": "## 💥 Breaking Changes",
+      "labels": ["breaking", "boom", "💥"]
+    },
+    {
+      "title": "## ✨ Features",
+      "labels": ["feat", "feature", "sparkles", "✨"]
+    },
+    {
+      "title": "## 🐛 Fixes",
+      "labels": ["fix", "bug", "bugfix", "🐛"]
+    },
+    {
+      "title": "## ⏪️ Reverts",
+      "labels": ["revert", "rewind", "⏪️"]
+    },
+    {
+      "title": "## ⚡ Performance",
+      "labels": ["perf", "zap", "⚡"]
+    },
+    {
+      "title": "## ♻️ Refactoring",
+      "labels": ["refactor", "recycle", "♻️"]
+    },
+    {
+      "title": "## 📝 Documentation",
+      "labels": ["docs", "doc", "memo", "📝"]
+    },
+    {
+      "title": "## 🧪 Tests",
+      "labels": ["test", "tests", "white_check_mark", "test_tube", "🧪"]
+    },
+    {
+      "title": "## 🤖 CI / Build",
+      "labels": ["ci", "build", "construction_worker", "bricks", "🤖"]
+    },
+    {
+      "title": "## 📦 Dependencies",
+      "labels": ["deps", "dependency", "dependencies", "package", "📦"]
+    },
+    {
+      "title": "## 🧹 Chores",
+      "labels": ["chore", "style", "wrench", "broom", "🧹"]
+    },
+    {
+      "title": "## 🔒 Security",
+      "labels": ["security", "lock", "🔒"]
+    }
+  ],
+  "label_extractor": [
+    {
+      "pattern": "^(.+)!:",
+      "on_property": "title",
+      "target": "breaking"
+    },
+    {
+      "pattern": "BREAKING CHANGE",
+      "on_property": "body",
+      "method": "match",
+      "target": "breaking"
+    },
+    {
+      "pattern": "^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\\([\\w\\-.]+\\))?(!)?: .+",
+      "on_property": "title",
+      "target": "$1"
+    },
+    {
+      "pattern": "^:(boom|sparkles|bug|zap|recycle|memo|white_check_mark|test_tube|construction_worker|bricks|package|wrench|broom|lock|rewind): .+",
+      "on_property": "title",
+      "target": "$1"
+    },
+    {
+      "pattern": "^(💥|✨|🐛|⚡|♻️|📝|🧪|🤖|📦|🧹|🔒|⏪️) .+",
+      "on_property": "title",
+      "target": "$1"
+    }
+  ],
+  "sort": {
+    "order": "ASC",
+    "on_property": "mergedAt"
+  },
+  "trim_values": true,
+  "max_tags_to_fetch": 200,
+  "max_back_track_time_days": 365
+}
