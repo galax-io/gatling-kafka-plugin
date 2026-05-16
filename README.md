@@ -105,6 +105,39 @@ scenario("Silent requests")
 
 You can also use `.silent()` / `.notSilent()` on Java `RequestBuilder`.
 
+## Multiple Topics In One Scenario
+
+The protocol-level `.topic(...)` is only a default topic. You can override the topic on each Kafka action, so sending to different topics in a single scenario is supported.
+
+### Scala
+
+```scala
+scenario("Multiple topics")
+  .exec(
+    kafka("send to topic A")
+      .send("key-a", "payload-a")
+      .topic("topic-a"),
+  )
+  .exec(
+    kafka("send to topic B")
+      .send("key-b", "payload-b")
+      .topic("topic-b"),
+  )
+```
+
+For request-reply you can also define topics per action:
+
+```scala
+scenario("Request reply with explicit topics")
+  .exec(
+    kafka("request reply")
+      .requestReply
+      .requestTopic("request-topic")
+      .replyTopic("reply-topic")
+      .send("key", "payload"),
+  )
+```
+
 ## Run Gatling simulations
 
 Run a simulation class:
