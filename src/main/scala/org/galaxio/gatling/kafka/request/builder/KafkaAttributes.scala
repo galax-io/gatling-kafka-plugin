@@ -8,5 +8,7 @@ case class KafkaAttributes[K, V](
     key: Option[Expression[K]],
     payload: Expression[V],
     headers: Option[Expression[Headers]],
-    silent: Option[Boolean],
+    silent: Option[Boolean] = None,
+    partition: Option[Expression[java.lang.Integer]] = None,
+    timestamp: Option[Expression[java.lang.Long]] = None,
 )
