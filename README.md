@@ -28,9 +28,8 @@ Kafka protocol plugin for [Gatling](https://gatling.io/) load testing framework.
 
 | Plugin Version | Gatling | Scala | Java |
 |---|---|---|---|
-| 0.18.0+ | 3.13.x | 2.13 | 17+ |
-| 0.15.1 — 0.17.x | 3.11.x | 2.13 | 17+ |
-| ≤ 0.15.0 | 3.9.x — 3.11.x | 2.13 | 17+ |
+| 0.x.y-latest | 3.13.x | 2.13 | 17+ |
+| 0.x.y | 3.11.x | 2.13 | 17+ |
 
 > **Branch strategy:** `main` targets Gatling 3.11.x, `latest/gatling` targets Gatling 3.13.x.
 
