@@ -8,8 +8,31 @@ import org.apache.kafka.streams.kstream.WindowedSerdes
 
 import java.nio.ByteBuffer
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 import scala.jdk.CollectionConverters._
+
+object SchemaRegistryClientCache {
+  private val clients = new ConcurrentHashMap[String, CachedSchemaRegistryClient]()
+
+  private val DefaultCacheCapacity = 128
+
+  def getOrCreate(urls: String, cacheCapacity: Int = DefaultCacheCapacity): CachedSchemaRegistryClient =
+    clients.computeIfAbsent(
+      urls,
+      u => new CachedSchemaRegistryClient(u.split(',').toList.asJava, cacheCapacity),
+    )
+
+  def getOrCreate(
+      urls: String,
+      configs: java.util.Map[String, ?],
+      cacheCapacity: Int,
+  ): CachedSchemaRegistryClient =
+    clients.computeIfAbsent(
+      urls,
+      u => new CachedSchemaRegistryClient(u.split(',').toList.asJava, cacheCapacity, configs),
+    )
+}
 
 trait KafkaSerdesImplicits {
   implicit def stringSerde: Serde[String]                             = JSerdes.String()
@@ -31,19 +54,23 @@ trait KafkaSerdesImplicits {
   implicit def sessionWindowedSerde[T](implicit tSerde: Serde[T]): WindowedSerdes.SessionWindowedSerde[T] =
     new WindowedSerdes.SessionWindowedSerde[T](tSerde)
 
-  implicit def serdeClass[T](implicit schemaRegUrl: String): Serde[T] = new Serde[T] {
-    override def serializer(): Serializer[T] = new KafkaAvroSerializer(
-      new CachedSchemaRegistryClient(schemaRegUrl.split(',').toList.asJava, 16),
-    ).asInstanceOf[Serializer[T]]
+  implicit def serdeClass[T](implicit schemaRegUrl: String): Serde[T] = {
+    val client = SchemaRegistryClientCache.getOrCreate(schemaRegUrl)
+    new Serde[T] {
+      override def serializer(): Serializer[T] =
+        new KafkaAvroSerializer(client).asInstanceOf[Serializer[T]]
 
-    override def deserializer(): Deserializer[T] = new KafkaAvroDeserializer(
-      new CachedSchemaRegistryClient(schemaRegUrl.split(',').toList.asJava, 16),
-    ).asInstanceOf[Deserializer[T]]
+      override def deserializer(): Deserializer[T] =
+        new KafkaAvroDeserializer(client).asInstanceOf[Deserializer[T]]
+    }
   }
 
-  implicit val avroSerde: Serde[GenericRecord] = JSerdes.serdeFrom(
-    new KafkaAvroSerializer().asInstanceOf[Serializer[GenericRecord]],
-    new KafkaAvroDeserializer().asInstanceOf[Deserializer[GenericRecord]],
-  )
+  implicit def avroSerde(implicit schemaRegUrl: String): Serde[GenericRecord] = {
+    val client = SchemaRegistryClientCache.getOrCreate(schemaRegUrl)
+    JSerdes.serdeFrom(
+      new KafkaAvroSerializer(client).asInstanceOf[Serializer[GenericRecord]],
+      new KafkaAvroDeserializer(client).asInstanceOf[Deserializer[GenericRecord]],
+    )
+  }
 
 }
