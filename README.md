@@ -1,43 +1,67 @@
 # Gatling Kafka Plugin
 
-![Build](https://github.com/galax-io/gatling-kafka-plugin/workflows/Build/badge.svg) [![Maven Central](https://img.shields.io/maven-central/v/org.galaxio/gatling-kafka-plugin_2.13.svg?color=success)](https://search.maven.org/search?q=org.galaxio.gatling-kafka)  [![Scala Steward badge](https://img.shields.io/badge/Scala_Steward-helping-blue.svg?style=flat&logo=data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAQCAMAAAARSr4IAAAAVFBMVEUAAACHjojlOy5NWlrKzcYRKjGFjIbp293YycuLa3pYY2LSqql4f3pCUFTgSjNodYRmcXUsPD/NTTbjRS+2jomhgnzNc223cGvZS0HaSD0XLjbaSjElhIr+AAAAAXRSTlMAQObYZgAAAHlJREFUCNdNyosOwyAIhWHAQS1Vt7a77/3fcxxdmv0xwmckutAR1nkm4ggbyEcg/wWmlGLDAA3oL50xi6fk5ffZ3E2E3QfZDCcCN2YtbEWZt+Drc6u6rlqv7Uk0LdKqqr5rk2UCRXOk0vmQKGfc94nOJyQjouF9H/wCc9gECEYfONoAAAAASUVORK5CYII=)](https://scala-steward.org)
-[![codecov.io](https://codecov.io/github/galax-io/gatling-kafka-plugin/coverage.svg?branch=master)](https://codecov.io/github/galax-io/gatling-kafka-plugin?branch=master)
+[![CI](https://github.com/galax-io/gatling-kafka-plugin/actions/workflows/Build/badge.svg?branch=main)](https://github.com/galax-io/gatling-kafka-plugin/actions)
+[![Maven Central](https://img.shields.io/maven-central/v/org.galaxio/gatling-kafka-plugin_2.13.svg?color=success)](https://search.maven.org/search?q=org.galaxio.gatling-kafka)
+[![codecov](https://codecov.io/github/galax-io/gatling-kafka-plugin/coverage.svg?branch=main)](https://codecov.io/github/galax-io/gatling-kafka-plugin?branch=main)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
+[![Scala Steward badge](https://img.shields.io/badge/Scala_Steward-helping-blue.svg?style=flat&logo=data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAQCAMAAAARSr4IAAAAVFBMVEUAAACHjojlOy5NWlrKzcYRKjGFjIbp293YycuLa3pYY2LSqql4f3pCUFTgSjNodYRmcXUsPD/NTTbjRS+2jomhgnzNc223cGvZS0HaSD0XLjbaSjElhIr+AAAAAXRSTlMAQObYZgAAAHlJREFUCNdNyosOwyAIhWHAQS1Vt7a77/3fcxxdmv0xwmckutAR1nkm4ggbyEcg/wWmlGLDAA3oL50xi6fk5ffZ3E2E3QfZDCcCN2YtbEWZt+Drc6u6rlqv7Uk0LdKqqr5rk2UCRXOk0vmQKGfc94nOJyQjouF9H/wCc9gECEYfONoAAAAASUVORK5CYII=)](https://scala-steward.org)
 
-# Introduction
+Kafka protocol plugin for [Gatling](https://gatling.io/) load testing framework. Produce, request-reply, and consume messages with Avro, Protobuf (ScalaPB), and plain serialization formats.
 
-Plugin to support Kafka in Gatling (3.11.x). Supports Avro, Protobuf (ScalaPB), and plain serialization formats.
+## Table of Contents
 
-# Usage
+- [Compatibility](#compatibility)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Producing Messages](#producing-messages)
+- [Request-Reply](#request-reply)
+- [Consume-Only Tracking](#consume-only-tracking)
+- [Avro Support](#avro-support)
+- [Protobuf Support (ScalaPB)](#protobuf-support-scalapb)
+- [Architecture](#architecture)
+- [Migration Guide](#migration-guide)
+- [Examples](#examples)
+- [Contributing](#contributing)
+- [License](#license)
 
-### Getting Started
+## Compatibility
 
-Plugin is currently available for Scala 2.13, Java 17, Kotlin.
+| Plugin Version | Gatling | Scala | Java |
+|---|---|---|---|
+| 0.18.0+ | 3.13.x | 2.13 | 17+ |
+| 0.15.1 — 0.17.x | 3.11.x | 2.13 | 17+ |
+| ≤ 0.15.0 | 3.9.x — 3.11.x | 2.13 | 17+ |
 
-### Scala
+> **Branch strategy:** `main` targets Gatling 3.11.x, `latest/gatling` targets Gatling 3.13.x.
+
+## Installation
+
+### Scala (sbt)
 
 ```scala
-libraryDependencies += "org.galaxio" %% "gatling-kafka-plugin" % <version> % Test
+libraryDependencies += "org.galaxio" %% "gatling-kafka-plugin" % "<version>" % Test
 ```
 
-### Java
-
-```java
-gatling "org.galaxio:gatling-kafka-plugin_2.13:<version>"
-```
-
-### Kotlin
+### Java / Kotlin (Gradle Kotlin DSL)
 
 ```kotlin
 gatling("org.galaxio:gatling-kafka-plugin_2.13:<version>")
 ```
 
-## Examples and Tests
+### Maven
 
-- Scala examples: [src/test/scala/org/galaxio/gatling/kafka/examples](src/test/scala/org/galaxio/gatling/kafka/examples)
-- Java examples: [src/test/java/org/galaxio/gatling/kafka/javaapi/examples](src/test/java/org/galaxio/gatling/kafka/javaapi/examples)
-- Kotlin examples: [src/test/kotlin/org/galaxio/gatling/kafka/javaapi/examples](src/test/kotlin/org/galaxio/gatling/kafka/javaapi/examples)
+```xml
+<dependency>
+  <groupId>org.galaxio</groupId>
+  <artifactId>gatling-kafka-plugin_2.13</artifactId>
+  <version>${version}</version>
+  <scope>test</scope>
+</dependency>
+```
 
-## Quick Start (local Kafka)
+## Quick Start
+
+### Docker (local Kafka)
 
 ```bash
 docker compose -f docker-compose.kafka.yml up -d
@@ -49,20 +73,65 @@ Stop:
 docker compose -f docker-compose.kafka.yml down
 ```
 
-## How to run tests
+### Minimal Scenario — Scala
 
-```bash
-sbt clean compile "Test/compile"
-sbt test
+```scala
+import org.galaxio.gatling.kafka.Predef._
+import io.gatling.core.Predef._
+
+class KafkaSimulation extends Simulation {
+  val kafkaConf = kafka.topic("test-topic")
+    .properties(Map("bootstrap.servers" -> "localhost:9092"))
+
+  val scn = scenario("Kafka Producer")
+    .exec(
+      kafka("send message")
+        .send[String, String]("key", """{"msg": "hello"}""")
+    )
+
+  setUp(scn.inject(atOnceUsers(1))).protocols(kafkaConf)
+}
 ```
 
-Integration tests (require Docker):
+### Minimal Scenario — Java
 
-```bash
-sbt "testOnly *IntegrationSpec"
+```java
+import static org.galaxio.gatling.kafka.javaapi.KafkaDsl.*;
+import static io.gatling.javaapi.core.CoreDsl.*;
+
+public class KafkaSimulation extends Simulation {
+  var kafkaConf = kafka().topic("test-topic")
+    .properties(Map.of("bootstrap.servers", "localhost:9092"));
+
+  var scn = scenario("Kafka Producer")
+    .exec(
+      kafka("send message")
+        .send("key", "{\"msg\": \"hello\"}")
+    );
+
+  { setUp(scn.injectOpen(atOnceUsers(1)).protocols(kafkaConf)); }
+}
 ```
 
----
+### Minimal Scenario — Kotlin
+
+```kotlin
+import org.galaxio.gatling.kafka.javaapi.KafkaDsl.*
+import io.gatling.javaapi.core.CoreDsl.*
+
+class KafkaSimulation : Simulation() {
+  val kafkaConf = kafka().topic("test-topic")
+    .properties(mapOf("bootstrap.servers" to "localhost:9092"))
+
+  val scn = scenario("Kafka Producer")
+    .exec(
+      kafka("send message")
+        .send("key", """{"msg": "hello"}""")
+    )
+
+  init { setUp(scn.injectOpen(atOnceUsers(1)).protocols(kafkaConf)) }
+}
+```
 
 ## Producing Messages
 
@@ -184,9 +253,6 @@ The plugin caches Schema Registry clients per URL (thread-safe, shared across al
 
 ```scala
 implicit val schemaRegUrl: String = "http://localhost:8081"
-
-// The implicit URL enables the serdeClass[T] implicit,
-// which uses KafkaAvroSerializer/Deserializer with cached SR client
 ```
 
 ### Avro in Request-Reply
@@ -236,20 +302,13 @@ Test / PB.targets := Seq(
 
 ### Usage
 
-Import the protobuf DSL:
-
 ```scala
 import org.galaxio.gatling.kafka.Predef._
 import org.galaxio.gatling.kafka.KafkaProtobufDsl._
 
-// Generated from .proto file
 import com.example.proto.MyRequest
 import com.example.proto.MyResponse
-```
 
-Produce protobuf messages:
-
-```scala
 scenario("Protobuf Producer")
   .exec(
     kafka("send protobuf")
@@ -268,10 +327,6 @@ kafka("protobuf request reply").requestReply
 ```
 
 The `protobufBody[T]` check deserializes the response bytes using ScalaPB's `parseFrom`.
-
-### How it works
-
-The `KafkaProtobufDsl` trait provides an implicit `Serde[T]` for any `scalapb.GeneratedMessage`. Serialization uses `toByteArray` and deserialization uses the companion's `parseFrom`. No Schema Registry required for basic protobuf (raw wire format).
 
 ---
 
@@ -321,3 +376,34 @@ The plugin uses `KafkaConsumer` instead of `KafkaStreams` for reply tracking.
   "group.id" -> "my-test-group",
 ))
 ```
+
+---
+
+## Examples
+
+- [Scala examples](src/test/scala/org/galaxio/gatling/kafka/examples)
+- [Java examples](src/test/java/org/galaxio/gatling/kafka/javaapi/examples)
+- [Kotlin examples](src/test/kotlin/org/galaxio/gatling/kafka/javaapi/examples)
+
+## Contributing
+
+```bash
+# Build
+sbt compile
+
+# Run unit tests
+sbt test
+
+# Run integration tests (requires Docker)
+sbt "testOnly *IntegrationSpec"
+
+# Check formatting
+sbt scalafmtCheckAll
+
+# Format code
+sbt scalafmtAll
+```
+
+## License
+
+Apache License 2.0. See [LICENSE](LICENSE) for details.
