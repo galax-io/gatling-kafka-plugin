@@ -13,7 +13,7 @@ lazy val root = (project in file("."))
     libraryDependencies ++= gatlingTest,
     libraryDependencies ++= unitTest,
     libraryDependencies ++= kafka,
-    libraryDependencies ++= Seq(avro4s, avroCore, avroSerdes, avroSerializers),
+    libraryDependencies ++= Seq(avro4s, avroCore, avroSerdes, avroSerializers, scalapbRuntime, protobufSerializer),
     schemaRegistrySubjects ++= avroSchemas,
 //    schemaRegistryUrl := "http://test-schema-registry:8081",
     resolvers ++= Seq(
@@ -23,6 +23,9 @@ lazy val root = (project in file("."))
     Gatling / publishArtifact   := false,
     GatlingIt / publishArtifact := false,
     Test / testFrameworks += new TestFramework("org.scalatest.tools.Framework"),
+    Test / PB.targets := Seq(
+      scalapb.gen() -> (Test / sourceManaged).value / "scalapb",
+    ),
     javacOptions ++= Seq("--release", "17"),
     scalacOptions ++= Seq(
       "-release",
