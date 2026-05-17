@@ -23,7 +23,7 @@ lazy val root = (project in file("."))
     Gatling / publishArtifact   := false,
     GatlingIt / publishArtifact := false,
     Test / testFrameworks += new TestFramework("org.scalatest.tools.Framework"),
-    Test / PB.targets := Seq(
+    Test / PB.targets           := Seq(
       scalapb.gen() -> (Test / sourceManaged).value / "scalapb",
     ),
     javacOptions ++= Seq("--release", "17"),
