@@ -52,8 +52,7 @@ object KafkaCheckMaterializer {
     new KafkaCheckMaterializer(_.success)
 
   def avroBody[T <: GenericRecord: Serde](
-      configuration: GatlingConfiguration,
       topic: String,
   ): KafkaCheckMaterializer[KafkaMessageCheckType, T] =
-    new KafkaCheckMaterializer(KafkaMessagePreparer.avroPreparer[T](configuration, topic))
+    new KafkaCheckMaterializer(KafkaMessagePreparer.avroPreparer[T](topic))
 }
