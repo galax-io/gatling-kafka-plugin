@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package org.galaxio.gatling.kafka.test;
+
+option java_package = "org.galaxio.gatling.kafka.test.proto";
+
+message TestRequest {
+  string id = 1;
+  string payload = 2;
+  int64 timestamp = 3;
+}
+
+message TestResponse {
+  string id = 1;
+  string result = 2;
+  bool success = 3;
+}
