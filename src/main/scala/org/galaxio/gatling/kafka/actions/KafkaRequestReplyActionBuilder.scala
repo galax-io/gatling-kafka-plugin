@@ -1,10 +1,10 @@
 package org.galaxio.gatling.kafka.actions
 
-import com.softwaremill.quicklens.ModifyPimp
 import io.gatling.core.action.Action
 import io.gatling.core.action.builder.ActionBuilder
 import io.gatling.core.session.Expression
 import io.gatling.core.structure.ScenarioContext
+import io.gatling.internal.quicklens._
 import org.galaxio.gatling.kafka.KafkaCheck
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol.{KafkaMatcher, KafkaMessageMatcher}
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol

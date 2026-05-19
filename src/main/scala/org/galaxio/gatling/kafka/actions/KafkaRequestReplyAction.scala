@@ -4,6 +4,7 @@ import io.gatling.commons.stats.KO
 import io.gatling.commons.util.Clock
 import io.gatling.commons.validation._
 import io.gatling.core.action.{Action, RequestAction}
+import io.gatling.core.actor.ActorRef
 import io.gatling.core.controller.throttle.Throttler
 import io.gatling.core.session.el._
 import io.gatling.core.session.{Expression, Session}
@@ -74,7 +75,7 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
     val statsEngine: StatsEngine,
     val clock: Clock,
     val next: Action,
-    throttler: Option[Throttler],
+    throttler: Option[ActorRef[Throttler.Command]],
 ) extends RequestAction with KafkaLogging with NameGen {
   override def requestName: Expression[String]   = attributes.requestName
   private val messageMatcher                     =
@@ -91,7 +92,7 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
       startTime <- attributes.startTimestamp.map(_(session)).getOrElse(Success(clock.nowMillis))
     } yield throttler
       .fold(publishAndLogMessage(rn, msg, session, startTime))(
-        _.throttle(session.scenario, () => publishAndLogMessage(rn, msg, session, startTime)),
+        _ ! Throttler.Command.ThrottledRequest(session.scenario, () => publishAndLogMessage(rn, msg, session, startTime)),
       )
 
   }

@@ -1,13 +1,13 @@
 package org.galaxio.gatling.kafka.client
 
-import akka.actor.ActorRef
 import io.gatling.core.action.Action
+import io.gatling.core.actor.ActorRef
 import io.gatling.core.session.Session
 import org.galaxio.gatling.kafka.KafkaCheck
-import org.galaxio.gatling.kafka.client.KafkaMessageTrackerActor.MessagePublished
+import org.galaxio.gatling.kafka.client.KafkaMessageTrackerActor.{MessagePublished, TrackerMessage}
 import org.galaxio.gatling.kafka.request.builder.KafkaReplyExtraction
 
-class KafkaMessageTracker(actor: ActorRef) {
+class KafkaMessageTracker(actor: ActorRef[TrackerMessage]) {
 
   def track(
       matchId: Array[Byte],

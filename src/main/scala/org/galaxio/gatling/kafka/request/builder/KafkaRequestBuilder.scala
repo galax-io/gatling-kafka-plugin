@@ -1,8 +1,8 @@
 package org.galaxio.gatling.kafka.request.builder
 
-import com.softwaremill.quicklens.ModifyPimp
 import io.gatling.core.action.builder.ActionBuilder
 import io.gatling.core.session._
+import io.gatling.internal.quicklens._
 import org.galaxio.gatling.kafka.actions.KafkaRequestActionBuilder
 
 case class KafkaRequestBuilder[K, V](attributes: KafkaAttributes[K, V]) extends RequestBuilder[K, V] {

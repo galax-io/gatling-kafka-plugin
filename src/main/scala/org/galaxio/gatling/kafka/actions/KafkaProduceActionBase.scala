@@ -5,6 +5,7 @@ import io.gatling.commons.util.Clock
 import io.gatling.commons.validation.{Success, Validation}
 import io.gatling.core.CoreComponents
 import io.gatling.core.action.{Action, ExitableAction}
+import io.gatling.core.controller.throttle.Throttler
 import io.gatling.core.session.{Expression, Session}
 import io.gatling.core.stats.StatsEngine
 import io.gatling.core.util.NameGen
@@ -89,7 +90,8 @@ abstract class KafkaProduceActionBase[K, V, P](
           val sessionAfterSend = if (e == null) session else session.markAsFailed
 
           coreComponents.throttler match {
-            case Some(th) if throttled => th.throttle(session.scenario, () => next ! sessionAfterSend)
+            case Some(th) if throttled =>
+              th ! Throttler.Command.ThrottledRequest(session.scenario, () => next ! sessionAfterSend)
             case _                     => next ! sessionAfterSend
           }
         },

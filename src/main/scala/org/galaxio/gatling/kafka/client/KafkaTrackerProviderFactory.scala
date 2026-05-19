@@ -1,7 +1,7 @@
 package org.galaxio.gatling.kafka.client
 
-import akka.actor.ActorSystem
 import io.gatling.commons.util.Clock
+import io.gatling.core.actor.ActorSystem
 import io.gatling.core.stats.StatsEngine
 
 import java.util.concurrent.ConcurrentHashMap

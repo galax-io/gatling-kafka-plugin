@@ -1,14 +1,13 @@
 package org.galaxio.gatling.kafka.actions
 
-import akka.actor.ActorRef
-import akka.actor.ActorSystem
 import io.gatling.commons.stats.{OK, Status}
 import io.gatling.commons.util.DefaultClock
 import io.gatling.commons.validation.{Failure, Success}
 import io.gatling.core.Predef._
 import io.gatling.core.action.Action
+import io.gatling.core.actor.ActorSystem
 import io.gatling.core.session.Session
-import io.gatling.core.stats.StatsEngine
+import io.gatling.core.stats.{NoOpStatsEngine => GatlingNoOpStatsEngine, StatsEngine}
 import org.galaxio.gatling.kafka.Predef._
 import org.apache.kafka.clients.admin.{AdminClient, AdminClientConfig, NewTopic}
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig, ProducerRecord}
@@ -38,7 +37,7 @@ class KafkaConsumeActionIntegrationSpec extends AnyFunSuite with BeforeAndAfterA
     .get("GATLING_KAFKA_TEST_BOOTSTRAP")
     .orElse(sys.props.get("gatling.kafka.test.bootstrap"))
   private val kafkaContainer         = new ConfluentKafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.5.3"))
-  private val actorSystem            = ActorSystem("kafka-consume-integration")
+  private val actorSystem            = new ActorSystem()
   private val clock                  = new DefaultClock
   private lazy val dockerAvailable   = dockerSocketLikelyPresent && Try(DockerClientFactory.instance().client()).isSuccess
   private lazy val bootstrapServers  = externalBootstrap.getOrElse(kafkaContainer.getBootstrapServers)
@@ -53,7 +52,7 @@ class KafkaConsumeActionIntegrationSpec extends AnyFunSuite with BeforeAndAfterA
   }
 
   override def afterAll(): Unit = {
-    actorSystem.terminate()
+    actorSystem.close()
     if (externalBootstrap.isEmpty && dockerAvailable) {
       kafkaContainer.stop()
     }
@@ -322,27 +321,5 @@ class KafkaConsumeActionIntegrationSpec extends AnyFunSuite with BeforeAndAfterA
     sys.env.contains("DOCKER_HOST") || Files.exists(Paths.get("/var/run/docker.sock")) || Files.exists(homeSocket)
   }
 
-  private object NoOpStatsEngine extends StatsEngine {
-    override def start(): Unit                                                                                            = ()
-    override def stop(controller: ActorRef, exception: Option[Exception]): Unit                                           = ()
-    override def logUserStart(scenario: String): Unit                                                                     = ()
-    override def logUserEnd(scenario: String): Unit                                                                       = ()
-    override def logResponse(
-        scenario: String,
-        groups: List[String],
-        requestName: String,
-        startTimestamp: Long,
-        endTimestamp: Long,
-        status: Status,
-        responseCode: Option[String],
-        message: Option[String],
-    ): Unit                                                                                                               = ()
-    override def logGroupEnd(scenario: String, groupBlock: io.gatling.core.session.GroupBlock, exitTimestamp: Long): Unit = ()
-    override def logRequestCrash(
-        scenario: String,
-        groups: List[String],
-        requestName: String,
-        error: String,
-    ): Unit                                                                                                               = ()
-  }
+  private val NoOpStatsEngine: StatsEngine = new GatlingNoOpStatsEngine
 }

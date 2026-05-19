@@ -1,11 +1,10 @@
 package org.galaxio.gatling.kafka.client
 
-import akka.actor.{Actor, Props, Timers}
-import com.typesafe.scalalogging.LazyLogging
 import io.gatling.commons.stats.{KO, OK, Status}
 import io.gatling.commons.util.Clock
 import io.gatling.commons.validation.Failure
 import io.gatling.core.action.Action
+import io.gatling.core.actor.{Actor, Behavior}
 import io.gatling.core.check.Check
 import io.gatling.core.session.Session
 import io.gatling.core.stats.StatsEngine
@@ -20,10 +19,9 @@ import scala.util.Try
 object KafkaMessageTrackerActor {
   private val BufferedReplyRetentionMillis = 60_000L
 
-  def props(statsEngine: StatsEngine, clock: Clock): Props =
-    Props(new KafkaMessageTrackerActor(statsEngine, clock))
+  sealed trait TrackerMessage
 
-  case class MessagePublished(
+  final case class MessagePublished(
       matchId: Array[Byte],
       sent: Long,
       replyTimeout: Long,
@@ -33,13 +31,13 @@ object KafkaMessageTrackerActor {
       next: Action,
       requestName: String,
       silentRequest: Boolean,
-  )
+  ) extends TrackerMessage
 
-  case class MessageConsumed(
+  final case class MessageConsumed(
       replyId: Array[Byte],
       received: Long,
       message: KafkaProtocolMessage,
-  )
+  ) extends TrackerMessage
 
   private[client] final case class BufferedReply(
       replyId: Array[Byte],
@@ -47,7 +45,7 @@ object KafkaMessageTrackerActor {
       message: KafkaProtocolMessage,
   )
 
-  case object TimeoutScan
+  case object TimeoutScan extends TrackerMessage
 
   private[client] def makeTrackingKey(m: Array[Byte]): String =
     Option(m).map(java.util.Base64.getEncoder.encodeToString).getOrElse("")
@@ -158,26 +156,22 @@ object KafkaMessageTrackerActor {
     }
 }
 
-class KafkaMessageTrackerActor(statsEngine: StatsEngine, clock: Clock) extends Actor with Timers with LazyLogging {
+class KafkaMessageTrackerActor(name: String, statsEngine: StatsEngine, clock: Clock)
+    extends Actor[KafkaMessageTrackerActor.TrackerMessage](name) {
   import KafkaMessageTrackerActor._
-  def triggerPeriodicTimeoutScan(
-      periodicTimeoutScanTriggered: Boolean,
-      sentMessages: mutable.HashMap[String, mutable.Queue[MessagePublished]],
-      timedOutMessages: mutable.ArrayBuffer[MessagePublished],
-      bufferedReplies: mutable.HashMap[String, mutable.Queue[BufferedReply]],
-  ): Unit =
-    if (!periodicTimeoutScanTriggered && (sentMessages.nonEmpty || bufferedReplies.nonEmpty)) {
-      context.become(onMessage(periodicTimeoutScanTriggered = true, sentMessages, timedOutMessages, bufferedReplies))
-      timers.startTimerWithFixedDelay("timeoutTimer", TimeoutScan, 1000.millis)
-    }
 
-  override def receive: Receive =
-    onMessage(
-      periodicTimeoutScanTriggered = false,
-      mutable.HashMap.empty[String, mutable.Queue[MessagePublished]],
-      mutable.ArrayBuffer.empty[MessagePublished],
-      mutable.HashMap.empty[String, mutable.Queue[BufferedReply]],
-    )
+  private val sentMessages                 = mutable.HashMap.empty[String, mutable.Queue[MessagePublished]]
+  private val timedOutMessages             = mutable.ArrayBuffer.empty[MessagePublished]
+  private val bufferedReplies              = mutable.HashMap.empty[String, mutable.Queue[BufferedReply]]
+  private var periodicTimeoutScanTriggered = false
+
+  private def triggerPeriodicTimeoutScan(): Unit =
+    if (!periodicTimeoutScanTriggered && (sentMessages.nonEmpty || bufferedReplies.nonEmpty)) {
+      periodicTimeoutScanTriggered = true
+      scheduler.scheduleAtFixedRate(1000.millis) {
+        self ! TimeoutScan
+      }
+    }
 
   private def executeNext(
       session: Session,
@@ -253,15 +247,9 @@ class KafkaMessageTrackerActor(statsEngine: StatsEngine, clock: Clock) extends A
     }
   }
 
-  private def onMessage(
-      periodicTimeoutScanTriggered: Boolean,
-      sentMessages: mutable.HashMap[String, mutable.Queue[MessagePublished]],
-      timedOutMessages: mutable.ArrayBuffer[MessagePublished],
-      bufferedReplies: mutable.HashMap[String, mutable.Queue[BufferedReply]],
-  ): Receive = {
-    // message was sent; add the timestamps to the map
+  override def init(): Behavior[TrackerMessage] = {
     case messageSent: MessagePublished =>
-      removeBufferedReply(messageSent.matchId, bufferedReplies) match {
+      removeBufferedReply(messageSent.matchId, this.bufferedReplies) match {
         case Some(BufferedReply(_, received, message)) =>
           processMessage(
             messageSent.session,
@@ -276,30 +264,30 @@ class KafkaMessageTrackerActor(statsEngine: StatsEngine, clock: Clock) extends A
           )
         case None                                      =>
           val key = makeTrackingKey(messageSent.matchId)
-          sentMessages.getOrElseUpdate(key, mutable.Queue.empty) += messageSent
-          if (messageSent.replyTimeout > 0 || bufferedReplies.nonEmpty) {
-            triggerPeriodicTimeoutScan(periodicTimeoutScanTriggered, sentMessages, timedOutMessages, bufferedReplies)
+          this.sentMessages.getOrElseUpdate(key, mutable.Queue.empty) += messageSent
+          if (messageSent.replyTimeout > 0 || this.bufferedReplies.nonEmpty) {
+            triggerPeriodicTimeoutScan()
           }
       }
+      stay
 
-    // message was received; publish stats and remove from the map
     case MessageConsumed(replyId, received, message) =>
-      // if key is missing, message was already acked and is a dup, or request timeout
-      removeTrackedMessage(replyId, sentMessages) match {
+      removeTrackedMessage(replyId, this.sentMessages) match {
         case Some(MessagePublished(_, sent, _, checks, replyExtractions, session, next, requestName, silentRequest)) =>
           processMessage(session, sent, received, checks, replyExtractions, message, next, requestName, silentRequest)
         case None                                                                                                    =>
-          bufferReply(replyId, received, message, bufferedReplies)
-          triggerPeriodicTimeoutScan(periodicTimeoutScanTriggered, sentMessages, timedOutMessages, bufferedReplies)
+          bufferReply(replyId, received, message, this.bufferedReplies)
+          triggerPeriodicTimeoutScan()
       }
+      stay
 
     case TimeoutScan =>
       val now = clock.nowMillis
-      removeExpiredBufferedReplies(now, bufferedReplies)
-      timedOutMessages ++= KafkaMessageTrackerActor.timedOutMessages(now, sentMessages)
+      removeExpiredBufferedReplies(now, this.bufferedReplies)
+      timedOutMessages ++= KafkaMessageTrackerActor.timedOutMessages(now, this.sentMessages)
       for (
         MessagePublished(matchId, sent, receivedTimeout, _, _, session, next, requestName, silentRequest) <-
-          removeTimedOutMessages(timedOutMessages.toList, sentMessages)
+          removeTimedOutMessages(timedOutMessages.toList, this.sentMessages)
       ) {
         executeNext(
           session.markAsFailed,
@@ -314,5 +302,6 @@ class KafkaMessageTrackerActor(statsEngine: StatsEngine, clock: Clock) extends A
         )
       }
       timedOutMessages.clear()
+      stay
   }
 }
