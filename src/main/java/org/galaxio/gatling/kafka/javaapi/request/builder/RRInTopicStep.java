@@ -18,7 +18,7 @@ public class RRInTopicStep {
     }
 
     public RROutTopicStep replyTopic(String outputTopic) {
-        return new RROutTopicStep(this.inputTopic,  Expressions.toStringExpression(outputTopic), this.requestName);
+        return new RROutTopicStep(this.inputTopic, Expressions.toStringExpression(outputTopic), this.requestName);
     }
 
     public RROutTopicStep replyTopic(Function<io.gatling.javaapi.core.Session, String> outputTopic) {

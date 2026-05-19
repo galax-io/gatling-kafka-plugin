@@ -31,15 +31,11 @@ object KafkaSender {
 
     override def close(): Unit =
       producer.close()
+
   }
 
   def apply(producerSettings: Map[String, AnyRef]): KafkaSender = {
     val producer = new KafkaProducer[Array[Byte], Array[Byte]](producerSettings.asJava)
     new Impl(producer)
   }
-
-  private[client] def apply(
-      producer: Producer[Array[Byte], Array[Byte]],
-  ): KafkaSender =
-    new Impl(producer)
 }

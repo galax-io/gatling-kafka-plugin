@@ -1,10 +1,8 @@
 package org.galaxio.gatling.kafka.javaapi;
 
-import static io.gatling.javaapi.core.internal.Expressions.*;
-
 import io.confluent.kafka.schemaregistry.client.SchemaRegistryClient;
-import io.gatling.core.check.CheckBuilder;
 import io.gatling.core.check.Check;
+import io.gatling.core.check.CheckBuilder;
 import io.gatling.core.check.CheckMaterializer;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.kafka.common.serialization.Deserializer;
@@ -12,8 +10,8 @@ import org.apache.kafka.common.serialization.Serializer;
 import org.apache.kafka.common.utils.Bytes;
 import org.galaxio.gatling.kafka.javaapi.checks.KafkaCheckType;
 import org.galaxio.gatling.kafka.javaapi.checks.KafkaChecks;
-import org.galaxio.gatling.kafka.javaapi.protocol.*;
-import org.galaxio.gatling.kafka.javaapi.request.builder.*;
+import org.galaxio.gatling.kafka.javaapi.protocol.KafkaProtocolBuilderBase;
+import org.galaxio.gatling.kafka.javaapi.request.builder.KafkaRequestBuilderBase;
 import org.galaxio.gatling.kafka.javaapi.request.expressions.Builders.*;
 import org.galaxio.gatling.kafka.javaapi.request.expressions.ExpressionBuilder;
 import org.galaxio.gatling.kafka.javaapi.request.expressions.JExpression;
@@ -21,6 +19,8 @@ import org.galaxio.gatling.kafka.request.KafkaProtocolMessage;
 
 import java.nio.ByteBuffer;
 import java.util.function.Function;
+
+import static io.gatling.javaapi.core.internal.Expressions.toStringExpression;
 
 public final class KafkaDsl {
 
@@ -128,7 +128,7 @@ public final class KafkaDsl {
             public CheckBuilder<?, ?> asScala() {
                 return new CheckBuilder() {
                     @Override
-                    public Check<?> build( CheckMaterializer materializer) {
+                    public Check<?> build(CheckMaterializer materializer) {
                         return new KafkaChecks.SimpleChecksScala().simpleCheck(f::apply);
 
                     }

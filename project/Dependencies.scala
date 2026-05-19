@@ -2,14 +2,11 @@ import sbt.*
 
 object Dependencies {
   private object Versions {
-    val kafka          = "7.9.5-ce"
-    val gatling        = "3.12.0"
+    val kafka          = "7.9.2-ccs"
+    val gatling        = "3.13.5"
     val avro4s         = "4.1.2"
-    val avro           = "1.12.1"
-    val kafkaAvroSerde = "7.9.5"
-    val scalapb        = "0.11.17"
-    val scalaTest      = "3.2.19"
-    val testcontainers = "1.21.0"
+    val avro           = "1.12.0"
+    val kafkaAvroSerde = "7.9.2"
   }
 
   lazy val gatling: Seq[ModuleID] = Seq(
@@ -22,16 +19,10 @@ object Dependencies {
     "io.gatling"            % "gatling-test-framework"    % Versions.gatling % "it,test",
   )
 
-  lazy val unitTest: Seq[ModuleID] = Seq(
-    "org.scalatest"     %% "scalatest"      % Versions.scalaTest      % Test,
-    "org.testcontainers" % "testcontainers" % Versions.testcontainers % Test,
-    "org.testcontainers" % "kafka"          % Versions.testcontainers % Test,
-  )
-
   lazy val kafka: Seq[ModuleID] = Seq(
     ("org.apache.kafka"  % "kafka-clients"       % Versions.kafka)
       .exclude("org.slf4j", "slf4j-api"),
-    ("org.apache.kafka" %% "kafka-streams-scala" % Versions.kafka % "provided")
+    ("org.apache.kafka" %% "kafka-streams-scala" % Versions.kafka)
       .exclude("org.slf4j", "slf4j-api"),
   )
 
@@ -42,11 +33,5 @@ object Dependencies {
   lazy val avroSerdes: ModuleID   =
     ("io.confluent" % "kafka-streams-avro-serde" % Versions.kafkaAvroSerde).exclude("org.apache.kafka", "kafka-streams-scala")
   lazy val avroSerializers: ModuleID = "io.confluent" % "kafka-avro-serializer" % Versions.kafkaAvroSerde
-
-  lazy val scalapbRuntime: ModuleID =
-    "com.thesamet.scalapb" %% "scalapb-runtime" % Versions.scalapb % "provided"
-  lazy val protobufSerializer: ModuleID =
-    ("io.confluent" % "kafka-protobuf-serializer" % Versions.kafkaAvroSerde % "provided")
-      .exclude("com.google.protobuf", "protobuf-java")
 
 }

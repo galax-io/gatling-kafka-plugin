@@ -1,7 +1,7 @@
 import Dependencies.*
 //import org.galaxio.performance.avro.RegistrySubject
 
-val scalaV      = "2.13.18"
+val scalaV      = "2.13.16"
 val avroSchemas = Seq() // for example Seq(RegistrySubject("test-hello-schema", 1))
 
 lazy val root = (project in file("."))
@@ -11,9 +11,8 @@ lazy val root = (project in file("."))
     scalaVersion                := scalaV,
     libraryDependencies ++= gatling,
     libraryDependencies ++= gatlingTest,
-    libraryDependencies ++= unitTest,
     libraryDependencies ++= kafka,
-    libraryDependencies ++= Seq(avro4s, avroCore, avroSerdes, avroSerializers, scalapbRuntime, protobufSerializer),
+    libraryDependencies ++= Seq(avro4s, avroCore, avroSerdes, avroSerializers),
     schemaRegistrySubjects ++= avroSchemas,
 //    schemaRegistryUrl := "http://test-schema-registry:8081",
     resolvers ++= Seq(
@@ -22,14 +21,7 @@ lazy val root = (project in file("."))
     // Do not publish artifacts for Gatling-configured scopes (this is a library)
     Gatling / publishArtifact   := false,
     GatlingIt / publishArtifact := false,
-    Test / testFrameworks += new TestFramework("org.scalatest.tools.Framework"),
-    Test / PB.targets           := Seq(
-      scalapb.gen() -> (Test / sourceManaged).value / "scalapb",
-    ),
-    javacOptions ++= Seq("--release", "17"),
     scalacOptions ++= Seq(
-      "-release",
-      "17",
       "-encoding",
       "UTF-8",            // Option and arguments on same line
       "-Xfatal-warnings", // New lines for each options
@@ -42,3 +34,8 @@ lazy val root = (project in file("."))
       "-language:postfixOps",
     ),
   )
+
+Gatling / javaOptions := overrideDefaultJavaOptions(
+  "--add-opens=java.base/java.util=ALL-UNNAMED",
+  "--add-opens=java.base/java.lang=ALL-UNNAMED",
+)

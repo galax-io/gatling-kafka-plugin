@@ -6,6 +6,7 @@ import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.common.utils.Bytes;
 import org.galaxio.gatling.kafka.javaapi.request.expressions.ExpressionBuilder;
 import org.galaxio.gatling.kafka.javaapi.request.expressions.JExpression;
+import org.galaxio.gatling.kafka.request.builder.KafkaRequestBuilderBase;
 import scala.reflect.ClassTag;
 
 import java.nio.ByteBuffer;
@@ -14,16 +15,12 @@ import static io.gatling.javaapi.core.internal.Expressions.javaFunctionToExpress
 import static io.gatling.javaapi.core.internal.Expressions.toStaticValueExpression;
 import static org.galaxio.gatling.kafka.javaapi.KafkaDsl.*;
 
-public class KafkaRequestBuilderBase {
+public class OnlyPublishStep {
+    private final org.galaxio.gatling.kafka.request.builder.KafkaRequestBuilderBase.OnlyPublishStep wrapped;
 
-    private final org.galaxio.gatling.kafka.request.builder.KafkaRequestBuilderBase wrapped;
-    private final String requestName;
-
-    public KafkaRequestBuilderBase(org.galaxio.gatling.kafka.request.builder.KafkaRequestBuilderBase wrapped, String requestName) {
+    public OnlyPublishStep(KafkaRequestBuilderBase.OnlyPublishStep wrapped) {
         this.wrapped = wrapped;
-        this.requestName = requestName;
     }
-
 
     public RequestBuilder<String, String> send(String key, String payload) {
         return send(stringExp(key), stringExp(payload));
@@ -300,8 +297,8 @@ public class KafkaRequestBuilderBase {
                 null,
                 toStaticValueExpression(payload),
                 toStaticValueExpression(headers),
-                Serdes.serdeFrom(Object.class),
-                ClassTag.apply(Object.class),
+                Serdes.serdeFrom(String.class),
+                ClassTag.apply(String.class),
                 Serdes.serdeFrom(vClass),
                 ClassTag.apply(vClass));
         return new RequestBuilder<>(
@@ -309,9 +306,6 @@ public class KafkaRequestBuilderBase {
                         res);
     }
 
-    public ReqRepBase requestReply() {
-        return new ReqRepBase(requestName);
-    }
 
     public RequestBuilder<Object, String> send(String string) {
         return sendWithClass(string, String.class);
@@ -333,9 +327,5 @@ public class KafkaRequestBuilderBase {
         return send(stringExp(string), doubleExp(v));
     }
 
-    public OnlyPublishStep topic(String producerTopic) {
-        return new OnlyPublishStep(
-                new org.galaxio.gatling.kafka.request.builder.KafkaRequestBuilderBase.OnlyPublishStep(toStaticValueExpression(this.requestName), toStaticValueExpression(producerTopic))
-        );
-    }
+
 }

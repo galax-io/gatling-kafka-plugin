@@ -13,7 +13,7 @@ import scala.concurrent.duration.DurationInt
 
 class MatchSimulation extends Simulation {
 
-  val kafkaProtocolMatchByValue: KafkaProtocol = kafka.requestReply
+  val kafkaProtocolMatchByValue: KafkaProtocol = kafka
     .producerSettings(
       Map(
         ProducerConfig.ACKS_CONFIG              -> "1",
@@ -37,7 +37,7 @@ class MatchSimulation extends Simulation {
     "Custom Message".getBytes // just returning something
   }
 
-  val kafkaProtocolMatchByMessage: KafkaProtocol = kafka.requestReply
+  val kafkaProtocolMatchByMessage: KafkaProtocol = kafka
     .producerSettings(
       Map(
         ProducerConfig.ACKS_CONFIG              -> "1",
@@ -61,12 +61,7 @@ class MatchSimulation extends Simulation {
       kafka("ReqRep").requestReply
         .requestTopic("test.t")
         .replyTopic("test.t")
-        .send[String, String]("#{kekey}", """{ "m": "dkf" }""")
-        .producerSettings(Map(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG -> "localhost:9092"))
-        .consumeSettings(Map("bootstrap.servers" -> "localhost:9092"))
-        .requestMatchBy(_.key)
-        .replyMatchBy(_.value)
-        .saveAs("replyValue")(msg => new String(msg.value)),
+        .send[String, String]("#{kekey}", """{ "m": "dkf" }"""),
     )
 
   setUp(scn.inject(atOnceUsers(1))).protocols(kafkaProtocolMatchByMessage).maxDuration(120.seconds)

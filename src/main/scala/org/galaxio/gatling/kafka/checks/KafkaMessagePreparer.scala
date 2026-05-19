@@ -20,10 +20,9 @@ trait KafkaMessagePreparer[P] extends Preparer[KafkaProtocolMessage, P]
 object KafkaMessagePreparer {
 
   private def messageCharset(cfg: GatlingConfiguration, msg: KafkaProtocolMessage): Validation[Charset] =
-    msg.headers
-      .flatMap(h => Option(h.lastHeader("content_encoding")))
-      .map(header => Try(Charset.forName(new String(header.value()))).toValidation)
-      .getOrElse(cfg.core.charset.success)
+    Try(Charset.forName(msg.headers.map(_.lastHeader("content_encoding").value()).map(new String(_)).get))
+      .orElse(Try(cfg.core.charset))
+      .toValidation
 
   def stringBodyPreparer(configuration: GatlingConfiguration): KafkaMessagePreparer[String] =
     msg =>
@@ -48,14 +47,16 @@ object KafkaMessagePreparer {
             jsonParsers.safeParse(new String(msg.value, bodyCharset)),
         )
 
+  private val ErrorMapper = "Could not parse response into a DOM Document: " + _
+
   def xmlPreparer(configuration: GatlingConfiguration): KafkaMessagePreparer[XdmNode] =
     msg =>
-      safely("Could not parse response into a DOM Document: " + _) {
+      safely(ErrorMapper) {
         messageCharset(configuration, msg).map(cs => XmlParsers.parse(new ByteArrayInputStream(msg.value), cs))
       }
 
-  def avroPreparer[T <: GenericRecord: Serde](topic: String): KafkaMessagePreparer[T] = msg =>
-    safely("Could not deserialize Avro message: " + _) {
-      implicitly[Serde[T]].deserializer().deserialize(topic, msg.value).success
+  def avroPreparer[T <: GenericRecord: Serde](config: GatlingConfiguration, topic: String): KafkaMessagePreparer[T] = msg =>
+    safely(ErrorMapper) {
+      messageCharset(config, msg).map(_ => implicitly[Serde[T]].deserializer().deserialize(topic, msg.value))
     }
 }

@@ -19,20 +19,14 @@ import org.apache.kafka.common.serialization.Serde
 import org.galaxio.gatling.kafka.KafkaCheck
 import org.galaxio.gatling.kafka.checks.KafkaCheckMaterializer.KafkaMessageCheckType
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
-import scalapb.{GeneratedMessage, GeneratedMessageCompanion}
 
 import scala.annotation.implicitNotFound
 
 trait KafkaCheckSupport {
   def messageCheck: KafkaMessageCheck.type = KafkaMessageCheck
 
-  def avroBody[T <: GenericRecord: Serde]: CheckBuilder.Find[KafkaMessageCheckType, KafkaProtocolMessage, T] =
+  def avroBody[T: Serde]: CheckBuilder.Find[KafkaMessageCheckType, KafkaProtocolMessage, T] =
     AvroBodyCheckBuilder._avroBody
-
-  def protobufBody[T <: GeneratedMessage](implicit
-      companion: GeneratedMessageCompanion[T],
-  ): CheckBuilder.Find[KafkaMessageCheckType, KafkaProtocolMessage, T] =
-    ProtobufBodyCheckBuilder._protobufBody[T]
 
   def simpleCheck(f: KafkaProtocolMessage => Boolean): KafkaCheck =
     Check.Simple(

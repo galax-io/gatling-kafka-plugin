@@ -1,5 +1,7 @@
 package org.galaxio.gatling.kafka.javaapi.checks
 
+import com.fasterxml.jackson.databind.JsonNode
+import io.confluent.kafka.streams.serdes.avro.GenericAvroSerde
 import io.gatling.core.check._
 import io.gatling.core.check.bytes.BodyBytesCheckType
 import io.gatling.core.check.jmespath.JmesPathCheckType
@@ -8,14 +10,12 @@ import io.gatling.core.check.string.BodyStringCheckType
 import io.gatling.core.check.substring.SubstringCheckType
 import io.gatling.core.check.xpath.XPathCheckType
 import io.gatling.javaapi.core.internal.CoreCheckType
+import net.sf.saxon.s9api.XdmNode
+import org.apache.avro.generic.GenericRecord
+import org.apache.kafka.common.serialization.Serde
 import org.galaxio.gatling.kafka.checks.{KafkaCheckMaterializer, KafkaCheckSupport}
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 import org.galaxio.gatling.kafka.{KafkaCheck, checks}
-import net.sf.saxon.s9api.XdmNode
-import com.fasterxml.jackson.databind.JsonNode
-import io.confluent.kafka.serializers.{KafkaAvroDeserializer, KafkaAvroSerializer}
-import org.apache.avro.generic.GenericRecord
-import org.apache.kafka.common.serialization.{Deserializer, Serde, Serializer, Serdes => JSerdes}
 
 import java.{util => ju}
 import scala.jdk.CollectionConverters._
@@ -23,10 +23,7 @@ import scala.jdk.CollectionConverters._
 object KafkaChecks {
   class SimpleChecksScala extends KafkaCheckSupport {}
 
-  val avroSerde: Serde[GenericRecord] = JSerdes.serdeFrom(
-    new KafkaAvroSerializer().asInstanceOf[Serializer[GenericRecord]],
-    new KafkaAvroDeserializer().asInstanceOf[Deserializer[GenericRecord]],
-  )
+  val avroSerde: Serde[GenericRecord] = new GenericAvroSerde()
 
   private def toScalaCheck(javaCheckBuilder: io.gatling.javaapi.core.CheckBuilder): KafkaCheck = {
     val scalaCheck = javaCheckBuilder.asScala

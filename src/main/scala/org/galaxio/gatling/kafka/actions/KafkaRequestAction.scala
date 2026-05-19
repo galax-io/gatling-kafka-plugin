@@ -1,36 +1,82 @@
 package org.galaxio.gatling.kafka.actions
 
+import io.gatling.commons.stats.{KO, OK}
+import io.gatling.commons.util.Clock
+import io.gatling.commons.validation._
 import io.gatling.core.CoreComponents
 import io.gatling.core.action.Action
-import io.gatling.core.session.{Expression, Session}
-import org.apache.kafka.clients.producer.KafkaProducer
-import org.apache.kafka.common.header.Headers
-import org.galaxio.gatling.kafka.protocol.{KafkaComponents, KafkaProtocol}
+import io.gatling.core.actor.ActorRef
+import io.gatling.core.controller.throttle.Throttler
+import io.gatling.core.session._
+import io.gatling.core.stats.StatsEngine
+import org.galaxio.gatling.kafka.protocol.KafkaComponents
+import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 import org.galaxio.gatling.kafka.request.builder.KafkaAttributes
 
-object KafkaRequestAction {
-  private[actions] def nextSession(session: Session, exception: Exception): Session =
-    KafkaProduceActionBase.nextSession(session, exception)
-}
+import scala.reflect.ClassTag
 
-class KafkaRequestAction[K, V](
-    producer: KafkaProducer[K, V],
-    components: KafkaComponents,
-    attr: KafkaAttributes[K, V],
-    coreComponents: CoreComponents,
-    kafkaProtocol: KafkaProtocol,
-    throttled: Boolean,
-    next: Action,
-) extends KafkaProduceActionBase[K, V, V](producer, coreComponents, kafkaProtocol, throttled, next) {
+final class KafkaRequestAction[K: ClassTag, V: ClassTag](
+    val components: KafkaComponents,
+    val attributes: KafkaAttributes[K, V],
+    val coreComponents: CoreComponents,
+    val next: Action,
+    val throttler: Option[ActorRef[Throttler.Command]],
+) extends KafkaAction[K, V](components, attributes, throttler) {
 
-  override val name: String = genName("kafkaRequest")
+  override def name: String    = genName("kafkaRequest")
+  val statsEngine: StatsEngine = coreComponents.statsEngine
+  val clock: Clock             = coreComponents.clock
 
-  override protected def requestNameExpr: Expression[String]                  = attr.requestName
-  override protected def keyExpr: Option[Expression[K]]                       = attr.key
-  override protected def payloadExpr: Expression[V]                           = attr.payload
-  override protected def headersExpr: Option[Expression[Headers]]             = attr.headers
-  override protected def partitionExpr: Option[Expression[java.lang.Integer]] = attr.partition
-  override protected def timestampExpr: Option[Expression[java.lang.Long]]    = attr.timestamp
-  override protected def isSilent: Boolean                                    = attr.silent.getOrElse(false)
-  override protected def transformPayload(v: V): V                            = v
+  private def reportUnbuildableRequest(session: Session, error: String): Unit = {
+    val loggedName = attributes.requestName(session) match {
+      case Success(requestNameValue) =>
+        statsEngine.logRequestCrash(session.scenario, session.groups, requestNameValue, s"Failed to build request: $error")
+        requestNameValue
+      case _                         => name
+    }
+    logger.error(s"'$loggedName' failed to execute: $error")
+  }
+
+  override def sendKafkaMessage(requestNameString: String, protocolMessage: KafkaProtocolMessage, session: Session): Unit = {
+    val requestStartDate = clock.nowMillis
+    components.sender.send(protocolMessage)(
+      metadata => {
+        val requestEndDate = clock.nowMillis
+        if (logger.underlying.isDebugEnabled) {
+          logger.debug(s"Record sent user=${session.userId} key=${new String(protocolMessage.key)} topic=${metadata.topic()}")
+          logger.trace(s"ProducerRecord=${protocolMessage.toProducerRecord}")
+        }
+
+        statsEngine.logResponse(
+          session.scenario,
+          session.groups,
+          requestNameString,
+          startTimestamp = requestStartDate,
+          endTimestamp = requestEndDate,
+          OK,
+          None,
+          None,
+        )
+        next ! session.logGroupRequestTimings(requestStartDate, requestEndDate)
+      },
+      exception => {
+        val requestEndDate = clock.nowMillis
+
+        logger.error(exception.getMessage, exception)
+        reportUnbuildableRequest(session, exception.getMessage)
+
+        statsEngine.logResponse(
+          session.scenario,
+          session.groups,
+          requestNameString,
+          startTimestamp = requestStartDate,
+          endTimestamp = requestEndDate,
+          KO,
+          None,
+          Some(exception.getMessage),
+        )
+        next ! session.logGroupRequestTimings(requestStartDate, requestEndDate).markAsFailed
+      },
+    )
+  }
 }

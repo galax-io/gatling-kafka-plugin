@@ -4,17 +4,19 @@ import io.gatling.commons.validation.Validation;
 import io.gatling.core.session.Session;
 import org.apache.kafka.common.header.Headers;
 import org.apache.kafka.common.header.internals.RecordHeaders;
-import org.apache.kafka.common.serialization.*;
+import org.apache.kafka.common.serialization.Deserializer;
+import org.apache.kafka.common.serialization.Serdes;
+import org.apache.kafka.common.serialization.Serializer;
 import org.apache.kafka.common.utils.Bytes;
 import org.galaxio.gatling.kafka.javaapi.request.expressions.ExpressionBuilder;
 import org.galaxio.gatling.kafka.javaapi.request.expressions.JExpression;
 import org.galaxio.gatling.kafka.request.builder.KafkaRequestBuilderBase;
 import scala.reflect.ClassTag;
 
+import java.nio.ByteBuffer;
+
 import static io.gatling.javaapi.core.internal.Expressions.*;
 import static org.galaxio.gatling.kafka.javaapi.KafkaDsl.*;
-
-import java.nio.ByteBuffer;
 
 public class RROutTopicStep {
 

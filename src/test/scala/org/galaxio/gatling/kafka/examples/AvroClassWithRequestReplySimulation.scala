@@ -36,7 +36,7 @@ class AvroClassWithRequestReplySimulation extends Simulation {
   }
 
   // protocol
-  val kafkaProtocolRRAvro: KafkaProtocol = kafka.requestReply
+  val kafkaProtocolRRAvro: KafkaProtocol = kafka
     .producerSettings(
       Map(
         ProducerConfig.ACKS_CONFIG                   -> "1",

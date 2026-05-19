@@ -15,7 +15,7 @@ public class ReqRepBase {
         return new RRInTopicStep(Expressions.toStringExpression(inputTopic), this.requestName);
     }
 
-    public RRInTopicStep requestTopic(JExpression<String> inputTopic){
+    public RRInTopicStep requestTopic(JExpression<String> inputTopic) {
         return new RRInTopicStep(Expressions.javaFunctionToExpression(inputTopic), this.requestName);
     }
 }
