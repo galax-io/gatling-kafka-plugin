@@ -51,3 +51,7 @@ project/plugins/project/
 /.bsp/
 .DS_Store
 /results
+
+# Local Codex guidance
+AGENTS.md
+CLAUDE.md
