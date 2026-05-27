@@ -6,19 +6,19 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 [![Scala Steward badge](https://img.shields.io/badge/Scala_Steward-helping-blue.svg?style=flat&logo=data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAQCAMAAAARSr4IAAAAVFBMVEUAAACHjojlOy5NWlrKzcYRKjGFjIbp293YycuLa3pYY2LSqql4f3pCUFTgSjNodYRmcXUsPD/NTTbjRS+2jomhgnzNc223cGvZS0HaSD0XLjbaSjElhIr+AAAAAXRSTlMAQObYZgAAAHlJREFUCNdNyosOwyAIhWHAQS1Vt7a77/3fcxxdmv0xwmckutAR1nkm4ggbyEcg/wWmlGLDAA3oL50xi6fk5ffZ3E2E3QfZDCcCN2YtbEWZt+Drc6u6rlqv7Uk0LdKqqr5rk2UCRXOk0vmQKGfc94nOJyQjouF9H/wCc9gECEYfONoAAAAASUVORK5CYII=)](https://scala-steward.org)
 
-Kafka protocol plugin for [Gatling](https://gatling.io/) load testing framework. Produce, request-reply, and consume messages with Avro, Protobuf (ScalaPB), and plain serialization formats.
+Kafka protocol plugin for [Gatling](https://gatling.io/) load testing framework. The `main` branch supports produce-only and request-reply Kafka flows with plain serialization and Avro helpers.
 
 ## Table of Contents
 
 - [Compatibility](#compatibility)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
+- [Current API Surface](#current-api-surface)
 - [Producing Messages](#producing-messages)
 - [Request-Reply](#request-reply)
 - [Runtime Semantics & Troubleshooting](#runtime-semantics--troubleshooting)
 - [Consume-Only Tracking](#consume-only-tracking)
 - [Avro Support](#avro-support)
-- [Protobuf Support (ScalaPB)](#protobuf-support-scalapb)
 - [Architecture](#architecture)
 - [Migration Guide](#migration-guide)
 - [Examples](#examples)
@@ -135,6 +135,22 @@ class KafkaSimulation : Simulation() {
 }
 ```
 
+## Current API Surface
+
+The `main` branch currently ships:
+
+- Produce-only actions via `kafka("name").topic("topic").send(...)`
+- Request-reply actions via `kafka("name").requestReply.requestTopic(...).replyTopic(...).send(...)`
+- Reply correlation configured at the protocol level with `.matchByValue` or `.matchByMessage(...)`
+- Avro helpers via `org.galaxio.gatling.kafka.avro4s._` or custom Kafka `Serde[T]`
+
+The following APIs are not available on `main` and are intentionally not documented below:
+
+- Consume-only DSL methods such as `consumeFrom`, `consumeAny`, `keyForTracking`, or `saveAs`
+- Per-action reply matcher overrides such as `requestMatchBy` and `replyMatchBy`
+- Produce builder methods such as `partition`, `timestamp`, or `silent`
+- ScalaPB / `KafkaProtobufDsl` helpers such as `protobufBody`
+
 ## Producing Messages
 
 ### Basic Send
@@ -210,18 +226,15 @@ kafka("request reply").requestReply
 | `.matchByValue` | `msg.value` | `msg.value` |
 | `.matchByMessage(fn)` | `fn(msg)` | `fn(msg)` |
 
-Action-level overrides:
+These matchers are configured on the protocol, not on individual request builders:
 
 ```scala
-kafka("custom match").requestReply
-  .requestTopic("input")
-  .replyTopic("output")
-  .send[String, String]("key", "payload")
-  .requestMatchBy(_.key)
-  .replyMatchBy(_.value)
-```
+import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 
----
+def correlationIdFromHeader(headerName: String): KafkaProtocolMessage => Array[Byte] =
+  _.headers
+    .flatMap(headers => Option(headers.lastHeader(headerName)).map(_.value()))
+    .getOrElse(Array.emptyByteArray)
 
 ## Runtime Semantics & Troubleshooting
 
@@ -302,20 +315,21 @@ Usage with automatic schema derivation:
 ```scala
 import com.sksamuel.avro4s._
 import org.galaxio.gatling.kafka.Predef._
+import org.galaxio.gatling.kafka.avro4s._
 
 case class Ingredient(name: String, sugar: Double, fat: Double)
-implicit val ingredientFormat: RecordFormat[Ingredient] = RecordFormat[Ingredient]
 
 scenario("Avro4s")
   .exec(
     kafka("send avro")
+      .topic("ingredients")
       .send[String, Ingredient]("key", Ingredient("Cheese", 0d, 70d)),
   )
 ```
 
 ### Schema Registry Integration
 
-The plugin caches Schema Registry clients per URL (thread-safe, shared across all virtual users):
+For Schema Registry-backed Avro classes, provide an implicit `schemaRegUrl` or your own Kafka `Serde[T]`:
 
 ```scala
 implicit val schemaRegUrl: String = "http://localhost:8081"
@@ -323,15 +337,7 @@ implicit val schemaRegUrl: String = "http://localhost:8081"
 
 ### Avro in Request-Reply
 
-```scala
-implicit val schemaRegUrl: String = "http://localhost:8081"
-
-kafka("avro request reply").requestReply
-  .requestTopic("avro-requests")
-  .replyTopic("avro-replies")
-  .send[String, MyAvroClass]("key", myAvroInstance)
-  .check(avroBody[MyAvroClass].is(expectedResponse))
-```
+See [AvroClassWithRequestReplySimulation.scala](src/test/scala/org/galaxio/gatling/kafka/examples/AvroClassWithRequestReplySimulation.scala) for a complete request-reply example with a custom Avro `Serde`.
 
 ### Avro Schema Download
 
@@ -341,73 +347,16 @@ Using [sbt-schema-registry-plugin](https://github.com/galax-io/sbt-schema-regist
 sbt schemaRegistryDownload
 ```
 
----
-
-## Protobuf Support (ScalaPB)
-
-### Setup
-
-Add ScalaPB runtime to your test dependencies:
-
-```scala
-libraryDependencies += "com.thesamet.scalapb" %% "scalapb-runtime" % "0.11.17" % Test
-```
-
-If using `sbt-protoc` for code generation from `.proto` files:
-
-```scala
-// project/plugins.sbt
-addSbtPlugin("com.thesamet" % "sbt-protoc" % "1.0.7")
-libraryDependencies += "com.thesamet.scalapb" %% "compilerplugin" % "0.11.17"
-
-// build.sbt
-Test / PB.targets := Seq(
-  scalapb.gen() -> (Test / sourceManaged).value / "scalapb",
-)
-```
-
-### Usage
-
-```scala
-import org.galaxio.gatling.kafka.Predef._
-import org.galaxio.gatling.kafka.KafkaProtobufDsl._
-
-import com.example.proto.MyRequest
-import com.example.proto.MyResponse
-
-scenario("Protobuf Producer")
-  .exec(
-    kafka("send protobuf")
-      .send[String, MyRequest]("key", MyRequest(id = "req-1", payload = "hello")),
-  )
-```
-
-### Protobuf in Request-Reply with Checks
-
-```scala
-kafka("protobuf request reply").requestReply
-  .requestTopic("proto-requests")
-  .replyTopic("proto-replies")
-  .send[String, MyRequest]("key", MyRequest(id = "req-1", payload = "data"))
-  .check(protobufBody[MyResponse].transform(_.success).is(true))
-```
-
-The `protobufBody[T]` check deserializes the response bytes using ScalaPB's `parseFrom`.
-
----
-
 ## Architecture
 
 ```
-KafkaDsl / KafkaProtobufDsl  (entry points, implicits)
+Predef / KafkaDsl                 (entry points, implicits)
     |
-KafkaRequestBuilderBase      (DSL: .send, .requestReply, .consumeFrom)
+KafkaProtocolBuilder              (producerSettings, consumeSettings, timeout, matchers)
+KafkaRequestBuilderBase           (DSL: .topic.send, .requestReply)
     |
-    +-- KafkaProduceActionBase[K,V,P]   (shared produce logic)
-    |       |-- KafkaRequestAction      (plain types, P=V)
-    |       |-- KafkaAvro4sRequestAction (Avro4s, P=GenericRecord)
-    |
-    +-- KafkaRequestReplyAction         (produce + track reply via actor)
+    +-- KafkaRequestAction              (produce-only action)
+    +-- KafkaRequestReplyAction         (produce + correlated reply tracking)
     +-- KafkaConsumeAction              (consume-only tracking)
     |
 KafkaMessageTrackerActor               (Akka actor for correlation)
@@ -447,6 +396,7 @@ The plugin uses `KafkaConsumer` instead of `KafkaStreams` for reply tracking.
 
 ## Examples
 
+- [README snippet compile check](src/test/scala/org/galaxio/gatling/kafka/examples/ReadmeExamplesCompileOnly.scala)
 - [Scala examples](src/test/scala/org/galaxio/gatling/kafka/examples)
 - [Java examples](src/test/java/org/galaxio/gatling/kafka/javaapi/examples)
 - [Kotlin examples](src/test/kotlin/org/galaxio/gatling/kafka/javaapi/examples)
