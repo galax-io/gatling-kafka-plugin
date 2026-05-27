@@ -4,6 +4,7 @@ import io.gatling.core.Predef._
 import io.gatling.core.structure.ScenarioBuilder
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.producer.ProducerConfig
+import com.sksamuel.avro4s._
 import org.galaxio.gatling.kafka.Predef._
 import org.galaxio.gatling.kafka.avro4s._
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol
