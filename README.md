@@ -387,19 +387,14 @@ The plugin uses `KafkaConsumer` instead of `KafkaStreams` for reply tracking.
 ## Contributing
 
 ```bash
-# Compile the library and test sources
-sbt "Test / compile"
+# Compile the library
+sbt compile
 
 # Run the full Scala test suite in the Test scope
-# This includes the Docker-backed integration specs below.
 sbt test
 
-# Run only the integration specs (requires Kafka/Schema Registry, for example via Docker Compose)
-sbt "testOnly org.galaxio.gatling.kafka.actions.KafkaConsumeActionIntegrationSpec org.galaxio.gatling.kafka.actions.KafkaRequestReplyActionIntegrationSpec"
-
-# Run the Gatling simulations exercised in CI
-sbt "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaGatlingTest" \
-    "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaJavaapiMethodsGatlingTest"
+# Run the Gatling simulations exercised in CI (requires Kafka/Schema Registry, for example via Docker Compose)
+sbt "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaGatlingTest" "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaJavaapiMethodsGatlingTest"
 
 # Check formatting (matches the formatting CI step)
 sbt scalafmtCheckAll scalafmtSbtCheck
@@ -408,10 +403,7 @@ sbt scalafmtCheckAll scalafmtSbtCheck
 sbt scalafmtAll scalafmtSbt
 
 # Recommended local check before pushing (matches the main CI flow)
-sbt clean compile \
-    "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaGatlingTest" \
-    "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaJavaapiMethodsGatlingTest" \
-    test
+sbt clean compile "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaGatlingTest" "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaJavaapiMethodsGatlingTest" test
 ```
 
 ## License
