@@ -26,12 +26,15 @@ Kafka protocol plugin for [Gatling](https://gatling.io/) load testing framework.
 
 ## Compatibility
 
-| Plugin Version | Gatling | Scala | Java |
-|---|---|---|---|
-| 0.x.y-latest | 3.13.x | 2.13 | 17+ |
-| 0.x.y | 3.11.x | 2.13 | 17+ |
+| Branch | Plugin line | Gatling | Scala | Java |
+|---|---|---|---|---|
+| `main` | `0.22.x and newer` | 3.13.x | 2.13 | 17+ |
+| `backport/v0.20.4-headers` | `0.20.5` | 3.11.5 | 2.13 | 17+ |
 
-> **Branch strategy:** `main` targets Gatling 3.11.x, `latest/gatling` targets Gatling 3.13.x.
+> If you need message headers with Gatling `3.11.5`, use plugin version `0.20.5`.
+> Version `0.22.0` targets Gatling `3.13.x`, so it is not the right line for a Gatling `3.11.5` project.
+>
+> **Branch strategy:** `main` is the active development branch for Gatling `3.13.x`. `backport/v0.20.4-headers` is the maintenance branch for the Gatling `3.11.5` compatibility line.
 
 ## Installation
 
