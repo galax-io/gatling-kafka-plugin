@@ -460,20 +460,31 @@ sbt "Test / runMain org.galaxio.gatling.kafka.examples.ExampleSmokeValidation"
 ## Contributing
 
 ```bash
-# Build
-sbt compile
+# Compile the library and test sources
+sbt "Test / compile"
 
-# Run unit tests
+# Run the full Scala test suite in the Test scope
+# This includes the Docker-backed integration specs below.
 sbt test
 
-# Run integration tests (requires Docker)
-sbt "testOnly *IntegrationSpec"
+# Run only the integration specs (requires Kafka/Schema Registry, for example via Docker Compose)
+sbt "testOnly org.galaxio.gatling.kafka.actions.KafkaConsumeActionIntegrationSpec org.galaxio.gatling.kafka.actions.KafkaRequestReplyActionIntegrationSpec"
 
-# Check formatting
-sbt scalafmtCheckAll
+# Run the Gatling simulations exercised in CI
+sbt "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaGatlingTest" \
+    "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaJavaapiMethodsGatlingTest"
+
+# Check formatting (matches the formatting CI step)
+sbt scalafmtCheckAll scalafmtSbtCheck
 
 # Format code
-sbt scalafmtAll
+sbt scalafmtAll scalafmtSbt
+
+# Recommended local check before pushing (matches the main CI flow)
+sbt clean compile \
+    "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaGatlingTest" \
+    "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaJavaapiMethodsGatlingTest" \
+    test
 ```
 
 ## License
