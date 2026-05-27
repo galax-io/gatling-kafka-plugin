@@ -62,7 +62,7 @@ final class KafkaRequestAction[K: ClassTag, V: ClassTag](
       },
       exception => {
         val requestEndDate = clock.nowMillis
-        val errorMessage   = KafkaRequestFailureMessages.sendFailure(exception.getMessage)
+        val errorMessage   = KafkaRequestFailureMessages.sendFailure(exception)
 
         logger.error(errorMessage, exception)
 
