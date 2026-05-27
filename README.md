@@ -79,12 +79,13 @@ import org.galaxio.gatling.kafka.Predef._
 import io.gatling.core.Predef._
 
 class KafkaSimulation extends Simulation {
-  val kafkaConf = kafka.topic("test-topic")
+  val kafkaConf = kafka
     .properties(Map("bootstrap.servers" -> "localhost:9092"))
 
   val scn = scenario("Kafka Producer")
     .exec(
       kafka("send message")
+        .topic("test-topic")
         .send[String, String]("key", """{"msg": "hello"}""")
     )
 
@@ -99,12 +100,13 @@ import static org.galaxio.gatling.kafka.javaapi.KafkaDsl.*;
 import static io.gatling.javaapi.core.CoreDsl.*;
 
 public class KafkaSimulation extends Simulation {
-  var kafkaConf = kafka().topic("test-topic")
+  var kafkaConf = kafka()
     .properties(Map.of("bootstrap.servers", "localhost:9092"));
 
   var scn = scenario("Kafka Producer")
     .exec(
       kafka("send message")
+        .topic("test-topic")
         .send("key", "{\"msg\": \"hello\"}")
     );
 
@@ -119,12 +121,13 @@ import org.galaxio.gatling.kafka.javaapi.KafkaDsl.*
 import io.gatling.javaapi.core.CoreDsl.*
 
 class KafkaSimulation : Simulation() {
-  val kafkaConf = kafka().topic("test-topic")
+  val kafkaConf = kafka()
     .properties(mapOf("bootstrap.servers" to "localhost:9092"))
 
   val scn = scenario("Kafka Producer")
     .exec(
       kafka("send message")
+        .topic("test-topic")
         .send("key", """{"msg": "hello"}""")
     )
 
@@ -142,6 +145,7 @@ import org.galaxio.gatling.kafka.Predef._
 scenario("Producer")
   .exec(
     kafka("send string")
+      .topic("test-topic")
       .send[String, String]("key", "payload"),
   )
 ```
@@ -152,6 +156,7 @@ Target a specific partition or set an explicit timestamp on produced records:
 
 ```scala
 kafka("send to partition")
+  .topic("test-topic")
   .send[String, String]("key", "payload")
   .partition(3)
   .timestamp(System.currentTimeMillis())
@@ -163,9 +168,12 @@ Both `.partition()` and `.timestamp()` accept Gatling `Expression` values for dy
 
 ```scala
 kafka("silent request")
+  .topic("test-topic")
   .send[String]("foo")
   .silent
 ```
+
+Protocol-level `.topic(...)` is deprecated and only kept as a backward-compatible fallback. New producer scenarios should set the topic on each request builder with `kafka("name").topic("...")`.
 
 ---
 

@@ -39,7 +39,7 @@ object KafkaProtocolMessage {
     KafkaProtocolMessage(
       consumerRecord.key(),
       consumerRecord.value(),
-      inputTopic.getOrElse("<unknown>"),
+      inputTopic.getOrElse(consumerRecord.topic()),
       consumerRecord.topic(),
       Option(consumerRecord.headers()),
     )
