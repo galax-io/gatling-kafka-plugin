@@ -94,6 +94,6 @@ final case class KafkaProtocolBuilder(
           ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG -> Serdes.ByteArray().deserializer().getClass.getName,
         )
 
-    KafkaProtocol("kafka-test", producerSettings ++ serializers, consumerSettingsWithDefaults, timeout, messageMatcher)
+    KafkaProtocol(None, producerSettings ++ serializers, consumerSettingsWithDefaults, timeout, messageMatcher)
   }
 }

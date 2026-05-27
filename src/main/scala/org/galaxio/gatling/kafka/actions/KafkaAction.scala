@@ -21,6 +21,9 @@ abstract class KafkaAction[K: ClassTag, V: ClassTag](
     throttler: Option[ActorRef[Throttler.Command]],
 ) extends RequestAction with KafkaLogging with NameGen {
 
+  private val missingProducerTopicError =
+    "Kafka producer topic is not defined. Set it with kafka(\"request\").topic(...) or use the deprecated protocol-level kafka.topic(...)."
+
   override def requestName: Expression[String] = attributes.requestName
 
   override def sendRequest(session: Session): Validation[Unit] = {
@@ -37,6 +40,12 @@ abstract class KafkaAction[K: ClassTag, V: ClassTag](
 
   private def traverse[T](ovt: Option[Validation[T]]): Validation[Option[T]] =
     ovt.fold(Option.empty[T].success)(_.map(Option[T]))
+
+  private def resolveProducerTopic(session: Session): Validation[String] =
+    attributes.producerTopic
+      .map(_(session))
+      .orElse(components.kafkaProtocol.producerTopic.map(_.success))
+      .getOrElse(missingProducerTopicError.failure)
 
   private def serializeKey(
       serde: Option[Serde[? <: K]],
@@ -66,12 +75,8 @@ abstract class KafkaAction[K: ClassTag, V: ClassTag](
     // need for work gatling Expression Language
     if (classTag[V].runtimeClass.getCanonicalName == "java.lang.String")
       for {
-        key           <- serializeKey(
-                           attributes.keySerde,
-                           attributes.key,
-                           attributes.producerTopic.getOrElse(components.kafkaProtocol.producerTopic.el),
-                         )(s)
-        producerTopic <- attributes.producerTopic.fold(components.kafkaProtocol.producerTopic.success)(_(s))
+        producerTopic <- resolveProducerTopic(s)
+        key           <- serializeKey(attributes.keySerde, attributes.key, _ => producerTopic.success)(s)
         consumerTopic <- traverse(attributes.consumerTopic.map(_(s)))
         value         <- attributes.value
                            .asInstanceOf[Expression[String]](s)
@@ -82,17 +87,13 @@ abstract class KafkaAction[K: ClassTag, V: ClassTag](
         key.getOrElse(Array.emptyByteArray),
         value,
         producerTopic,
-        consumerTopic.getOrElse("<unknown>"),
+        consumerTopic.getOrElse(producerTopic),
         headers,
       )
     else
       for {
-        key           <- serializeKey(
-                           attributes.keySerde,
-                           attributes.key,
-                           attributes.producerTopic.getOrElse(components.kafkaProtocol.producerTopic.el),
-                         )(s)
-        producerTopic <- attributes.producerTopic.fold(components.kafkaProtocol.producerTopic.success)(_(s))
+        producerTopic <- resolveProducerTopic(s)
+        key           <- serializeKey(attributes.keySerde, attributes.key, _ => producerTopic.success)(s)
         consumerTopic <- traverse(attributes.consumerTopic.map(_(s)))
         value         <- attributes
                            .value(s)
@@ -102,7 +103,7 @@ abstract class KafkaAction[K: ClassTag, V: ClassTag](
         key.getOrElse(Array.emptyByteArray),
         value,
         producerTopic,
-        consumerTopic.getOrElse("<unknown>"),
+        consumerTopic.getOrElse(producerTopic),
         headers,
       )
 

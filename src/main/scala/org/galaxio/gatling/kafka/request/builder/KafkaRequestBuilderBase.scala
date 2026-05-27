@@ -59,7 +59,7 @@ case class KafkaRequestBuilderBase(requestName: Expression[String]) {
       KafkaRequestBuilder[Nothing, V](
         KafkaAttributes(
           requestName = requestName,
-          producerTopic = None, // TODO: it should be set after topic definition
+          producerTopic = None, // falls back to the deprecated protocol-level topic if one is configured
           consumerTopic = None,
           key = None,
           value = payload,
@@ -73,7 +73,7 @@ case class KafkaRequestBuilderBase(requestName: Expression[String]) {
       KafkaRequestBuilder(
         KafkaAttributes(
           requestName = requestName,
-          producerTopic = None, // TODO: it should be set after topic definition
+          producerTopic = None, // falls back to the deprecated protocol-level topic if one is configured
           consumerTopic = None,
           key = Option(key),
           value = payload,
@@ -89,7 +89,7 @@ case class KafkaRequestBuilderBase(requestName: Expression[String]) {
     KafkaRequestBuilder[Nothing, V](
       KafkaAttributes(
         requestName = requestName,
-        producerTopic = None, // TODO: it should be set after topic definition
+        producerTopic = None, // falls back to the deprecated protocol-level topic if one is configured
         consumerTopic = None,
         key = None,
         value = payload,

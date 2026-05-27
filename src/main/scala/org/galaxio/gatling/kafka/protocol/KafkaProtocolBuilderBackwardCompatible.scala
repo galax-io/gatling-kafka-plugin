@@ -12,7 +12,7 @@ final case class KafkaProtocolBuilderBackwardCompatible(topic: String, props: Ma
       ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG   -> "org.apache.kafka.common.serialization.ByteArraySerializer",
       ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG -> "org.apache.kafka.common.serialization.ByteArraySerializer",
     )
-    KafkaProtocol(topic, props ++ serializers, Map.empty, timeout, KafkaKeyMatcher)
+    KafkaProtocol(Some(topic), props ++ serializers, Map.empty, timeout, KafkaKeyMatcher)
   }
 
 }
