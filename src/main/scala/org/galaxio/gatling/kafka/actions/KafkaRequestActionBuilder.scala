@@ -28,8 +28,8 @@ class KafkaRequestActionBuilder[K, V](attr: KafkaAttributes[K, V]) extends Actio
       attr,
       coreComponents,
       kafkaComponents.kafkaProtocol,
-      throttled,
       next,
+      ctx.coreComponents.throttler.filter(_ => ctx.throttled),
     )
   }
 }

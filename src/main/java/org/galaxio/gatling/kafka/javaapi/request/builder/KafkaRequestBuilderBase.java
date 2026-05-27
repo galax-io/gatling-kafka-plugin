@@ -272,7 +272,7 @@ public class KafkaRequestBuilderBase {
     }
 
     public <K, V> RequestBuilder<K, V> send(ExpressionBuilder<K> key, ExpressionBuilder<V> payload, Headers headers) {
-        return new RequestBuilder<K, V>(wrapped.send(
+        return new RequestBuilder<>(wrapped.send(
                 key.gatlingExpression(),
                 payload.gatlingExpression(),
                 toStaticValueExpression(headers),
@@ -287,7 +287,7 @@ public class KafkaRequestBuilderBase {
 
     public <K, V> RequestBuilder<K, V> send(ExpressionBuilder<K> key, ExpressionBuilder<V> payload,
                                             JExpression<Headers> headers) {
-        return new RequestBuilder<K, V>(wrapped.send(
+        return new RequestBuilder<>(wrapped.send(
                 key.gatlingExpression(),
                 payload.gatlingExpression(),
                 javaFunctionToExpression(headers),
@@ -326,7 +326,7 @@ public class KafkaRequestBuilderBase {
     }
 
     public <K, V> RequestBuilder<K, V> send(K key, V payload, Headers headers) {
-        return new RequestBuilder<K, V>(
+        return new RequestBuilder<>(
                 wrapped.send(
                         calculateExpression(key),
                         calculateExpression(payload),
@@ -341,7 +341,7 @@ public class KafkaRequestBuilderBase {
     }
 
     public <K, V> RequestBuilder<K, V> send(K key, V payload, JExpression<Headers> headers) {
-        return new RequestBuilder<K, V>(
+        return new RequestBuilder<>(
                 wrapped.send(
                         calculateExpression(key),
                         calculateExpression(payload),

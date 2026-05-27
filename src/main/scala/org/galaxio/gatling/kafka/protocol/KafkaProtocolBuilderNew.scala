@@ -1,9 +1,8 @@
 package org.galaxio.gatling.kafka.protocol
 
-import io.gatling.core.session.Expression
-import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.producer.ProducerConfig
-import org.apache.kafka.common.serialization.ByteArrayDeserializer
+import org.apache.kafka.common.serialization.Serdes
+import org.apache.kafka.streams.StreamsConfig
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol._
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 
@@ -27,10 +26,7 @@ case class KafkaProtocolBuilderNew(
     consumeSettings: Map[String, AnyRef],
     timeout: FiniteDuration,
     messageMatcher: KafkaMatcher = KafkaKeyMatcher,
-) extends {
-
-  def matchByKafkaMatcher(kafkaMatcher: KafkaMatcher): KafkaProtocolBuilderNew =
-    messageMatcher(kafkaMatcher)
+) {
 
   def matchByValue: KafkaProtocolBuilderNew =
     messageMatcher(KafkaValueMatcher)
@@ -49,11 +45,11 @@ case class KafkaProtocolBuilderNew(
     )
 
     val consumeDefaults = Map(
-      ConsumerConfig.GROUP_ID_CONFIG                 -> s"gatling-test-${java.util.UUID.randomUUID()}",
-      ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG   -> classOf[ByteArrayDeserializer].getName,
-      ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG -> classOf[ByteArrayDeserializer].getName,
+      StreamsConfig.APPLICATION_ID_CONFIG            -> s"gatling-kafka-test-${java.util.UUID.randomUUID()}",
+      StreamsConfig.DEFAULT_KEY_SERDE_CLASS_CONFIG   -> Serdes.ByteArray().getClass.getName,
+      StreamsConfig.DEFAULT_VALUE_SERDE_CLASS_CONFIG -> Serdes.ByteArray().getClass.getName,
     )
 
-    KafkaProtocol("test", producerSettings ++ serializers, consumeDefaults ++ consumeSettings, timeout, messageMatcher)
+    KafkaProtocol("kafka-test", producerSettings ++ serializers, consumeDefaults ++ consumeSettings, timeout, messageMatcher)
   }
 }

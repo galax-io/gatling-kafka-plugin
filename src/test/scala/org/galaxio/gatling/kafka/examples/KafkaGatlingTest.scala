@@ -159,12 +159,7 @@ class KafkaGatlingTest extends Simulation {
         .send[String]("foo"),
     )
     .exec(
-      kafka("Request String silent")
-        .send[String]("foo")
-        .silent,
-    )
-    .exec(
-      kafka("Request Stirng With null key")
+      kafka("Request String With null key")
         .send[Any, String](null, "nullkey"),
     )
 
@@ -189,7 +184,7 @@ class KafkaGatlingTest extends Simulation {
   val scnAvro4s: ScenarioBuilder = scenario("Request Avro4s")
     .exec(
       kafka("Request Simple Avro4s")
-        .send(Ingredient("Cheese", 1d, 50d)),
+        .send[Ingredient](Ingredient("Cheese", 1d, 50d)),
     )
     .exec(
       kafka("Request Avro4s")

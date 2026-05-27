@@ -4,6 +4,7 @@ import io.gatling.commons.stats.KO
 import io.gatling.commons.util.Clock
 import io.gatling.commons.validation._
 import io.gatling.core.action.{Action, RequestAction}
+import io.gatling.core.actor.ActorRef
 import io.gatling.core.controller.throttle.Throttler
 import io.gatling.core.session.el._
 import io.gatling.core.session.{Expression, Session}
@@ -11,62 +12,12 @@ import io.gatling.core.stats.StatsEngine
 import io.gatling.core.util.NameGen
 import org.apache.kafka.common.serialization.Serializer
 import org.galaxio.gatling.kafka.KafkaLogging
-import org.galaxio.gatling.kafka.client.{KafkaMessageTracker, KafkaSender, KafkaTrackerProvider}
-import org.galaxio.gatling.kafka.protocol.KafkaProtocol.{KafkaMatcher, KafkaMessageMatcher}
+import org.galaxio.gatling.kafka.client.KafkaMessageTracker
 import org.galaxio.gatling.kafka.protocol.KafkaComponents
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 import org.galaxio.gatling.kafka.request.builder.KafkaRequestReplyAttributes
 
 import scala.reflect.{ClassTag, classTag}
-
-object KafkaRequestReplyAction {
-  private[kafka] final case class PreparedTracker(
-      matchId: Array[Byte],
-      tracker: KafkaMessageTracker,
-  )
-
-  private[kafka] def requestMatchIdOrError(
-      protocolMessage: KafkaProtocolMessage,
-      messageMatcher: KafkaMatcher,
-  ): Either[String, Array[Byte]] =
-    Option(messageMatcher.requestMatch(protocolMessage)).toRight("request matcher returned null match id")
-
-  private[kafka] def prepareTrackerOrError(
-      protocolMessage: KafkaProtocolMessage,
-      trackersPool: KafkaTrackerProvider,
-      messageMatcher: KafkaMatcher,
-  ): Either[String, PreparedTracker] =
-    requestMatchIdOrError(protocolMessage, messageMatcher).map { matchId =>
-      PreparedTracker(
-        matchId,
-        trackersPool.tracker(protocolMessage.inputTopic, protocolMessage.outputTopic, messageMatcher, None),
-      )
-    }
-
-  private[kafka] def effectiveMessageMatcher(
-      protocolMatcher: KafkaMatcher,
-      attributes: KafkaRequestReplyAttributes[_, _],
-  ): KafkaMatcher =
-    new KafkaMatcher {
-      override def requestMatch(msg: KafkaProtocolMessage): Array[Byte] =
-        attributes.requestMatchExtractor.getOrElse(protocolMatcher.requestMatch _)(msg)
-
-      override def responseMatch(msg: KafkaProtocolMessage): Array[Byte] =
-        attributes.responseMatchExtractor.getOrElse(protocolMatcher.responseMatch _)(msg)
-    }
-
-  private[kafka] def effectiveProducerSettings(
-      components: KafkaComponents,
-      attributes: KafkaRequestReplyAttributes[_, _],
-  ): Map[String, AnyRef] =
-    components.kafkaProtocol.producerProperties ++ attributes.producerSettingsOverride.getOrElse(Map.empty)
-
-  private[kafka] def effectiveConsumeSettings(
-      components: KafkaComponents,
-      attributes: KafkaRequestReplyAttributes[_, _],
-  ): Map[String, AnyRef] =
-    components.kafkaProtocol.consumeProperties ++ attributes.consumeSettingsOverride.getOrElse(Map.empty)
-}
 
 class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
     components: KafkaComponents,
@@ -74,24 +25,17 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
     val statsEngine: StatsEngine,
     val clock: Clock,
     val next: Action,
-    throttler: Option[Throttler],
+    throttler: Option[ActorRef[Throttler.Command]],
 ) extends RequestAction with KafkaLogging with NameGen {
-  override def requestName: Expression[String]   = attributes.requestName
-  private val messageMatcher                     =
-    KafkaRequestReplyAction.effectiveMessageMatcher(components.kafkaProtocol.messageMatcher, attributes)
-  private val sender: KafkaSender                =
-    components.senderProvider.sender(KafkaRequestReplyAction.effectiveProducerSettings(components, attributes))
-  private val trackersPool: KafkaTrackerProvider =
-    components.trackersPoolFactory.trackerProvider(KafkaRequestReplyAction.effectiveConsumeSettings(components, attributes))
+  override def requestName: Expression[String] = attributes.requestName
 
   override def sendRequest(session: Session): Validation[Unit] = {
     for {
-      rn        <- requestName(session)
-      msg       <- resolveToProtocolMessage(session)
-      startTime <- attributes.startTimestamp.map(_(session)).getOrElse(Success(clock.nowMillis))
+      rn  <- requestName(session)
+      msg <- resolveToProtocolMessage(session)
     } yield throttler
-      .fold(publishAndLogMessage(rn, msg, session, startTime))(
-        _.throttle(session.scenario, () => publishAndLogMessage(rn, msg, session, startTime)),
+      .fold(publishAndLogMessage(rn, msg, session))(
+        _ ! Throttler.Command.ThrottledRequest(session.scenario, () => publishAndLogMessage(rn, msg, session)),
       )
 
   }
@@ -138,65 +82,41 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
         headers     <- optToVal(attributes.headers.map(_(s)))
       } yield KafkaProtocolMessage(key, value, inputTopic, outputTopic, headers)
 
-  private def publishAndLogMessage(
-      requestNameString: String,
-      msg: KafkaProtocolMessage,
-      session: Session,
-      startTime: Long,
-  ): Unit = {
+  private def publishAndLogMessage(requestNameString: String, msg: KafkaProtocolMessage, session: Session): Unit = {
     val now = clock.nowMillis
-    KafkaRequestReplyAction.prepareTrackerOrError(msg, trackersPool, messageMatcher) match {
-      case Right(preparedTracker) =>
-        sender.send(msg)(
-          rm => {
-            if (logger.underlying.isDebugEnabled) {
-              logMessage(s"Record sent user=${session.userId} key=${new String(msg.key)} topic=${rm.topic()}", msg)
-            }
-            preparedTracker.tracker
-              .track(
-                preparedTracker.matchId,
-                startTime,
-                attributes.timeout.getOrElse(components.kafkaProtocol.timeout).toMillis,
-                attributes.checks,
-                attributes.replyExtractions,
-                session,
-                next,
-                requestNameString,
-                attributes.silent.getOrElse(false),
-              )
-          },
-          e => {
-            logger.error(e.getMessage, e)
-            if (!attributes.silent.getOrElse(false)) {
-              statsEngine.logResponse(
-                session.scenario,
-                session.groups,
-                requestNameString,
-                now,
-                clock.nowMillis,
-                KO,
-                Some("500"),
-                Some(e.getMessage),
-              )
-            }
-          },
-        )
-      case Left(errorMessage)     =>
-        logger.error(errorMessage)
-        if (!attributes.silent.getOrElse(false)) {
-          statsEngine.logResponse(
-            session.scenario,
-            session.groups,
-            requestNameString,
-            now,
-            clock.nowMillis,
-            KO,
-            Some("500"),
-            Some(errorMessage),
-          )
+    components.sender.send(msg)(
+      rm => {
+        if (logger.underlying.isDebugEnabled) {
+          logMessage(s"Record sent user=${session.userId} key=${new String(msg.key)} topic=${rm.topic()}", msg)
         }
-        next ! session.logGroupRequestTimings(now, clock.nowMillis).markAsFailed
-    }
+        val id      = components.kafkaProtocol.messageMatcher.requestMatch(msg)
+        val tracker =
+          components.trackersPool.tracker(msg.inputTopic, msg.outputTopic, components.kafkaProtocol.messageMatcher, None)
+        tracker ! KafkaMessageTracker
+          .MessagePublished(
+            id,
+            clock.nowMillis,
+            components.kafkaProtocol.timeout.toMillis,
+            attributes.checks,
+            session,
+            next,
+            requestNameString,
+          )
+      },
+      e => {
+        logger.error(e.getMessage, e)
+        statsEngine.logResponse(
+          session.scenario,
+          session.groups,
+          requestNameString,
+          now,
+          clock.nowMillis,
+          KO,
+          Some("500"),
+          Some(e.getMessage),
+        )
+      },
+    )
   }
 
   override def name: String = genName("kafkaRequestReply")
