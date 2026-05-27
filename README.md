@@ -1,6 +1,6 @@
 # Gatling Kafka Plugin
 
-[![CI](https://github.com/galax-io/gatling-kafka-plugin/actions/workflows/Build/badge.svg?branch=main)](https://github.com/galax-io/gatling-kafka-plugin/actions)
+[![CI](https://github.com/galax-io/gatling-kafka-plugin/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/galax-io/gatling-kafka-plugin/actions/workflows/ci.yml)
 [![Maven Central](https://img.shields.io/maven-central/v/org.galaxio/gatling-kafka-plugin_2.13.svg?color=success)](https://search.maven.org/search?q=org.galaxio.gatling-kafka)
 [![codecov](https://codecov.io/github/galax-io/gatling-kafka-plugin/coverage.svg?branch=main)](https://codecov.io/github/galax-io/gatling-kafka-plugin?branch=main)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
@@ -26,12 +26,11 @@ Kafka protocol plugin for [Gatling](https://gatling.io/) load testing framework.
 
 ## Compatibility
 
-| Plugin Version | Gatling | Scala | Java |
+| Branch / Line | Gatling | Scala | Java |
 |---|---|---|---|
-| 0.x.y-latest | 3.13.x | 2.13 | 17+ |
-| 0.x.y | 3.11.x | 2.13 | 17+ |
+| `main` | 3.13.5 | 2.13.16 | 17+ |
 
-> **Branch strategy:** `main` targets Gatling 3.11.x, `latest/gatling` targets Gatling 3.13.x.
+> **Branch strategy:** `main` is the active development branch and current release line. Short-lived topic branches are cut from `main`, and `backport/*` branches are only created when a released line needs a targeted follow-up fix.
 
 ## Installation
 
