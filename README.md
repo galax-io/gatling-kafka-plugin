@@ -15,6 +15,7 @@ Kafka protocol plugin for [Gatling](https://gatling.io/) load testing framework.
 - [Quick Start](#quick-start)
 - [Producing Messages](#producing-messages)
 - [Request-Reply](#request-reply)
+- [Runtime Semantics & Troubleshooting](#runtime-semantics--troubleshooting)
 - [Consume-Only Tracking](#consume-only-tracking)
 - [Avro Support](#avro-support)
 - [Protobuf Support (ScalaPB)](#protobuf-support-scalapb)
@@ -170,6 +171,21 @@ kafka("silent request")
 
 ## Request-Reply
 
+Request-reply needs both producer settings and consumer settings. The producer sends the request, and the consumer side tracks replies on the configured reply topic.
+
+```scala
+import scala.concurrent.duration._
+
+val kafkaConf = kafka
+  .producerSettings(
+    "bootstrap.servers" -> "localhost:9092",
+  )
+  .consumeSettings(
+    "bootstrap.servers" -> "localhost:9092",
+  )
+  .timeout(10.seconds)
+```
+
 ```scala
 kafka("request reply").requestReply
   .requestTopic("requests")
@@ -196,6 +212,50 @@ kafka("custom match").requestReply
   .requestMatchBy(_.key)
   .replyMatchBy(_.value)
 ```
+
+---
+
+## Runtime Semantics & Troubleshooting
+
+### What happens at runtime
+
+- Request-reply uses a shared `KafkaConsumer` for reply tracking. The consumer is created once per distinct consumer `bootstrap.servers` value and reused by all scenarios using that protocol.
+- A tracker actor is created per reply topic. The first request for a reply topic adds that topic to the shared consumer subscription and waits up to the protocol timeout for partition assignment.
+- Correlation is in-memory. Each sent request stores its match id in the tracker until either a matching reply arrives or the timeout scanner marks it as failed.
+- The protocol timeout is used in two places: as the reply deadline recorded for each request, and as the wait budget while a newly used reply topic is being assigned to the shared consumer.
+- Cleanup happens only when Gatling terminates its actor system. Trackers, subscriptions, and the shared consumer stay alive for the life of the simulation and are not reset between scenarios.
+
+### Consumer defaults injected by the plugin
+
+When you supply `consumeSettings`, the plugin always adds byte-array deserializers and also injects these defaults unless you override them:
+
+| Setting | Default | Why |
+|---|---|---|
+| `group.id` | `gatling-kafka-test-<uuid>` | Generated when absent so reply tracking can start without forcing a shared consumer group across runs. |
+| `auto.offset.reset` | `latest` | New consumer groups start from newly produced replies instead of replaying old traffic. |
+| `enable.auto.commit` | `true` | Kafka commits offsets automatically unless you opt out explicitly. |
+
+Two important consequences follow from those defaults:
+
+- `auto.offset.reset=latest` only matters when the consumer group has no committed offsets yet.
+- If you set a fixed `group.id` and keep `enable.auto.commit=true`, later runs resume from committed offsets for that group. In that case Kafka may ignore `latest` and continue from the stored position instead.
+
+### Operational guidance
+
+- For isolated test runs, let the plugin generate `group.id` values or provide a unique `group.id` per run.
+- For repeatable offset behavior with a fixed `group.id`, decide explicitly whether you want committed offsets. Override `enable.auto.commit` and `auto.offset.reset` instead of relying on defaults.
+- Set the protocol timeout high enough to cover both reply latency and initial consumer-group assignment on the first request to each reply topic.
+- Keep request and reply matchers aligned. The default matches on message key; `.matchByValue` and `.matchByMessage(...)` must extract the same logical id on both sides.
+
+### Troubleshooting
+
+| Symptom | Likely cause | What to check |
+|---|---|---|
+| Requests are sent but no replies are ever matched | No consumer was created for tracking | Make sure the protocol includes `consumeSettings("bootstrap.servers" -> ...)`, not only producer settings. |
+| First requests on a reply topic time out under load or right after startup | Topic subscription and partition assignment consumed most of the timeout budget | Increase `.timeout(...)` and verify the consumer group can join and get assignments promptly. |
+| Replies seem to be skipped on later test runs | A reused `group.id` resumed from committed offsets | Use a fresh `group.id`, or override `enable.auto.commit` / `auto.offset.reset` deliberately. |
+| Late replies do not recover a timed-out request | Correlation entries are removed after timeout | Treat the timeout as a hard deadline and size it for your end-to-end latency envelope. |
+| Replies arrive on Kafka but still do not match | Request and reply are extracting different correlation ids | Verify whether you are matching by key, value, or a custom extractor, and confirm both sides produce the same bytes. |
 
 ---
 
@@ -343,7 +403,7 @@ KafkaRequestBuilderBase      (DSL: .send, .requestReply, .consumeFrom)
     +-- KafkaConsumeAction              (consume-only tracking)
     |
 KafkaMessageTrackerActor               (Akka actor for correlation)
-TrackersPool                            (consumer thread per topic pair)
+TrackersPool                            (shared consumer per bootstrap servers, tracker per reply topic)
 KafkaSender / KafkaSenderPool           (producer pool)
 ```
 
