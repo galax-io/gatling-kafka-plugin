@@ -16,6 +16,7 @@ Kafka protocol plugin for [Gatling](https://gatling.io/) load testing framework.
 - [Producing Messages](#producing-messages)
 - [Request-Reply](#request-reply)
 - [Consume-Only Tracking](#consume-only-tracking)
+- [Runtime Semantics and Troubleshooting](#runtime-semantics-and-troubleshooting)
 - [Avro Support](#avro-support)
 - [Protobuf Support (ScalaPB)](#protobuf-support-scalapb)
 - [Architecture](#architecture)
@@ -220,6 +221,58 @@ kafka("consume any")
 
 ---
 
+## Runtime Semantics and Troubleshooting
+
+### Request-reply lifecycle on this branch
+
+This `3.11.x` backport line still uses `KafkaStreams` internally for reply tracking.
+The tracker is created lazily the first time an action listens on a given `replyTopic`, then reused for later requests on the same topic.
+
+- The request is registered for tracking only after the producer callback reports a successful send.
+- Correlation state lives in memory inside the Gatling JVM.
+- Timed-out entries are removed from the tracker, so late replies are ignored instead of reviving a failed request.
+- Timeout checks run on a `1 second` cadence, so a request can fail slightly after the configured timeout.
+- `streams.cleanUp()` is called before the tracker starts, so local Kafka Streams state is treated as disposable test state.
+
+### Timeout and matching expectations
+
+- The default protocol timeout is `60 seconds` when you use `.withDefaultTimeout`.
+- `.timeout(...)` on the protocol or on a consume action overrides that default for reply tracking.
+- The default matcher uses the Kafka record key for both request and reply correlation.
+- If your service replies before the request has been registered in the tracker, that reply is treated as unmatched and is dropped.
+- If you use `.matchByValue` or `.matchByMessage(...)`, make sure the extracted bytes are stable and non-null on both sides.
+
+### Injected consume settings
+
+For request-reply tracking, the plugin injects these defaults into `consumeSettings`:
+
+| Setting | Value | Why |
+|---|---|---|
+| `application.id` | random `gatling-kafka-test-...` value | avoids collisions between test runs |
+| `default.key.serde` | Kafka `ByteArraySerde` | reply matcher works on raw bytes |
+| `default.value.serde` | Kafka `ByteArraySerde` | checks and deserializers receive raw bytes |
+
+Your explicit `consumeSettings` values are merged on top of those defaults, so you can override them when needed.
+
+### Group ids, auto-commit, and offset reset
+
+Because this branch uses `KafkaStreams` rather than a raw `KafkaConsumer` for request-reply tracking:
+
+- `application.id` is the setting that identifies the runtime, not `group.id`.
+- The plugin does not inject request-reply defaults for `enable.auto.commit`.
+- The plugin does not inject a plain `auto.offset.reset` value for request-reply tracking.
+- If you were expecting `KafkaConsumer` semantics from newer branches, do not copy those settings into this `3.11.x` line unchanged.
+
+### Troubleshooting
+
+- Repeated timeouts usually mean the matcher does not extract the same bytes from request and reply. Start by verifying the key or custom extractor on both sides.
+- A reply consumed by one request is no longer available to another request with the same correlation key, because matching removes the tracked entry.
+- Very fast replies can be missed if they arrive before the send callback has registered the request for tracking.
+- Reusing the same `replyTopic` across unrelated flows can mix traffic inside one tracker. Separate topics or correlation strategies are safer under load.
+- If you need durable offsets or consumer-group-style replay semantics, use a dedicated consumer outside the plugin's request-reply tracker.
+
+---
+
 ## Avro Support
 
 ### Avro4s (Scala case classes)
@@ -352,29 +405,18 @@ KafkaSender / KafkaSenderPool           (producer pool)
 
 ## Migration Guide
 
-### From KafkaStreams to KafkaConsumer
+### Reply tracking settings on the 3.11.x line
 
-The plugin uses `KafkaConsumer` instead of `KafkaStreams` for reply tracking.
-
-| Before (Streams) | After (Consumer) |
-|---|---|
-| `application.id` | `group.id` |
-| `default.key.serde` | _(removed)_ |
-| `default.value.serde` | _(removed)_ |
+This branch still uses `KafkaStreams` for request-reply tracking, so `consumeSettings` should be written for the streams-based runtime shown below:
 
 ```scala
-// Before
 .consumeSettings(Map(
   "bootstrap.servers" -> "localhost:9092",
   "application.id" -> "my-test-group",
 ))
-
-// After
-.consumeSettings(Map(
-  "bootstrap.servers" -> "localhost:9092",
-  "group.id" -> "my-test-group",
-))
 ```
+
+If you are looking for `KafkaConsumer`-specific settings such as `group.id`, consult the README for the branch or release line that introduced the consumer-based tracker.
 
 ---
 
