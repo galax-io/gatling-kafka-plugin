@@ -6,6 +6,7 @@ libraryDependencies += "org.apache.avro" % "avro-compiler" % "1.11.4"
 
 addSbtPlugin("com.github.sbt" % "sbt-ci-release"             % "1.11.1")
 addSbtPlugin("io.gatling"     % "gatling-sbt"                % "4.13.3")
+addSbtPlugin("com.typesafe"   % "sbt-mima-plugin"            % "1.1.5")
 addSbtPlugin("org.scalameta"  % "sbt-scalafmt"               % "2.5.5")
 addSbtPlugin("com.github.sbt" % "sbt-avro"                   % "4.0.1")
 addSbtPlugin("org.galaxio"    % "sbt-schema-registry-plugin" % "0.5.6")

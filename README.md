@@ -463,6 +463,9 @@ sbt "Test / runMain org.galaxio.gatling.kafka.examples.ExampleSmokeValidation"
 # Compile the library
 sbt compile
 
+# Check binary compatibility against the latest mainline release
+sbt checkBinaryCompatibility
+
 # Run the full Scala test suite in the Test scope
 sbt test
 
@@ -478,6 +481,12 @@ sbt scalafmtAll scalafmtSbt
 # Recommended local check before pushing (matches the main CI flow)
 sbt clean compile "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaGatlingTest" "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaJavaapiMethodsGatlingTest" test
 ```
+
+Binary compatibility for the published Scala and Java APIs is enforced with MiMa against the current `main` baseline declared in [`build.sbt`](build.sbt).
+
+When `main` releases a new compatible version, update `binaryCompatibilityBaselineVersion` to that published artifact so future PRs compare against the latest shipped API.
+
+If you intentionally break binary compatibility, keep the change explicit: document the break in the PR, add the narrowest possible `binaryCompatibilityExceptions` filter in [`build.sbt`](build.sbt), and remove it again once the new baseline is released.
 
 ## License
 

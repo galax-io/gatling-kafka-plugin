@@ -96,6 +96,9 @@ jobs:
       - name: Compile
         run: sbt clean compile
 
+      - name: Check Binary Compatibility
+        run: sbt mimaReportBinaryIssues
+
       - name: Smoke test examples
         run: sbt "Test / runMain org.galaxio.gatling.kafka.examples.ExampleSmokeValidation"
 
