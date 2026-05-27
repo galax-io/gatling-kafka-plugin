@@ -76,7 +76,7 @@ class KafkaMessageTracker[K, V](
     // message was sent; add the timestamps to the map
     case messageSent: MessagePublished =>
       val key = makeKeyForSentMessages(messageSent.matchId)
-      logger.debug("Published with MatchId: {} Tracking Key: {}", new String(messageSent.matchId), key)
+      logger.debug("Published with MatchId: {} Tracking Key: {}", describeBytes(messageSent.matchId), key)
       sentMessages += key -> messageSent
       if (messageSent.replyTimeout > 0) {
         triggerPeriodicTimeoutScan()
@@ -92,17 +92,17 @@ class KafkaMessageTracker[K, V](
         if (message.key == null || message.value == null) {
           logger.warn(" --- received message with null key or value")
         } else {
-          logger.trace(" --- received {} {}", message.key, message.value)
+          logger.trace(" --- received key={} value={}", describeBytes(message.key), describeBytes(message.value))
         }
 
         val replyId    = messageMatcher.responseMatch(message)
-        val messageKey = if (message.key == null) "null" else new String(message.key)
+        val messageKey = describeBytes(message.key)
         logMessage(s"Record received key=$messageKey", message)
         // if key is missing, message was already acked and is a dup, or request timeout
         val key        = makeKeyForSentMessages(replyId)
         logger.debug(
           "Received with MatchId: {} Tracking Key: {}, producerTopic: {}, consumerTopic: {}",
-          new String(replyId),
+          describeBytes(replyId),
           key,
           message.producerTopic,
           message.consumerTopic,
@@ -123,7 +123,7 @@ class KafkaMessageTracker[K, V](
       }
       for (MessagePublished(matchId, sentTimestamp, receivedTimeout, _, session, next, requestName) <- timedOutMessages) {
         val matchKey = makeKeyForSentMessages(matchId)
-        logger.warn("Did not receive match for {} - key: {} after {}ms", new String(matchId), matchKey, receivedTimeout)
+        logger.warn("Did not receive match for {} - key: {} after {}ms", describeBytes(matchId), matchKey, receivedTimeout)
         sentMessages.remove(matchKey)
         executeNext(
           session.markAsFailed,

@@ -33,7 +33,7 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
       rm => {
         if (logger.underlying.isDebugEnabled) {
           logMessage(
-            s"Record sent user=${session.userId} key=${new String(protocolMessage.key)} topic=${rm.topic()}",
+            s"Record sent user=${session.userId} key=${describeBytes(protocolMessage.key)} topic=${rm.topic()}",
             protocolMessage,
           )
         }
