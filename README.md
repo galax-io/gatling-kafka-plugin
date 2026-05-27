@@ -32,11 +32,11 @@ Kafka protocol plugin for [Gatling](https://gatling.io/) load testing framework.
 | `main` | 3.13.5 | 2.13.16 | 17+ |
 | 0.22.x | 3.13.x | 2.13 | 17+ |
 | 0.21.x | 3.12.x | 2.13 | 17+ |
-| 0.14.2 | 3.11.5 | 2.13 | 17+ |
+| 0.20.5 | 3.11.5 | 2.13 | 17+ |
 
-> **Version guidance:** if you are on Gatling `3.11.5`, use plugin `0.14.2`. Do not use `0.22.x` on Gatling `3.11.5`; the `0.22.x` line on `main` targets Gatling `3.13.x`.
+> **Version guidance:** if you are on Gatling `3.11.5`, use plugin `0.20.5`. Do not use `0.22.x` on Gatling `3.11.5`; the `0.22.x` line on `main` targets Gatling `3.13.x`.
 >
-> Header support is available on the Gatling `3.11.5` line in `0.14.2`, and on newer lines such as `0.22.x` for Gatling `3.13.x`.
+> Header support is available on the Gatling `3.11.5` line in `0.20.5`, and on newer lines such as `0.22.x` for Gatling `3.13.x`.
 >
 > **Branch strategy:** `main` is the active development branch and current release line. Short-lived topic branches are cut from `main`, and `backport/*` branches are only created when a released line needs a targeted follow-up fix.
 
