@@ -23,10 +23,8 @@ public class AvroClassWithRequestReplySimulation extends Simulation {
     private static final SchemaRegistryClient client = new CachedSchemaRegistryClient(Arrays.asList("schRegUrl".split(",")), 16);
 
     // example of using custom serde
-    public static Serializer<MyAvroClass> ser =
-            (Serializer) new KafkaAvroSerializer(client);
-    public static Deserializer<MyAvroClass> de =
-            (Deserializer) new KafkaAvroDeserializer(client);
+    public static Serializer<MyAvroClass> ser = serializer(client);
+    public static Deserializer<MyAvroClass> de = deserializer(client);
 
     // protocol
     private final KafkaProtocolBuilder kafkaProtocolRRAvro = kafka()
@@ -54,6 +52,37 @@ public class AvroClassWithRequestReplySimulation extends Simulation {
     // simulation
     {
         setUp(scenario("Kafka RequestReply Avro").exec(kafkaMessage).injectOpen(atOnceUsers(1))).protocols(kafkaProtocolRRAvro);
+    }
+
+    private static Serializer<MyAvroClass> serializer(SchemaRegistryClient client) {
+        KafkaAvroSerializer delegate = new KafkaAvroSerializer(client);
+        return new Serializer<>() {
+            @Override
+            public byte[] serialize(String topic, MyAvroClass data) {
+                return delegate.serialize(topic, data);
+            }
+
+            @Override
+            public void close() {
+                delegate.close();
+            }
+        };
+    }
+
+    private static Deserializer<MyAvroClass> deserializer(SchemaRegistryClient client) {
+        KafkaAvroDeserializer delegate = new KafkaAvroDeserializer(client);
+        return new Deserializer<>() {
+            @Override
+            public MyAvroClass deserialize(String topic, byte[] data) {
+                Object value = delegate.deserialize(topic, data);
+                return value == null ? null : MyAvroClass.class.cast(value);
+            }
+
+            @Override
+            public void close() {
+                delegate.close();
+            }
+        };
     }
 
     private static class MyAvroClass {

@@ -384,6 +384,12 @@ The plugin uses `KafkaConsumer` instead of `KafkaStreams` for reply tracking.
 - [Java examples](src/test/java/org/galaxio/gatling/kafka/javaapi/examples)
 - [Kotlin examples](src/test/kotlin/org/galaxio/gatling/kafka/javaapi/examples)
 
+Validate that all example simulations still construct against the current API:
+
+```bash
+sbt "Test / runMain org.galaxio.gatling.kafka.examples.ExampleSmokeValidation"
+```
+
 ## Contributing
 
 ```bash
