@@ -1,8 +1,8 @@
 # Gatling Kafka Plugin
 
-[![CI](https://github.com/galax-io/gatling-kafka-plugin/actions/workflows/Build/badge.svg?branch=main)](https://github.com/galax-io/gatling-kafka-plugin/actions)
+[![Continuous Integration](https://github.com/galax-io/gatling-kafka-plugin/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/galax-io/gatling-kafka-plugin/actions/workflows/ci.yml)
 [![Maven Central](https://img.shields.io/maven-central/v/org.galaxio/gatling-kafka-plugin_2.13.svg?color=success)](https://search.maven.org/search?q=org.galaxio.gatling-kafka)
-[![codecov](https://codecov.io/github/galax-io/gatling-kafka-plugin/coverage.svg?branch=main)](https://codecov.io/github/galax-io/gatling-kafka-plugin?branch=main)
+[![codecov](https://codecov.io/gh/galax-io/gatling-kafka-plugin/graph/badge.svg?branch=main)](https://codecov.io/gh/galax-io/gatling-kafka-plugin?branch=main)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 [![Scala Steward badge](https://img.shields.io/badge/Scala_Steward-helping-blue.svg?style=flat&logo=data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAQCAMAAAARSr4IAAAAVFBMVEUAAACHjojlOy5NWlrKzcYRKjGFjIbp293YycuLa3pYY2LSqql4f3pCUFTgSjNodYRmcXUsPD/NTTbjRS+2jomhgnzNc223cGvZS0HaSD0XLjbaSjElhIr+AAAAAXRSTlMAQObYZgAAAHlJREFUCNdNyosOwyAIhWHAQS1Vt7a77/3fcxxdmv0xwmckutAR1nkm4ggbyEcg/wWmlGLDAA3oL50xi6fk5ffZ3E2E3QfZDCcCN2YtbEWZt+Drc6u6rlqv7Uk0LdKqqr5rk2UCRXOk0vmQKGfc94nOJyQjouF9H/wCc9gECEYfONoAAAAASUVORK5CYII=)](https://scala-steward.org)
 
@@ -26,12 +26,15 @@ Kafka protocol plugin for [Gatling](https://gatling.io/) load testing framework.
 
 ## Compatibility
 
-| Plugin Version | Gatling | Scala | Java |
-|---|---|---|---|
-| 0.x.y-latest | 3.13.x | 2.13 | 17+ |
-| 0.x.y | 3.11.x | 2.13 | 17+ |
+| Branch | Plugin line | Gatling | Scala | Java |
+|---|---|---|---|---|
+| `main` | `0.22.x and newer` | 3.13.x | 2.13 | 17+ |
+| `backport/v0.20.4-headers` | `0.20.5` | 3.11.5 | 2.13 | 17+ |
 
-> **Branch strategy:** `main` targets Gatling 3.11.x, `latest/gatling` targets Gatling 3.13.x.
+> If you need message headers with Gatling `3.11.5`, use plugin version `0.20.5`.
+> Version `0.22.0` targets Gatling `3.13.x`, so it is not the right line for a Gatling `3.11.5` project.
+>
+> **Branch strategy:** `main` is the active development branch for Gatling `3.13.x`. `backport/v0.20.4-headers` is the maintenance branch for the Gatling `3.11.5` compatibility line.
 
 ## Installation
 
