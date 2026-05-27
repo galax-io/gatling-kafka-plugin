@@ -96,6 +96,9 @@ jobs:
       - name: Compile
         run: sbt clean compile
 
+      - name: Smoke test examples
+        run: sbt "Test / runMain org.galaxio.gatling.kafka.examples.ExampleSmokeValidation"
+
       - name: Test (Gatling targeted)
         run: sbt coverage "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaGatlingTest" "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaJavaapiMethodsGatlingTest" test coverageOff coverageReport
 
