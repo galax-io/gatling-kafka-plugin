@@ -54,11 +54,16 @@ class KafkaRequestAction[K, V](
   private def reportUnbuildableRequest(session: Session, error: String): Unit = {
     val loggedName = attr.requestName(session) match {
       case Success(requestNameValue) =>
-        statsEngine.logRequestCrash(session.scenario, session.groups, requestNameValue, s"Failed to build request: $error")
+        statsEngine.logRequestCrash(
+          session.scenario,
+          session.groups,
+          requestNameValue,
+          KafkaRequestFailureMessages.buildFailure(error),
+        )
         requestNameValue
       case _                         => name
     }
-    logger.error(s"'$loggedName' failed to execute: $error")
+    logger.error(s"'$loggedName' failed to execute: ${KafkaRequestFailureMessages.buildFailure(error)}")
   }
 
   private def stringExpressionResolve[T](ek: Expression[T]): Expression[T] = s =>
@@ -111,8 +116,9 @@ class KafkaRequestAction[K, V](
 
         case util.Failure(exception) =>
           val requestEndDate = clock.nowMillis
+          val errorMessage   = KafkaRequestFailureMessages.sendFailure(exception.getMessage)
 
-          logger.error(exception.getMessage, exception)
+          logger.error(errorMessage, exception)
 
           statsEngine.logResponse(
             session.scenario,
@@ -122,7 +128,7 @@ class KafkaRequestAction[K, V](
             endTimestamp = requestEndDate,
             KO,
             None,
-            Some(exception.getMessage),
+            Some(errorMessage),
           )
           next ! session.logGroupRequestTimings(requestStartDate, requestEndDate).markAsFailed
       }(components.sender.executionContext)
