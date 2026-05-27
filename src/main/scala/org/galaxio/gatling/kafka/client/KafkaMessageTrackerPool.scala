@@ -9,7 +9,7 @@ import org.apache.kafka.streams.StreamsConfig.APPLICATION_ID_CONFIG
 import org.apache.kafka.streams.processor.api
 import org.apache.kafka.streams.processor.api.{Processor, ProcessorSupplier}
 import org.apache.kafka.streams.scala.StreamsBuilder
-import org.galaxio.gatling.kafka.KafkaLogging
+import org.galaxio.gatling.kafka.{KafkaLogFormatter, KafkaLogging}
 import org.galaxio.gatling.kafka.client.KafkaMessageTracker.{TrackerMessage, MessageConsumed}
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaMatcher
 import org.galaxio.gatling.kafka.request.{KafkaProtocolMessage, KafkaSerdesImplicits}
@@ -49,7 +49,7 @@ object KafkaMessageTrackerPool {
           }
           val receivedTimestamp = clock.nowMillis
           val replyId           = messageMatcher.responseMatch(message)
-          val messageKey        = if (key == null) "null" else new String(key)
+          val messageKey        = KafkaLogFormatter.summarizeIdentifier(key)
           logMessage(s"Record received key=$messageKey", message)
 
           tracker ! MessageConsumed(

@@ -8,21 +8,25 @@ import io.gatling.core.config.GatlingConfiguration
 import io.gatling.core.json.JsonParsers
 import net.sf.saxon.s9api.XdmNode
 import org.apache.avro.generic.GenericRecord
+import org.apache.kafka.common.header.Headers
 import org.apache.kafka.common.serialization.Serde
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 
 import java.io.ByteArrayInputStream
-import java.nio.charset.Charset
+import java.nio.charset.{Charset, StandardCharsets}
 import scala.util.Try
 
 trait KafkaMessagePreparer[P] extends Preparer[KafkaProtocolMessage, P]
 
 object KafkaMessagePreparer {
 
+  private[kafka] def contentEncodingCharset(headers: Headers): Option[Validation[Charset]] =
+    Option(headers.lastHeader("content_encoding"))
+      .map(header => Try(Charset.forName(new String(header.value(), StandardCharsets.UTF_8))).toValidation)
+
   private def messageCharset(cfg: GatlingConfiguration, msg: KafkaProtocolMessage): Validation[Charset] =
     msg.headers
-      .flatMap(h => Option(h.lastHeader("content_encoding")))
-      .map(header => Try(Charset.forName(new String(header.value()))).toValidation)
+      .flatMap(contentEncodingCharset)
       .getOrElse(cfg.core.charset.success)
 
   def stringBodyPreparer(configuration: GatlingConfiguration): KafkaMessagePreparer[String] =

@@ -11,7 +11,7 @@ import io.gatling.core.session.{Expression, Session}
 import io.gatling.core.stats.StatsEngine
 import io.gatling.core.util.NameGen
 import org.apache.kafka.common.serialization.Serializer
-import org.galaxio.gatling.kafka.KafkaLogging
+import org.galaxio.gatling.kafka.{KafkaLogFormatter, KafkaLogging}
 import org.galaxio.gatling.kafka.client.KafkaMessageTracker
 import org.galaxio.gatling.kafka.protocol.KafkaComponents
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
@@ -87,7 +87,10 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
     components.sender.send(msg)(
       rm => {
         if (logger.underlying.isDebugEnabled) {
-          logMessage(s"Record sent user=${session.userId} key=${new String(msg.key)} topic=${rm.topic()}", msg)
+          logMessage(
+            s"Record sent user=${session.userId} key=${KafkaLogFormatter.summarizeIdentifier(msg.key)} topic=${rm.topic()}",
+            msg,
+          )
         }
         val id      = components.kafkaProtocol.messageMatcher.requestMatch(msg)
         val tracker =
