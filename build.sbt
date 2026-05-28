@@ -7,20 +7,21 @@ val avroSchemas = Seq() // for example Seq(RegistrySubject("test-hello-schema", 
 lazy val root = (project in file("."))
   .enablePlugins(GitVersioning, GatlingPlugin)
   .settings(
-    name                        := "gatling-kafka-plugin",
-    scalaVersion                := scalaV,
+    name                                   := "gatling-kafka-plugin",
+    scalaVersion                           := scalaV,
     libraryDependencies ++= gatling,
     libraryDependencies ++= gatlingTest,
     libraryDependencies ++= kafka,
     libraryDependencies ++= Seq(avro4s, avroCore, avroSerdes, avroSerializers),
+    libraryDependencies += "org.scalatest" %% "scalatest" % "3.2.19" % Test,
     schemaRegistrySubjects ++= avroSchemas,
 //    schemaRegistryUrl := "http://test-schema-registry:8081",
     resolvers ++= Seq(
       "Confluent" at "https://packages.confluent.io/maven/",
     ),
     // Do not publish artifacts for Gatling-configured scopes (this is a library)
-    Gatling / publishArtifact   := false,
-    GatlingIt / publishArtifact := false,
+    Gatling / publishArtifact              := false,
+    GatlingIt / publishArtifact            := false,
     scalacOptions ++= Seq(
       "-encoding",
       "UTF-8",            // Option and arguments on same line
