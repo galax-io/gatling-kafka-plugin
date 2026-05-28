@@ -44,8 +44,10 @@ final class KafkaRequestAction[K: ClassTag, V: ClassTag](
       metadata => {
         val requestEndDate = clock.nowMillis
         if (logger.underlying.isDebugEnabled) {
-          logger.debug(s"Record sent user=${session.userId} key=${new String(protocolMessage.key)} topic=${metadata.topic()}")
-          logger.trace(s"ProducerRecord=${protocolMessage.toProducerRecord}")
+          logger.debug(
+            s"Record sent user=${session.userId} key=${describeBytes(protocolMessage.key)} topic=${metadata.topic()}",
+          )
+          logger.trace(describeMessage(protocolMessage))
         }
 
         statsEngine.logResponse(

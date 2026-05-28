@@ -12,7 +12,7 @@ import org.apache.kafka.common.serialization.Serde
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 
 import java.io.ByteArrayInputStream
-import java.nio.charset.Charset
+import java.nio.charset.{Charset, StandardCharsets}
 import scala.util.Try
 
 trait KafkaMessagePreparer[P] extends Preparer[KafkaProtocolMessage, P]
@@ -20,9 +20,10 @@ trait KafkaMessagePreparer[P] extends Preparer[KafkaProtocolMessage, P]
 object KafkaMessagePreparer {
 
   private def messageCharset(cfg: GatlingConfiguration, msg: KafkaProtocolMessage): Validation[Charset] =
-    Try(Charset.forName(msg.headers.map(_.lastHeader("content_encoding").value()).map(new String(_)).get))
-      .orElse(Try(cfg.core.charset))
-      .toValidation
+    msg.headers
+      .flatMap(headers => Option(headers.lastHeader("content_encoding")))
+      .map(header => Try(Charset.forName(new String(header.value(), StandardCharsets.UTF_8))).toValidation)
+      .getOrElse(cfg.core.charset.success)
 
   def stringBodyPreparer(configuration: GatlingConfiguration): KafkaMessagePreparer[String] =
     msg =>
