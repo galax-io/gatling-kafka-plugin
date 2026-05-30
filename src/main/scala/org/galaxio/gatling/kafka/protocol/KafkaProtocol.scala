@@ -50,7 +50,7 @@ object KafkaProtocol {
               sender
             },
           )
-        case None =>
+        case None          =>
           throw new IllegalArgumentException(
             s"Producer settings don't set the required '${ProducerConfig.BOOTSTRAP_SERVERS_CONFIG}' parameter",
           )
