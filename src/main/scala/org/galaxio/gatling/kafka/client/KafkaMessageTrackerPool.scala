@@ -117,10 +117,18 @@ final class KafkaMessageTrackerPool(
   }
 
   def releaseTracker(consumerTopic: String): Unit = {
-    val count = trackerRefCounts.get(consumerTopic)
-    if (count != null && count.decrementAndGet() <= 0) {
+    var doCleanup = false
+    trackerRefCounts.compute(
+      consumerTopic,
+      (_, count) => {
+        if (count == null || count.decrementAndGet() <= 0) {
+          doCleanup = true
+          null
+        } else count
+      },
+    )
+    if (doCleanup) {
       trackers.remove(consumerTopic)
-      trackerRefCounts.remove(consumerTopic)
       consumer.removeTopicSubscription(consumerTopic)
     }
   }
