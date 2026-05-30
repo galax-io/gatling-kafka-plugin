@@ -52,7 +52,7 @@ final class DynamicKafkaConsumer[K, V] private (
   def addTopicForSubscription(
       newTopic: String,
       assignTimeout: FiniteDuration = DynamicKafkaConsumer.defaultAssignTimeout,
-  ): Unit = {
+  ): Boolean = {
     val latch = new CountDownLatch(1)
     this.topicsQueue.add(newTopic, latch)
     if (initLatch.getCount > 0) { // need for starting processing loop
@@ -69,6 +69,8 @@ final class DynamicKafkaConsumer[K, V] private (
     while (!topicsToRemove.isEmpty) {
       toRemove.add(topicsToRemove.poll())
     }
+
+    if (topicsQueue.isEmpty && toRemove.isEmpty) return
 
     val currentSubscription = consumer.subscription()
     val forNewTopics        = mutable.Set.empty[(String, CountDownLatch)]
@@ -88,7 +90,7 @@ final class DynamicKafkaConsumer[K, V] private (
     val newLatches = forNewTopics.map(_._2)
 
     if (allTopics.isEmpty) {
-      consumer.unsubscribe()
+      if (currentSubscription.nonEmpty) consumer.unsubscribe()
       return
     }
 
