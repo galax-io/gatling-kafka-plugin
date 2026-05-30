@@ -106,7 +106,12 @@ final class KafkaMessageTrackerPool(
               Option(transformations),
             ),
           )
-        consumer.addTopicForSubscription(consumerTopic, timeout)
+        val assigned = consumer.addTopicForSubscription(consumerTopic, timeout)
+        if (!assigned) {
+          throw new RuntimeException(
+            s"Timed out waiting for consumer assignment to topic '$consumerTopic' after $timeout"
+          )
+        }
         tracker
       },
     )
