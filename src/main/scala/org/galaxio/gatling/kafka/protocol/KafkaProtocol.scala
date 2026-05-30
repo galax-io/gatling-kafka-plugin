@@ -39,10 +39,18 @@ object KafkaProtocol {
     private val senders      = new ConcurrentHashMap[String, KafkaSender]()
     private val trackerPools = new ConcurrentHashMap[String, Option[KafkaMessageTrackerPool]]()
 
-    private def getOrCreateSender(protocol: KafkaProtocol): KafkaSender =
+    private def getOrCreateSender(coreComponents: CoreComponents, protocol: KafkaProtocol): KafkaSender =
       protocol.producerProperties.get(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG) match {
-        case Some(servers) => this.senders.computeIfAbsent(servers.toString, _ => KafkaSender(protocol.producerProperties))
-        case None          =>
+        case Some(servers) =>
+          this.senders.computeIfAbsent(
+            servers.toString,
+            _ => {
+              val sender = KafkaSender(protocol.producerProperties)
+              coreComponents.actorSystem.registerOnTermination(sender.close())
+              sender
+            },
+          )
+        case None =>
           throw new IllegalArgumentException(
             s"Producer settings don't set the required '${ProducerConfig.BOOTSTRAP_SERVERS_CONFIG}' parameter",
           )
@@ -79,7 +87,7 @@ object KafkaProtocol {
           coreComponents,
           kafkaProtocol,
           getOrCreateTrackerPool(coreComponents, kafkaProtocol),
-          getOrCreateSender(kafkaProtocol),
+          getOrCreateSender(coreComponents, kafkaProtocol),
         )
   }
 }
