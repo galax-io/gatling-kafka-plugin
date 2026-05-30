@@ -108,9 +108,10 @@ class KafkaMessageTracker[K, V](
           message.producerTopic,
           message.consumerTopic,
         )
-        sentMessages.remove(key).foreach { case mp @ MessagePublished(_, sentTimestamp, _, checks, session, next, requestName, onComplete) =>
-          processMessage(session, sentTimestamp, receivedTimestamp, checks, message, next, requestName)
-          onComplete()
+        sentMessages.remove(key).foreach {
+          case mp @ MessagePublished(_, sentTimestamp, _, checks, session, next, requestName, onComplete) =>
+            processMessage(session, sentTimestamp, receivedTimestamp, checks, message, next, requestName)
+            onComplete()
         }
       }
       stay

@@ -88,8 +88,8 @@ final class DynamicKafkaConsumer[K, V] private (
       while (!topicsToRemove.isEmpty) {
         toRemove.add(topicsToRemove.poll())
       }
-      val current = consumer.subscription().asScala.toSet
-      val updated = current -- toRemove
+      val current  = consumer.subscription().asScala.toSet
+      val updated  = current -- toRemove
       if (updated != current) {
         consumer.subscribe(updated.asJava)
       }
