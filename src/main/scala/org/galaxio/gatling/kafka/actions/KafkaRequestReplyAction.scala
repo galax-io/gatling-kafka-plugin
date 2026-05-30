@@ -69,7 +69,7 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
                 requestStartDate,
                 requestEndDate,
                 KO,
-                Some("503"),
+                None,
                 Some(e.getMessage),
               )
               next ! session.logGroupRequestTimings(requestStartDate, requestEndDate).markAsFailed
