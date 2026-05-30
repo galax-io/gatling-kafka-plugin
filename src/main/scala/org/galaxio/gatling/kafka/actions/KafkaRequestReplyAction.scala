@@ -40,23 +40,40 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
         val id = components.kafkaProtocol.messageMatcher.requestMatch(protocolMessage)
 
         components.trackersPool.map { trackers =>
-          val tracker = trackers.tracker(
-            protocolMessage.producerTopic,
-            protocolMessage.consumerTopic,
-            components.kafkaProtocol.messageMatcher,
-            None,
-            components.kafkaProtocol.timeout,
-          )
-          tracker ! KafkaMessageTracker
-            .MessagePublished(
-              id,
-              clock.nowMillis,
-              components.kafkaProtocol.timeout.toMillis,
-              attributes.checks,
-              session,
-              next,
-              requestNameString,
+          try {
+            val tracker = trackers.tracker(
+              protocolMessage.producerTopic,
+              protocolMessage.consumerTopic,
+              components.kafkaProtocol.messageMatcher,
+              None,
+              components.kafkaProtocol.timeout,
             )
+            tracker ! KafkaMessageTracker
+              .MessagePublished(
+                id,
+                clock.nowMillis,
+                components.kafkaProtocol.timeout.toMillis,
+                attributes.checks,
+                session,
+                next,
+                requestNameString,
+              )
+          } catch {
+            case e: Exception =>
+              val requestEndDate = clock.nowMillis
+              logger.error(e.getMessage, e)
+              statsEngine.logResponse(
+                session.scenario,
+                session.groups,
+                requestNameString,
+                requestStartDate,
+                requestEndDate,
+                KO,
+                Some("503"),
+                Some(e.getMessage),
+              )
+              next ! session.logGroupRequestTimings(requestStartDate, requestEndDate).markAsFailed
+          }
         }
       },
       e => {
