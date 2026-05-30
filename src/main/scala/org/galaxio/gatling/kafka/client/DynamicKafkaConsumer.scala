@@ -40,9 +40,14 @@ final class DynamicKafkaConsumer[K, V] private (
   private val topicsQueue: java.util.Queue[(String, CountDownLatch)] = new ConcurrentLinkedQueue[(String, CountDownLatch)]()
   topicsQueue.addAll(topics.map((_, new CountDownLatch(0))).asJava)
 
+  private val topicsToRemove: java.util.Queue[String] = new ConcurrentLinkedQueue[String]()
+
   private val running: AtomicBoolean        = new AtomicBoolean(true)
   private val consumer: KafkaConsumer[K, V] = new KafkaConsumer[K, V](settings)
   private val initLatch: CountDownLatch     = if (this.topicsQueue.isEmpty) new CountDownLatch(1) else new CountDownLatch(0)
+
+  def removeTopicSubscription(topic: String): Unit =
+    topicsToRemove.add(topic)
 
   def addTopicForSubscription(
       newTopic: String,
@@ -77,6 +82,20 @@ final class DynamicKafkaConsumer[K, V] private (
     Set.empty
   }
 
+  private def applyRemovals(): Unit = {
+    if (!topicsToRemove.isEmpty) {
+      val toRemove = mutable.Set.empty[String]
+      while (!topicsToRemove.isEmpty) {
+        toRemove.add(topicsToRemove.poll())
+      }
+      val current = consumer.subscription().asScala.toSet
+      val updated = current -- toRemove
+      if (updated != current) {
+        consumer.subscribe(updated.asJava)
+      }
+    }
+  }
+
   private def subscribeTopics(forSubscribe: Set[(String, CountDownLatch)]): Unit = {
     if (forSubscribe.nonEmpty) {
       val (topics, latches) =
@@ -108,6 +127,7 @@ final class DynamicKafkaConsumer[K, V] private (
       val timeout = DynamicKafkaConsumer.initializationTimeout
       this.initLatch.await(timeout.length, timeout.unit)
       subscribeTopics(getTopicsForSubscription)
+      applyRemovals()
       while (running.get) {
         val records = this.consumer.poll(Duration.ofMillis(1000))
         records.forEach(record =>
@@ -118,6 +138,7 @@ final class DynamicKafkaConsumer[K, V] private (
           },
         )
         subscribeTopics(getTopicsForSubscription)
+        applyRemovals()
       }
     } catch {
       case e: WakeupException =>
