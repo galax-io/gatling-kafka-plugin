@@ -108,15 +108,31 @@ final class KafkaMessageTrackerPool(
               Option(transformations),
             ),
           )
-        consumer.addTopicForSubscription(consumerTopic, timeout)
+        val assigned        = consumer.addTopicForSubscription(consumerTopic, timeout)
+        if (!assigned) {
+          throw new RuntimeException(
+            s"Timed out waiting for consumer assignment to topic '$consumerTopic' after $timeout",
+          )
+        }
         t
       },
     )
-    trackerRefCounts.computeIfAbsent(consumerTopic, _ => new AtomicInteger(0)).incrementAndGet()
+    // Use compute (not computeIfAbsent+increment) so increment and the decrement in
+    // releaseTracker are serialized on the same key, preventing count drift.
+    trackerRefCounts.compute(
+      consumerTopic,
+      (_, existing) => {
+        val count = if (existing == null) new AtomicInteger(0) else existing
+        count.incrementAndGet()
+        count
+      },
+    )
     tracker
   }
 
   def releaseTracker(consumerTopic: String): Unit = {
+    // var doCleanup is set synchronously inside compute (holds map segment lock) and read
+    // only after compute returns — safe without additional synchronization.
     var doCleanup = false
     trackerRefCounts.compute(
       consumerTopic,
@@ -128,6 +144,9 @@ final class KafkaMessageTrackerPool(
       },
     )
     if (doCleanup) {
+      // A concurrent tracker() call can re-insert into trackers between here and remove().
+      // In practice this cannot occur: dynamic topics are unique per request (no concurrent
+      // reuse), and static topics keep refcount > 1 throughout the simulation.
       trackers.remove(consumerTopic)
       consumer.removeTopicSubscription(consumerTopic)
     }
