@@ -10,6 +10,7 @@ import org.galaxio.gatling.kafka.client.KafkaMessageTracker.MessageConsumed
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaMatcher
 import org.galaxio.gatling.kafka.request.{KafkaProtocolMessage, KafkaSerdesImplicits}
 
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.{ConcurrentHashMap, ExecutorService, Executors}
 import scala.concurrent.duration.FiniteDuration
 
@@ -36,8 +37,9 @@ final class KafkaMessageTrackerPool(
 ) extends KafkaLogging with NameGen with KafkaSerdesImplicits {
 
   // Trackers map Output Topic (String) to Tracker/Actor
-  private val trackers    = new ConcurrentHashMap[String, ActorRef[KafkaMessageTracker.TrackerMessage]]
-  private val trackerName = "kafkaTracker"
+  private val trackers         = new ConcurrentHashMap[String, ActorRef[KafkaMessageTracker.TrackerMessage]]
+  private val trackerRefCounts = new ConcurrentHashMap[String, AtomicInteger]()
+  private val trackerName      = "kafkaTracker"
 
   private val consumer: DynamicKafkaConsumer[Array[Byte], Array[Byte]] =
     DynamicKafkaConsumer(
@@ -85,7 +87,7 @@ final class KafkaMessageTrackerPool(
       timeout: FiniteDuration,
   ): ActorRef[KafkaMessageTracker.TrackerMessage] = {
 
-    trackers.computeIfAbsent(
+    val tracker = trackers.computeIfAbsent(
       consumerTopic,
       _ => {
         logger.debug(
@@ -96,7 +98,7 @@ final class KafkaMessageTrackerPool(
         val name            = genName(trackerName)
         val transformations =
           responseTransformer.fold(withProducerTopic(producerTopic))(_.compose(withProducerTopic(producerTopic)))
-        val tracker         =
+        val t               =
           actorSystem.actorOf(
             KafkaMessageTracker.actor(
               name,
@@ -107,8 +109,19 @@ final class KafkaMessageTrackerPool(
             ),
           )
         consumer.addTopicForSubscription(consumerTopic, timeout)
-        tracker
+        t
       },
     )
+    trackerRefCounts.computeIfAbsent(consumerTopic, _ => new AtomicInteger(0)).incrementAndGet()
+    tracker
+  }
+
+  def releaseTracker(consumerTopic: String): Unit = {
+    val count = trackerRefCounts.get(consumerTopic)
+    if (count != null && count.decrementAndGet() <= 0) {
+      trackers.remove(consumerTopic)
+      trackerRefCounts.remove(consumerTopic)
+      consumer.removeTopicSubscription(consumerTopic)
+    }
   }
 }

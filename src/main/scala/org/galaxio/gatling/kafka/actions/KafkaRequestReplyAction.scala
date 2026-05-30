@@ -40,9 +40,10 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
         val id = components.kafkaProtocol.messageMatcher.requestMatch(protocolMessage)
 
         components.trackersPool.map { trackers =>
+          val consumerTopic = protocolMessage.consumerTopic
           val tracker = trackers.tracker(
             protocolMessage.producerTopic,
-            protocolMessage.consumerTopic,
+            consumerTopic,
             components.kafkaProtocol.messageMatcher,
             None,
             components.kafkaProtocol.timeout,
@@ -56,6 +57,7 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
               session,
               next,
               requestNameString,
+              onComplete = () => trackers.releaseTracker(consumerTopic),
             )
         }
       },

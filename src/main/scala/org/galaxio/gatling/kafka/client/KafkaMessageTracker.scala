@@ -37,6 +37,7 @@ object KafkaMessageTracker {
       session: Session,
       next: Action,
       requestName: String,
+      onComplete: () => Unit = () => (),
   ) extends TrackerMessage
 
   final case class MessageConsumed(
@@ -107,8 +108,9 @@ class KafkaMessageTracker[K, V](
           message.producerTopic,
           message.consumerTopic,
         )
-        sentMessages.remove(key).foreach { case MessagePublished(_, sentTimestamp, _, checks, session, next, requestName) =>
+        sentMessages.remove(key).foreach { case mp @ MessagePublished(_, sentTimestamp, _, checks, session, next, requestName, onComplete) =>
           processMessage(session, sentTimestamp, receivedTimestamp, checks, message, next, requestName)
+          onComplete()
         }
       }
       stay
@@ -121,20 +123,21 @@ class KafkaMessageTracker[K, V](
           timedOutMessages += messagePublished
         }
       }
-      for (MessagePublished(matchId, sentTimestamp, receivedTimeout, _, session, next, requestName) <- timedOutMessages) {
-        val matchKey = makeKeyForSentMessages(matchId)
-        logger.warn("Did not receive match for {} - key: {} after {}ms", describeBytes(matchId), matchKey, receivedTimeout)
+      for (mp <- timedOutMessages) {
+        val matchKey = makeKeyForSentMessages(mp.matchId)
+        logger.warn("Did not receive match for {} - key: {} after {}ms", describeBytes(mp.matchId), matchKey, mp.replyTimeout)
         sentMessages.remove(matchKey)
         executeNext(
-          session.markAsFailed,
-          sentTimestamp,
+          mp.session.markAsFailed,
+          mp.sentTimestamp,
           now,
           KO,
-          next,
-          requestName,
+          mp.next,
+          mp.requestName,
           None,
-          Some(s"Reply timeout after $receivedTimeout ms"),
+          Some(s"Reply timeout after ${mp.replyTimeout} ms"),
         )
+        mp.onComplete()
       }
       timedOutMessages.clear()
       stay
