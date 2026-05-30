@@ -47,10 +47,10 @@ final class DynamicKafkaConsumer[K, V] private (
   def addTopicForSubscription(
       newTopic: String,
       assignTimeout: FiniteDuration = DynamicKafkaConsumer.defaultAssignTimeout,
-  ): Unit = {
+  ): Boolean = {
     val latch = new CountDownLatch(1)
     this.topicsQueue.add(newTopic, latch)
-    if (initLatch.getCount > 0) { // need for staring processing loop
+    if (initLatch.getCount > 0) { // need for starting processing loop
       initLatch.countDown()
     }
     latch.await(assignTimeout.length, assignTimeout.unit)
