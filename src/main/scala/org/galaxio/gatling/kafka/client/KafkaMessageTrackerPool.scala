@@ -76,7 +76,12 @@ final class KafkaMessageTrackerPool(
           }
         }
       },
-      exception => logger.error(exception.getMessage, exception),
+      exception => {
+        logger.error("Consumer failure detected, propagating to {} active tracker(s): {}", trackers.size(), exception.getMessage)
+        logger.debug("Consumer failure stacktrace", exception)
+        val failure = KafkaMessageTracker.ConsumerFailure(exception.getMessage)
+        trackers.values().forEach(entry => entry.actor ! failure)
+      },
     )
 
   private val consumerFuture = consumerExecutor.submit(consumer)

@@ -128,10 +128,12 @@ final class DynamicKafkaConsumer[K, V] private (
       case e: WakeupException =>
         // Ignore exception if closing
         // rethrow when someone call wakeup while it is working
-        if (running.get) throw e
+        if (running.get) {
+          this.onFailure(e)
+        }
       case e: Exception       =>
-        // unexpected exception
-        throw new RuntimeException(e)
+        // Propagate unexpected exception through the failure callback
+        this.onFailure(e)
     } finally {
       this.topicsQueue.clear()
       consumer.close()
