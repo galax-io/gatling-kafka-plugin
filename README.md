@@ -38,6 +38,8 @@ Kafka protocol plugin for [Gatling](https://gatling.io/) load testing framework.
 >
 > Header support is available on the Gatling `3.11.5` line in `0.20.5`, and on newer lines such as `0.22.x` for Gatling `3.13.x`.
 >
+> **Upgrading from an older release?** Start with the [Migration Guide](#migration-guide) below. It summarizes the supported upgrade paths and the breaking or behavioral changes that tend to matter most.
+>
 > **Branch strategy:** `main` is the active development branch and current release line. Short-lived topic branches are cut from `main`, and `backport/*` branches are only created when a released line needs a targeted follow-up fix.
 
 ## Installation
@@ -64,6 +66,8 @@ gatling("org.galaxio:gatling-kafka-plugin_2.13:<version>")
   <scope>test</scope>
 </dependency>
 ```
+
+If you are installing this while upgrading an older test suite, read the [Migration Guide](#migration-guide) before copying examples from `main`.
 
 ## Quick Start
 
@@ -225,6 +229,76 @@ kafka("request reply").requestReply
   .check(jsonPath("$.status").is("ok"))
 ```
 
+### End-to-End Quick Start
+
+The example below is the shortest complete setup we recommend for a new request-reply simulation on local Kafka.
+
+```scala
+import io.gatling.core.Predef._
+import io.gatling.core.structure.ScenarioBuilder
+import org.apache.kafka.clients.consumer.ConsumerConfig
+import org.apache.kafka.clients.producer.ProducerConfig
+import org.galaxio.gatling.kafka.Predef._
+
+import scala.concurrent.duration._
+
+class RequestReplySimulation extends Simulation {
+
+  private val requestTopic = "requests"
+  private val replyTopic   = "replies"
+
+  private val kafkaConf = kafka
+    .producerSettings(
+      ProducerConfig.BOOTSTRAP_SERVERS_CONFIG -> "localhost:9092",
+      ProducerConfig.ACKS_CONFIG              -> "1",
+    )
+    .consumeSettings(
+      ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG -> "localhost:9092",
+      ConsumerConfig.GROUP_ID_CONFIG          -> s"gatling-rr-${System.currentTimeMillis()}",
+      ConsumerConfig.AUTO_OFFSET_RESET_CONFIG -> "latest",
+    )
+    .timeout(15.seconds)
+
+  private val scn: ScenarioBuilder = scenario("request-reply")
+    .exec(
+      kafka("send request").requestReply
+        .requestTopic(requestTopic)
+        .replyTopic(replyTopic)
+        .send[String, String]("order-42", """{"action":"process"}""")
+        .check(jsonPath("$.status").is("ok")),
+    )
+
+  setUp(scn.inject(atOnceUsers(1))).protocols(kafkaConf)
+}
+```
+
+Required consumer-side settings in that example:
+
+- `consumeSettings("bootstrap.servers" -> ...)` is mandatory. Without it, the plugin never creates the reply-tracking consumer.
+- `group.id` should be unique per local run unless you deliberately want to resume committed offsets.
+- `auto.offset.reset=latest` keeps a fresh local group focused on replies produced after the simulation starts.
+- `.timeout(...)` must cover both Kafka round-trip latency and the first consumer-group assignment for the reply topic.
+
+Reply-topic assumptions:
+
+- The system under test reads requests from `requestTopic`.
+- The responder publishes correlated replies to `replyTopic`.
+- By default, correlation matches request key to reply key. In the example above, both sides must use `order-42` as the Kafka key.
+
+Minimal local responder setup:
+
+1. Start Kafka locally with `docker compose -f docker-compose.kafka.yml up -d`.
+2. Start a lightweight responder that consumes `requests` and republishes to `replies` using the same key.
+3. Run the Gatling simulation and verify that the check passes.
+
+If you want a repository-backed responder example instead of writing your own, see [KafkaIntegrationSpec.scala](src/test/scala/org/galaxio/gatling/kafka/integration/KafkaIntegrationSpec.scala), especially the request-reply integration test that wires an input topic, reply topic, sender, and dynamic consumer together end to end.
+
+Expected success signal:
+
+- Gatling marks the `send request` action as successful.
+- The reply payload reaches the `.check(...)` clause.
+- You do not see `Timed out waiting for reply` or `Timed out waiting for consumer assignment` errors in the run output.
+
 ### Matching Strategies
 
 | Method | Request extractor | Response extractor |
@@ -375,7 +449,19 @@ KafkaSender / KafkaSenderPool           (producer pool)
 
 ## Migration Guide
 
-### From KafkaStreams to KafkaConsumer
+Use this section as release-based upgrade notes. Start from the version you are on today, then apply the checklist for the target line you want to adopt.
+
+### Supported upgrade paths
+
+| Current line | Target line | Notes |
+|---|---|---|
+| `0.20.5` | `main` / `0.22.x` | Move from the Gatling `3.11.5` line to Gatling `3.13.x`, update request-reply consumer settings, and re-check example usage against the current README. |
+| `0.21.x` | `main` / `0.22.x` | Stay on Gatling `3.13.x`, but review request-reply defaults, supported DSL surface, and current example entry points. |
+| `0.20.x` or older examples | `main` / `0.22.x` | Treat this as a full doc refresh. Do not assume older consume-only or per-action matcher APIs are still present on `main`. |
+
+### Upgrading to `main` / `0.22.x`
+
+#### Request-reply runtime moved from `KafkaStreams` to `KafkaConsumer`
 
 The plugin uses `KafkaConsumer` instead of `KafkaStreams` for reply tracking.
 
@@ -398,6 +484,35 @@ The plugin uses `KafkaConsumer` instead of `KafkaStreams` for reply tracking.
   "group.id" -> "my-test-group",
 ))
 ```
+
+What to revisit during this step:
+
+- Remove obsolete Streams-only config such as `default.key.serde` and `default.value.serde`.
+- Treat `group.id` as a runtime behavior choice, not just a rename. Reusing the same group means later runs may resume committed offsets.
+- Make sure your request-reply protocol actually includes `consumeSettings(...)`; producer settings alone are not enough.
+
+#### Current examples should replace stale snippets
+
+Older snippets often show only `requestTopic(...)` and `replyTopic(...)`, but upgrade work should also refresh the surrounding consumer configuration and timeout choices. When moving to `main`, review the current README examples instead of copying older request-reply fragments blindly.
+
+#### API surface on `main` is narrower than some older examples
+
+Before upgrading old simulations, compare them against [Current API Surface](#current-api-surface). In particular, `main` intentionally does not document or expose older patterns such as:
+
+- consume-only DSL calls like `consumeFrom`, `consumeAny`, `keyForTracking`, or `saveAs`
+- per-action matcher overrides such as `requestMatchBy` / `replyMatchBy`
+- ScalaPB helpers such as `KafkaProtobufDsl` / `protobufBody`
+
+If your older suite depends on those APIs, plan a code migration instead of a pure version bump.
+
+### Upgrade checklist
+
+- Confirm your target line from the [Compatibility](#compatibility) table before changing dependencies.
+- Update request-reply protocols to include both producer and consumer settings.
+- Replace `application.id` with `group.id` if you are migrating from older `KafkaStreams`-based tracking.
+- Decide whether your runs should reuse offsets or start fresh, then set `group.id`, `enable.auto.commit`, and `auto.offset.reset` deliberately.
+- Re-check README-backed examples on `main` instead of copying snippets from blog posts or stale branches.
+- Run the example validation and your request-reply simulations after the upgrade to catch matcher or timeout regressions early.
 
 ---
 
