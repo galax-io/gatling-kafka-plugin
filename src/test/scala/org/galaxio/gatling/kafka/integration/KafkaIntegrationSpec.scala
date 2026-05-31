@@ -35,6 +35,23 @@ class KafkaIntegrationSpec extends munit.FunSuite with TestContainerForAll {
     ConsumerConfig.AUTO_OFFSET_RESET_CONFIG        -> "earliest",
   )
 
+  private def awaitConsumerReady(
+      sender: KafkaSender,
+      topic: String,
+      ready: CountDownLatch,
+      timeoutSeconds: Int = 30,
+  ): Unit = {
+    val probe    = KafkaProtocolMessage("_probe".getBytes, "_probe".getBytes, topic, topic)
+    val deadline = System.currentTimeMillis() + timeoutSeconds * 1000L
+    while (ready.getCount > 0 && System.currentTimeMillis() < deadline) {
+      val l = new CountDownLatch(1)
+      sender.send(probe)(_ => l.countDown(), _ => l.countDown())
+      l.await(2, TimeUnit.SECONDS)
+      ready.await(500, TimeUnit.MILLISECONDS)
+    }
+    assert(ready.getCount == 0, s"Consumer not ready within ${timeoutSeconds}s")
+  }
+
   private def createTopic(bootstrap: String, topicName: String, partitions: Int = 1): Unit = {
     val admin = AdminClient.create(
       Map[String, AnyRef](
@@ -57,6 +74,7 @@ class KafkaIntegrationSpec extends munit.FunSuite with TestContainerForAll {
 
       val sender = KafkaSender(producerSettings(bootstrap))
 
+      val consumerReady = new CountDownLatch(1)
       val received      = new CountDownLatch(1)
       val receivedValue = new AtomicReference[Array[Byte]]()
 
@@ -64,8 +82,11 @@ class KafkaIntegrationSpec extends munit.FunSuite with TestContainerForAll {
         consumerSettings(bootstrap, "group-send-receive"),
         Set(topic),
         record => {
-          receivedValue.set(record.value())
-          received.countDown()
+          consumerReady.countDown()
+          if (new String(record.value()) != "_probe") {
+            receivedValue.set(record.value())
+            received.countDown()
+          }
         },
         e => fail(s"Consumer error: ${e.getMessage}"),
       )
@@ -74,7 +95,7 @@ class KafkaIntegrationSpec extends munit.FunSuite with TestContainerForAll {
       consumerThread.start()
 
       try {
-        Thread.sleep(2000)
+        awaitConsumerReady(sender, topic, consumerReady)
 
         val msg = KafkaProtocolMessage(
           key = "key-1".getBytes,
@@ -113,6 +134,7 @@ class KafkaIntegrationSpec extends munit.FunSuite with TestContainerForAll {
 
       val sender = KafkaSender(producerSettings(bootstrap))
 
+      val replyReady    = new CountDownLatch(1)
       val replyReceived = new CountDownLatch(1)
       val replyKey      = new AtomicReference[Array[Byte]]()
       val replyValue    = new AtomicReference[Array[Byte]]()
@@ -121,9 +143,13 @@ class KafkaIntegrationSpec extends munit.FunSuite with TestContainerForAll {
         consumerSettings(bootstrap, "group-rr-reply"),
         Set(outputTopic),
         record => {
-          replyKey.set(record.key())
-          replyValue.set(record.value())
-          replyReceived.countDown()
+          replyReady.countDown()
+          val v = new String(record.value())
+          if (v != "_probe") {
+            replyKey.set(record.key())
+            replyValue.set(record.value())
+            replyReceived.countDown()
+          }
         },
         e => fail(s"Reply consumer error: ${e.getMessage}"),
       )
@@ -131,20 +157,25 @@ class KafkaIntegrationSpec extends munit.FunSuite with TestContainerForAll {
       replyThread.setDaemon(true)
       replyThread.start()
 
-      // Simulate a responder: consumes from input, writes response to output
+      val responderReady = new CountDownLatch(1)
+
       val responder       = DynamicKafkaConsumer[Array[Byte], Array[Byte]](
         consumerSettings(bootstrap, "group-rr-responder"),
         Set(inputTopic),
         record => {
-          val responseMsg = KafkaProtocolMessage(
-            key = record.key(),
-            value = s"reply-to-${new String(record.value())}".getBytes,
-            producerTopic = outputTopic,
-            consumerTopic = outputTopic,
-          )
-          val latch       = new CountDownLatch(1)
-          sender.send(responseMsg)(_ => latch.countDown(), e => { fail(s"Responder send failed: $e"); latch.countDown() })
-          latch.await(10, TimeUnit.SECONDS)
+          responderReady.countDown()
+          val v = new String(record.value())
+          if (v != "_probe") {
+            val responseMsg = KafkaProtocolMessage(
+              key = record.key(),
+              value = s"reply-to-$v".getBytes,
+              producerTopic = outputTopic,
+              consumerTopic = outputTopic,
+            )
+            val latch       = new CountDownLatch(1)
+            sender.send(responseMsg)(_ => latch.countDown(), e => { fail(s"Responder send failed: $e"); latch.countDown() })
+            latch.await(10, TimeUnit.SECONDS)
+          }
         },
         e => fail(s"Responder consumer error: ${e.getMessage}"),
       )
@@ -153,7 +184,8 @@ class KafkaIntegrationSpec extends munit.FunSuite with TestContainerForAll {
       responderThread.start()
 
       try {
-        Thread.sleep(3000)
+        awaitConsumerReady(sender, outputTopic, replyReady)
+        awaitConsumerReady(sender, inputTopic, responderReady)
 
         val msg = KafkaProtocolMessage(
           key = "rr-key".getBytes,
@@ -187,6 +219,7 @@ class KafkaIntegrationSpec extends munit.FunSuite with TestContainerForAll {
       createTopic(bootstrap, initialTopic)
       createTopic(bootstrap, dynamicTopic)
 
+      val consumerReady  = new CountDownLatch(1)
       val receivedTopics = new ConcurrentLinkedQueue[String]()
       val dynamicLatch   = new CountDownLatch(1)
 
@@ -194,6 +227,7 @@ class KafkaIntegrationSpec extends munit.FunSuite with TestContainerForAll {
         consumerSettings(bootstrap, "group-dynamic"),
         Set(initialTopic),
         record => {
+          consumerReady.countDown()
           receivedTopics.add(record.topic())
           if (record.topic() == dynamicTopic) dynamicLatch.countDown()
         },
@@ -206,7 +240,7 @@ class KafkaIntegrationSpec extends munit.FunSuite with TestContainerForAll {
       val sender = KafkaSender(producerSettings(bootstrap))
 
       try {
-        Thread.sleep(2000)
+        awaitConsumerReady(sender, initialTopic, consumerReady)
 
         val assigned = consumer.addTopicForSubscription(dynamicTopic, 30.seconds)
         assert(assigned, "Dynamic topic subscription timed out")
@@ -238,15 +272,19 @@ class KafkaIntegrationSpec extends munit.FunSuite with TestContainerForAll {
       val topic     = "test-unsubscribe"
       createTopic(bootstrap, topic)
 
+      val consumerReady = new CountDownLatch(1)
       val messageCount  = new java.util.concurrent.atomic.AtomicInteger(0)
       val firstReceived = new CountDownLatch(1)
 
       val consumer       = DynamicKafkaConsumer[Array[Byte], Array[Byte]](
         consumerSettings(bootstrap, "group-unsub"),
         Set(topic),
-        _ => {
-          messageCount.incrementAndGet()
-          firstReceived.countDown()
+        record => {
+          consumerReady.countDown()
+          if (new String(record.value()) != "_probe") {
+            messageCount.incrementAndGet()
+            firstReceived.countDown()
+          }
         },
         _ => (),
       )
@@ -257,7 +295,7 @@ class KafkaIntegrationSpec extends munit.FunSuite with TestContainerForAll {
       val sender = KafkaSender(producerSettings(bootstrap))
 
       try {
-        Thread.sleep(2000)
+        awaitConsumerReady(sender, topic, consumerReady)
 
         val msg1 = KafkaProtocolMessage("k".getBytes, "before-unsub".getBytes, topic, topic)
         val l1   = new CountDownLatch(1)
@@ -267,6 +305,7 @@ class KafkaIntegrationSpec extends munit.FunSuite with TestContainerForAll {
         assert(firstReceived.await(30, TimeUnit.SECONDS), "First message not received")
 
         consumer.removeTopicSubscription(topic)
+        // Must wait for poll cycle to process the unsubscribe
         Thread.sleep(3000)
 
         val countAfterUnsub = messageCount.get()
@@ -293,6 +332,7 @@ class KafkaIntegrationSpec extends munit.FunSuite with TestContainerForAll {
       createTopic(bootstrap, topic, partitions = 3)
 
       val messageCount   = 50
+      val consumerReady  = new CountDownLatch(1)
       val receivedValues = new ConcurrentLinkedQueue[String]()
       val allReceived    = new CountDownLatch(messageCount)
 
@@ -300,8 +340,12 @@ class KafkaIntegrationSpec extends munit.FunSuite with TestContainerForAll {
         consumerSettings(bootstrap, "group-concurrent"),
         Set(topic),
         record => {
-          receivedValues.add(new String(record.value()))
-          allReceived.countDown()
+          consumerReady.countDown()
+          val v = new String(record.value())
+          if (v != "_probe") {
+            receivedValues.add(v)
+            allReceived.countDown()
+          }
         },
         e => fail(s"Consumer error: ${e.getMessage}"),
       )
@@ -312,7 +356,7 @@ class KafkaIntegrationSpec extends munit.FunSuite with TestContainerForAll {
       val sender = KafkaSender(producerSettings(bootstrap))
 
       try {
-        Thread.sleep(2000)
+        awaitConsumerReady(sender, topic, consumerReady)
 
         val sendLatch  = new CountDownLatch(messageCount)
         val sendErrors = new ConcurrentLinkedQueue[Throwable]()
@@ -348,17 +392,21 @@ class KafkaIntegrationSpec extends munit.FunSuite with TestContainerForAll {
       val topic     = "test-cleanup"
       createTopic(bootstrap, topic)
 
+      val consumerReady = new CountDownLatch(1)
+
       val consumer       = DynamicKafkaConsumer[Array[Byte], Array[Byte]](
         consumerSettings(bootstrap, "group-cleanup"),
         Set(topic),
-        _ => (),
+        _ => consumerReady.countDown(),
         e => fail(s"Consumer error: ${e.getMessage}"),
       )
       val consumerThread = new Thread(consumer, "cleanup-consumer")
       consumerThread.setDaemon(true)
       consumerThread.start()
 
-      Thread.sleep(2000)
+      val sender = KafkaSender(producerSettings(bootstrap))
+      try awaitConsumerReady(sender, topic, consumerReady)
+      finally sender.close()
 
       consumer.close()
       consumerThread.join(10000)
@@ -390,21 +438,28 @@ class KafkaIntegrationSpec extends munit.FunSuite with TestContainerForAll {
 
   test("addTopicForSubscription with very short timeout returns false") {
     withContainers { kafka =>
-      val bootstrap = kafka.bootstrapServers
-      val topic     = "test-sub-timeout"
+      val bootstrap  = kafka.bootstrapServers
+      val topic      = "test-sub-timeout"
+      val setupTopic = "test-sub-timeout-setup"
+      createTopic(bootstrap, setupTopic)
+
+      val consumerReady = new CountDownLatch(1)
 
       val consumer       = DynamicKafkaConsumer[Array[Byte], Array[Byte]](
         consumerSettings(bootstrap, "group-sub-timeout"),
-        Set.empty,
-        _ => (),
+        Set(setupTopic),
+        _ => consumerReady.countDown(),
         _ => (),
       )
       val consumerThread = new Thread(consumer, "timeout-consumer")
       consumerThread.setDaemon(true)
       consumerThread.start()
 
+      val sender = KafkaSender(producerSettings(bootstrap))
+
       try {
-        Thread.sleep(1000)
+        awaitConsumerReady(sender, setupTopic, consumerReady)
+        sender.close()
         // 1 nanosecond timeout — subscription cannot complete in time
         val assigned = consumer.addTopicForSubscription(topic, scala.concurrent.duration.Duration.fromNanos(1))
         assert(!assigned, "Expected subscription to time out")
