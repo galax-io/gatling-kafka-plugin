@@ -40,25 +40,42 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
         val id = components.kafkaProtocol.messageMatcher.requestMatch(protocolMessage)
 
         components.trackersPool.map { trackers =>
-          val consumerTopic = protocolMessage.consumerTopic
-          val tracker       = trackers.tracker(
-            protocolMessage.producerTopic,
-            consumerTopic,
-            components.kafkaProtocol.messageMatcher,
-            None,
-            components.kafkaProtocol.timeout,
-          )
-          tracker ! KafkaMessageTracker
-            .MessagePublished(
-              id,
-              clock.nowMillis,
-              components.kafkaProtocol.timeout.toMillis,
-              attributes.checks,
-              session,
-              next,
-              requestNameString,
-              onComplete = () => trackers.releaseTracker(consumerTopic),
+          try {
+            val consumerTopic = protocolMessage.consumerTopic
+            val tracker       = trackers.tracker(
+              protocolMessage.producerTopic,
+              consumerTopic,
+              components.kafkaProtocol.messageMatcher,
+              None,
+              components.kafkaProtocol.timeout,
             )
+            tracker ! KafkaMessageTracker
+              .MessagePublished(
+                id,
+                clock.nowMillis,
+                components.kafkaProtocol.timeout.toMillis,
+                attributes.checks,
+                session,
+                next,
+                requestNameString,
+                onComplete = () => trackers.releaseTracker(consumerTopic),
+              )
+          } catch {
+            case e: Exception =>
+              val requestEndDate = clock.nowMillis
+              logger.error(e.getMessage, e)
+              statsEngine.logResponse(
+                session.scenario,
+                session.groups,
+                requestNameString,
+                requestStartDate,
+                requestEndDate,
+                KO,
+                None,
+                Some(e.getMessage),
+              )
+              next ! session.logGroupRequestTimings(requestStartDate, requestEndDate).markAsFailed
+          }
         }
       },
       e => {
