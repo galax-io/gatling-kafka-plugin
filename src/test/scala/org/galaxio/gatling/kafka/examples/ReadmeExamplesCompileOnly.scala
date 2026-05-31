@@ -26,8 +26,10 @@ object ReadmeExamplesCompileOnly {
     )
     .consumeSettings(
       ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG -> "localhost:9092",
+      ConsumerConfig.GROUP_ID_CONFIG          -> "gatling-rr-readme",
+      ConsumerConfig.AUTO_OFFSET_RESET_CONFIG -> "latest",
     )
-    .timeout(5.seconds)
+    .timeout(15.seconds)
 
   val requestReplyProtocol: KafkaProtocol = requestReplyProtocolBuilder
 

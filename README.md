@@ -229,6 +229,76 @@ kafka("request reply").requestReply
   .check(jsonPath("$.status").is("ok"))
 ```
 
+### End-to-End Quick Start
+
+The example below is the shortest complete setup we recommend for a new request-reply simulation on local Kafka.
+
+```scala
+import io.gatling.core.Predef._
+import io.gatling.core.structure.ScenarioBuilder
+import org.apache.kafka.clients.consumer.ConsumerConfig
+import org.apache.kafka.clients.producer.ProducerConfig
+import org.galaxio.gatling.kafka.Predef._
+
+import scala.concurrent.duration._
+
+class RequestReplySimulation extends Simulation {
+
+  private val requestTopic = "requests"
+  private val replyTopic   = "replies"
+
+  private val kafkaConf = kafka
+    .producerSettings(
+      ProducerConfig.BOOTSTRAP_SERVERS_CONFIG -> "localhost:9092",
+      ProducerConfig.ACKS_CONFIG              -> "1",
+    )
+    .consumeSettings(
+      ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG -> "localhost:9092",
+      ConsumerConfig.GROUP_ID_CONFIG          -> s"gatling-rr-${System.currentTimeMillis()}",
+      ConsumerConfig.AUTO_OFFSET_RESET_CONFIG -> "latest",
+    )
+    .timeout(15.seconds)
+
+  private val scn: ScenarioBuilder = scenario("request-reply")
+    .exec(
+      kafka("send request").requestReply
+        .requestTopic(requestTopic)
+        .replyTopic(replyTopic)
+        .send[String, String]("order-42", """{"action":"process"}""")
+        .check(jsonPath("$.status").is("ok")),
+    )
+
+  setUp(scn.inject(atOnceUsers(1))).protocols(kafkaConf)
+}
+```
+
+Required consumer-side settings in that example:
+
+- `consumeSettings("bootstrap.servers" -> ...)` is mandatory. Without it, the plugin never creates the reply-tracking consumer.
+- `group.id` should be unique per local run unless you deliberately want to resume committed offsets.
+- `auto.offset.reset=latest` keeps a fresh local group focused on replies produced after the simulation starts.
+- `.timeout(...)` must cover both Kafka round-trip latency and the first consumer-group assignment for the reply topic.
+
+Reply-topic assumptions:
+
+- The system under test reads requests from `requestTopic`.
+- The responder publishes correlated replies to `replyTopic`.
+- By default, correlation matches request key to reply key. In the example above, both sides must use `order-42` as the Kafka key.
+
+Minimal local responder setup:
+
+1. Start Kafka locally with `docker compose -f docker-compose.kafka.yml up -d`.
+2. Start a lightweight responder that consumes `requests` and republishes to `replies` using the same key.
+3. Run the Gatling simulation and verify that the check passes.
+
+If you want a repository-backed responder example instead of writing your own, see [KafkaIntegrationSpec.scala](src/test/scala/org/galaxio/gatling/kafka/integration/KafkaIntegrationSpec.scala), especially the request-reply integration test that wires an input topic, reply topic, sender, and dynamic consumer together end to end.
+
+Expected success signal:
+
+- Gatling marks the `send request` action as successful.
+- The reply payload reaches the `.check(...)` clause.
+- You do not see `Timed out waiting for reply` or `Timed out waiting for consumer assignment` errors in the run output.
+
 ### Matching Strategies
 
 | Method | Request extractor | Response extractor |
