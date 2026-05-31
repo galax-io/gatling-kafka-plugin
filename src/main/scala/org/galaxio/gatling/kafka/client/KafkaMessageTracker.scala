@@ -118,7 +118,7 @@ class KafkaMessageTracker[K, V](
       stay
 
     case ConsumerFailure(errorMessage) =>
-      val now = clock.nowMillis
+      val now     = clock.nowMillis
       logger.error("Consumer failure propagated to tracker: {}", errorMessage)
       val pending = sentMessages.values.toList
       sentMessages.clear()
