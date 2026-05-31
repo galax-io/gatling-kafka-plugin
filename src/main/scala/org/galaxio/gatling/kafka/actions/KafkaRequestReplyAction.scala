@@ -40,8 +40,8 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
         val id = components.kafkaProtocol.messageMatcher.requestMatch(protocolMessage)
 
         components.trackersPool.map { trackers =>
-          val consumerTopic    = protocolMessage.consumerTopic
-          var trackerAcquired  = false
+          val consumerTopic   = protocolMessage.consumerTopic
+          var trackerAcquired = false
           try {
             val tracker = trackers.tracker(
               protocolMessage.producerTopic,

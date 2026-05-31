@@ -99,7 +99,7 @@ class KafkaMessageTracker[K, V](
 
         val messageKey = describeBytes(message.key)
         logMessage(s"Record received key=$messageKey", message)
-        val key = makeKeyForSentMessages(replyId)
+        val key        = makeKeyForSentMessages(replyId)
         logger.debug(
           "Received with MatchId: {} Tracking Key: {}, producerTopic: {}, consumerTopic: {}",
           describeBytes(replyId),

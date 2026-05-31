@@ -61,8 +61,8 @@ final class DynamicKafkaConsumer[K, V] private (
     latch.await(assignTimeout.length, assignTimeout.unit)
   }
 
-  /** Applies pending topic additions and removals in a single consumer.subscribe call
-    * so the ConsumerRebalanceListener is never overwritten between the two operations.
+  /** Applies pending topic additions and removals in a single consumer.subscribe call so the ConsumerRebalanceListener is never
+    * overwritten between the two operations.
     */
   private def updateSubscription(): Unit = {
     val toRemove = mutable.Set.empty[String]
