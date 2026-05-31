@@ -199,7 +199,7 @@ jobs:
             git push origin "$NEXT_TAG"
           fi
       - name: Publish to Sonatype via sbt-ci-release
-        if: startsWith(github.ref, 'refs/tags/v') || (github.ref == 'refs/heads/main' && steps.bump.outputs.tag)
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
           PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
           PGP_SECRET: ${{ secrets.PGP_SECRET }}
@@ -209,14 +209,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            TAG="${GITHUB_REF##*/}"
-          else
-            TAG="${{ steps.bump.outputs.tag }}"
-            export GITHUB_REF="refs/tags/${TAG}"
-            export GITHUB_REF_NAME="${TAG}"
-          fi
-
+          TAG="${GITHUB_REF##*/}"
           VERSION="${TAG#v}"
           echo "Publishing version $VERSION (tag $TAG)"
 
@@ -232,11 +225,9 @@ jobs:
       - name: Generate Changelog
         id: changelog
         uses: mikepenz/release-changelog-builder-action@v5
-        if: startsWith(github.ref, 'refs/tags/v') || (github.ref == 'refs/heads/main' && steps.bump.outputs.tag)
+        if: startsWith(github.ref, 'refs/tags/v')
         with:
           mode: "COMMIT"
-          fromTag: ${{ github.ref == 'refs/heads/main' && steps.bump.outputs.last_tag || '' }}
-          toTag:   ${{ github.ref == 'refs/heads/main' && steps.bump.outputs.tag || '' }}
           configurationJson: |
             {
               "template": "# Changelog\n\n#{{CHANGELOG}}",
@@ -263,10 +254,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v') || (github.ref == 'refs/heads/main' && steps.bump.outputs.tag)
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref == 'refs/heads/main' && steps.bump.outputs.tag || '' }}
           body: ${{ steps.changelog.outputs.changelog }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
