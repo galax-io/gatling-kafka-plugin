@@ -92,7 +92,7 @@ final class DynamicKafkaConsumer[K, V] private (
     val newLatches = forNewTopics.map(_._2)
 
     if (allTopics.isEmpty) {
-      if (currentSubscription.nonEmpty) consumer.unsubscribe()
+      if (!currentSubscription.isEmpty) consumer.unsubscribe()
       return
     }
 
