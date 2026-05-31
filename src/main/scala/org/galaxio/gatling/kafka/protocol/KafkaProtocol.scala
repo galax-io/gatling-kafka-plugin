@@ -35,18 +35,21 @@ object KafkaProtocol {
     override def responseMatch(msg: KafkaProtocolMessage): Array[Byte] = keyExtractor(msg)
   }
 
+  private def configFingerprint(config: Map[String, AnyRef]): String =
+    config.toSeq.sortBy(_._1).map { case (k, v) => s"$k=$v" }.mkString("|")
+
   val kafkaProtocolKey: ProtocolKey[KafkaProtocol, KafkaComponents] = new ProtocolKey[KafkaProtocol, KafkaComponents] {
     private val senders      = new ConcurrentHashMap[String, KafkaSender]()
     private val trackerPools = new ConcurrentHashMap[String, Option[KafkaMessageTrackerPool]]()
 
     private def getOrCreateSender(coreComponents: CoreComponents, protocol: KafkaProtocol): KafkaSender =
       protocol.producerProperties.get(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG) match {
-        case Some(servers) =>
+        case Some(_) =>
+          val key = configFingerprint(protocol.producerProperties)
           this.senders.computeIfAbsent(
-            servers.toString,
+            key,
             _ => {
               val sender = KafkaSender(protocol.producerProperties)
-              val key    = servers.toString
               coreComponents.actorSystem.registerOnTermination {
                 sender.close()
                 senders.remove(key) // evict so a subsequent simulation doesn't get a closed sender
@@ -54,7 +57,7 @@ object KafkaProtocol {
               sender
             },
           )
-        case None          =>
+        case None    =>
           throw new IllegalArgumentException(
             s"Producer settings don't set the required '${ProducerConfig.BOOTSTRAP_SERVERS_CONFIG}' parameter",
           )
@@ -66,11 +69,11 @@ object KafkaProtocol {
     ): Option[KafkaMessageTrackerPool] =
       protocol.consumerProperties
         .get(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG)
-        .flatMap(servers =>
+        .flatMap(_ => {
+          val key = configFingerprint(protocol.consumerProperties)
           trackerPools.computeIfAbsent(
-            servers.toString,
+            key,
             _ => {
-              val key = servers.toString
               // Register eviction BEFORE creating the pool. registerOnTermination is LIFO,
               // so the pool's own consumer.close() hook (registered inside its constructor)
               // will fire FIRST on shutdown, then this eviction hook fires — ensuring the
@@ -85,8 +88,8 @@ object KafkaProtocol {
                 coreComponents.clock,
               )
             },
-          ),
-        )
+          )
+        })
 
     override def protocolClass: Class[Protocol] =
       classOf[KafkaProtocol].asInstanceOf[Class[Protocol]]
