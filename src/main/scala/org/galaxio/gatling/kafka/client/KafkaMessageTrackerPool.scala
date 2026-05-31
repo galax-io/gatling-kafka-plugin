@@ -40,12 +40,7 @@ final class KafkaMessageTrackerPool(
       refCount: AtomicInteger,
   )
 
-  /** Two-level map: consumerTopic -> (matcherKey -> TrackerEntry).
-    *
-    * The outer key is the Kafka topic so that the consumer callback can fan-out a received record to every tracker listening on
-    * that topic. The inner key incorporates the matcher's identity so that two request-reply flows sharing the same reply topic
-    * but using different [[KafkaMatcher]] instances get independent trackers.
-    */
+  // consumerTopic -> (matcherKey -> TrackerEntry)
   private val trackers    = new ConcurrentHashMap[String, ConcurrentHashMap[String, TrackerEntry]]
   private val trackerName = "kafkaTracker"
 
@@ -103,23 +98,23 @@ final class KafkaMessageTrackerPool(
 
     val mKey = matcherKey(messageMatcher)
 
-    // Fast path: atomic get-and-increment via computeIfPresent on the inner map —
-    // avoids holding the CHM bin lock during the blocking addTopicForSubscription
-    // in the slow path, while ensuring the refcount increment is atomic with the
-    // presence check (no race window with a concurrent releaseTracker that removes
-    // the entry).
+    // Fast path: outer computeIfPresent holds the bin lock while we touch the inner
+    // map, so a concurrent releaseTracker cannot remove the outer entry in between.
     var found: ActorRef[KafkaMessageTracker.TrackerMessage] = null
-    val innerMap                                            = trackers.get(consumerTopic)
-    if (innerMap != null) {
-      innerMap.computeIfPresent(
-        mKey,
-        (_, entry) => {
-          entry.refCount.incrementAndGet()
-          found = entry.actor
-          entry
-        },
-      )
-    }
+    trackers.computeIfPresent(
+      consumerTopic,
+      (_, innerMap) => {
+        innerMap.computeIfPresent(
+          mKey,
+          (_, entry) => {
+            entry.refCount.incrementAndGet()
+            found = entry.actor
+            entry
+          },
+        )
+        innerMap
+      },
+    )
     if (found != null) return found
 
     // Slow path: subscribe first (blocking, no CHM lock held), then create actor and register.
@@ -148,52 +143,53 @@ final class KafkaMessageTrackerPool(
       ),
     )
 
-    // Atomic insert-or-increment: if a concurrent thread won the race and already
-    // registered a tracker for this (topic, matcher), increment their refcount and
-    // use their actor. The losing thread's actor receives no messages and is GC'd
-    // at actor system termination.
+    // Atomic insert-or-increment under the outer bin lock so a concurrent
+    // releaseTracker cannot remove the outer entry between get-or-create and insert.
     var result: ActorRef[KafkaMessageTracker.TrackerMessage] = null
-    val topicMap                                             =
-      trackers.computeIfAbsent(consumerTopic, _ => new ConcurrentHashMap[String, TrackerEntry]())
-    topicMap.compute(
-      mKey,
+    trackers.compute(
+      consumerTopic,
       (_, existing) => {
-        if (existing != null) {
-          existing.refCount.incrementAndGet()
-          result = existing.actor
-          existing
-        } else {
-          result = newActor
-          TrackerEntry(newActor, new AtomicInteger(1))
-        }
+        val innerMap = if (existing != null) existing else new ConcurrentHashMap[String, TrackerEntry]()
+        innerMap.compute(
+          mKey,
+          (_, entry) => {
+            if (entry != null) {
+              entry.refCount.incrementAndGet()
+              result = entry.actor
+              entry
+            } else {
+              result = newActor
+              TrackerEntry(newActor, new AtomicInteger(1))
+            }
+          },
+        )
+        innerMap
       },
     )
     result
   }
 
   def releaseTracker(consumerTopic: String, messageMatcher: KafkaMatcher): Unit = {
-    val mKey      = matcherKey(messageMatcher)
-    // Atomic decrement-and-remove: computeIfPresent serialises with the fast-path
-    // computeIfPresent and the slow-path compute, so no window exists where a
-    // concurrent tracker() call can observe a stale entry.
-    var doCleanup = false
-    val innerMap  = trackers.get(consumerTopic)
-    if (innerMap != null) {
-      innerMap.computeIfPresent(
-        mKey,
-        (_, entry) => {
-          if (entry.refCount.decrementAndGet() <= 0) {
-            doCleanup = true
-            null
-          } else entry
-        },
-      )
-      // If the inner map is now empty, remove the topic entry and unsubscribe.
-      if (doCleanup && innerMap.isEmpty) {
-        // Remove the outer entry only if it's still the same (empty) inner map.
-        trackers.remove(consumerTopic, innerMap)
-        consumer.removeTopicSubscription(consumerTopic)
-      }
+    val mKey          = matcherKey(messageMatcher)
+    var doUnsubscribe = false
+    trackers.computeIfPresent(
+      consumerTopic,
+      (_, innerMap) => {
+        innerMap.computeIfPresent(
+          mKey,
+          (_, entry) => {
+            if (entry.refCount.decrementAndGet() <= 0) null
+            else entry
+          },
+        )
+        if (innerMap.isEmpty) {
+          doUnsubscribe = true
+          null
+        } else innerMap
+      },
+    )
+    if (doUnsubscribe) {
+      consumer.removeTopicSubscription(consumerTopic)
     }
   }
 }
