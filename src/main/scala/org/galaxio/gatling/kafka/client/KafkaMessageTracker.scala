@@ -37,6 +37,7 @@ object KafkaMessageTracker {
       session: Session,
       next: Action,
       requestName: String,
+      onComplete: () => Unit = () => (),
   ) extends TrackerMessage
 
   final case class MessageConsumed(
@@ -86,7 +87,8 @@ class KafkaMessageTracker[K, V](
     // message was received; publish stats and remove from the map
     case MessageConsumed(receivedTimestamp, forTransformMessage) =>
       val message = responseTransformer.map(_(forTransformMessage)).getOrElse(forTransformMessage)
-      if (messageMatcher.responseMatch(message) == null) {
+      val replyId = messageMatcher.responseMatch(message)
+      if (replyId == null) {
         logger.error("no messageMatcher key for read message {}", message.key)
       } else {
         if (message.key == null || message.value == null) {
@@ -95,7 +97,6 @@ class KafkaMessageTracker[K, V](
           logger.trace(" --- received key={} value={}", describeBytes(message.key), describeBytes(message.value))
         }
 
-        val replyId    = messageMatcher.responseMatch(message)
         val messageKey = describeBytes(message.key)
         logMessage(s"Record received key=$messageKey", message)
         // if key is missing, message was already acked and is a dup, or request timeout
@@ -107,8 +108,10 @@ class KafkaMessageTracker[K, V](
           message.producerTopic,
           message.consumerTopic,
         )
-        sentMessages.remove(key).foreach { case MessagePublished(_, sentTimestamp, _, checks, session, next, requestName) =>
-          processMessage(session, sentTimestamp, receivedTimestamp, checks, message, next, requestName)
+        sentMessages.remove(key).foreach {
+          case mp @ MessagePublished(_, sentTimestamp, _, checks, session, next, requestName, onComplete) =>
+            try processMessage(session, sentTimestamp, receivedTimestamp, checks, message, next, requestName)
+            finally onComplete()
         }
       }
       stay
@@ -121,20 +124,22 @@ class KafkaMessageTracker[K, V](
           timedOutMessages += messagePublished
         }
       }
-      for (MessagePublished(matchId, sentTimestamp, receivedTimeout, _, session, next, requestName) <- timedOutMessages) {
-        val matchKey = makeKeyForSentMessages(matchId)
-        logger.warn("Did not receive match for {} - key: {} after {}ms", describeBytes(matchId), matchKey, receivedTimeout)
+      for (mp <- timedOutMessages) {
+        val matchKey = makeKeyForSentMessages(mp.matchId)
+        logger.warn("Did not receive match for {} - key: {} after {}ms", describeBytes(mp.matchId), matchKey, mp.replyTimeout)
         sentMessages.remove(matchKey)
-        executeNext(
-          session.markAsFailed,
-          sentTimestamp,
-          now,
-          KO,
-          next,
-          requestName,
-          None,
-          Some(s"Reply timeout after $receivedTimeout ms"),
-        )
+        try
+          executeNext(
+            mp.session.markAsFailed,
+            mp.sentTimestamp,
+            now,
+            KO,
+            mp.next,
+            mp.requestName,
+            None,
+            Some(s"Reply timeout after ${mp.replyTimeout} ms"),
+          )
+        finally mp.onComplete()
       }
       timedOutMessages.clear()
       stay

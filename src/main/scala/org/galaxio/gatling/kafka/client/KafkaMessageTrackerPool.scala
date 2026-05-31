@@ -10,6 +10,7 @@ import org.galaxio.gatling.kafka.client.KafkaMessageTracker.MessageConsumed
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaMatcher
 import org.galaxio.gatling.kafka.request.{KafkaProtocolMessage, KafkaSerdesImplicits}
 
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.{ConcurrentHashMap, ExecutorService, Executors}
 import scala.concurrent.duration.FiniteDuration
 
@@ -25,7 +26,6 @@ object KafkaMessageTrackerPool {
       new KafkaMessageTrackerPool(consumerSettings, actorSystem, statsEngine, clock),
     )
 
-  private val consumerExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 }
 
 final class KafkaMessageTrackerPool(
@@ -36,8 +36,12 @@ final class KafkaMessageTrackerPool(
 ) extends KafkaLogging with NameGen with KafkaSerdesImplicits {
 
   // Trackers map Output Topic (String) to Tracker/Actor
-  private val trackers    = new ConcurrentHashMap[String, ActorRef[KafkaMessageTracker.TrackerMessage]]
-  private val trackerName = "kafkaTracker"
+  private val trackers         = new ConcurrentHashMap[String, ActorRef[KafkaMessageTracker.TrackerMessage]]
+  private val trackerRefCounts = new ConcurrentHashMap[String, AtomicInteger]()
+  private val trackerName      = "kafkaTracker"
+
+  // Per-instance executor so shutdown of one pool doesn't affect other pools or subsequent simulations.
+  private val consumerExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
   private val consumer: DynamicKafkaConsumer[Array[Byte], Array[Byte]] =
     DynamicKafkaConsumer(
@@ -61,7 +65,7 @@ final class KafkaMessageTrackerPool(
       exception => logger.error(exception.getMessage, exception),
     )
 
-  private val consumerFuture = KafkaMessageTrackerPool.consumerExecutor.submit(consumer)
+  private val consumerFuture = consumerExecutor.submit(consumer)
   actorSystem.registerOnTermination {
     logger.debug("Closing consumer {}", consumer)
     consumer.close()
@@ -71,7 +75,7 @@ final class KafkaMessageTrackerPool(
       case e: Throwable =>
         logger.error(e.getMessage, e)
     }
-    KafkaMessageTrackerPool.consumerExecutor.shutdown()
+    consumerExecutor.shutdown()
   }
 
   private def withProducerTopic(producerTopic: String): KafkaProtocolMessage => KafkaProtocolMessage =
@@ -85,7 +89,7 @@ final class KafkaMessageTrackerPool(
       timeout: FiniteDuration,
   ): ActorRef[KafkaMessageTracker.TrackerMessage] = {
 
-    trackers.computeIfAbsent(
+    val tracker = trackers.computeIfAbsent(
       consumerTopic,
       _ => {
         logger.debug(
@@ -93,22 +97,58 @@ final class KafkaMessageTrackerPool(
           consumerTopic,
           trackers.size(),
         )
+        val assigned        = consumer.addTopicForSubscription(consumerTopic, timeout)
+        if (!assigned) {
+          throw new RuntimeException(
+            s"Timed out waiting for consumer assignment to topic '$consumerTopic' after $timeout",
+          )
+        }
         val name            = genName(trackerName)
         val transformations =
           responseTransformer.fold(withProducerTopic(producerTopic))(_.compose(withProducerTopic(producerTopic)))
-        val tracker         =
-          actorSystem.actorOf(
-            KafkaMessageTracker.actor(
-              name,
-              statsEngine,
-              clock,
-              messageMatcher,
-              Option(transformations),
-            ),
-          )
-        consumer.addTopicForSubscription(consumerTopic, timeout)
-        tracker
+        actorSystem.actorOf(
+          KafkaMessageTracker.actor(
+            name,
+            statsEngine,
+            clock,
+            messageMatcher,
+            Option(transformations),
+          ),
+        )
       },
     )
+    // Use compute (not computeIfAbsent+increment) so increment and the decrement in
+    // releaseTracker are serialized on the same key, preventing count drift.
+    trackerRefCounts.compute(
+      consumerTopic,
+      (_, existing) => {
+        val count = if (existing == null) new AtomicInteger(0) else existing
+        count.incrementAndGet()
+        count
+      },
+    )
+    tracker
+  }
+
+  def releaseTracker(consumerTopic: String): Unit = {
+    // var doCleanup is set synchronously inside compute (holds map segment lock) and read
+    // only after compute returns — safe without additional synchronization.
+    var doCleanup = false
+    trackerRefCounts.compute(
+      consumerTopic,
+      (_, count) => {
+        if (count == null || count.decrementAndGet() <= 0) {
+          doCleanup = true
+          null
+        } else count
+      },
+    )
+    if (doCleanup) {
+      // A concurrent tracker() call can re-insert into trackers between here and remove().
+      // In practice this cannot occur: dynamic topics are unique per request (no concurrent
+      // reuse), and static topics keep refcount > 1 throughout the simulation.
+      trackers.remove(consumerTopic)
+      consumer.removeTopicSubscription(consumerTopic)
+    }
   }
 }

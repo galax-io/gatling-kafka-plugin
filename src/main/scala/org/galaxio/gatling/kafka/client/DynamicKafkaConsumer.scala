@@ -40,74 +40,81 @@ final class DynamicKafkaConsumer[K, V] private (
   private val topicsQueue: java.util.Queue[(String, CountDownLatch)] = new ConcurrentLinkedQueue[(String, CountDownLatch)]()
   topicsQueue.addAll(topics.map((_, new CountDownLatch(0))).asJava)
 
+  private val topicsToRemove: java.util.Queue[String] = new ConcurrentLinkedQueue[String]()
+
   private val running: AtomicBoolean        = new AtomicBoolean(true)
   private val consumer: KafkaConsumer[K, V] = new KafkaConsumer[K, V](settings)
   private val initLatch: CountDownLatch     = if (this.topicsQueue.isEmpty) new CountDownLatch(1) else new CountDownLatch(0)
 
+  def removeTopicSubscription(topic: String): Unit =
+    topicsToRemove.add(topic)
+
   def addTopicForSubscription(
       newTopic: String,
       assignTimeout: FiniteDuration = DynamicKafkaConsumer.defaultAssignTimeout,
-  ): Unit = {
+  ): Boolean = {
     val latch = new CountDownLatch(1)
     this.topicsQueue.add(newTopic, latch)
-    if (initLatch.getCount > 0) { // need for staring processing loop
+    if (initLatch.getCount > 0) { // need for starting processing loop
       initLatch.countDown()
     }
     latch.await(assignTimeout.length, assignTimeout.unit)
   }
 
-  private def getTopicsForSubscription: Set[(String, CountDownLatch)] = {
-    if (!this.topicsQueue.isEmpty) {
-      val currentSubscription = this.consumer.subscription()
-      val forSubscribe        = mutable.Set.empty[(String, CountDownLatch)]
-      while (!this.topicsQueue.isEmpty) {
-        val (topic, latch) = this.topicsQueue.poll()
-        if (currentSubscription.contains(topic)) {
-          latch.countDown()
-        } else {
-          forSubscribe.add(topic, latch)
+  /** Applies pending topic additions and removals in a single consumer.subscribe call so the ConsumerRebalanceListener is never
+    * overwritten between the two operations.
+    */
+  private def updateSubscription(): Unit = {
+    val toRemove = mutable.Set.empty[String]
+    while (!topicsToRemove.isEmpty) {
+      toRemove.add(topicsToRemove.poll())
+    }
+
+    if (topicsQueue.isEmpty && toRemove.isEmpty) return
+
+    val currentSubscription = consumer.subscription()
+    val forNewTopics        = mutable.Set.empty[(String, CountDownLatch)]
+
+    while (!topicsQueue.isEmpty) {
+      val (topic, latch) = topicsQueue.poll()
+      // Don't short-circuit if the topic is also pending removal — let it pass through
+      // to forNewTopics so the re-add wins and the topic stays in allTopics.
+      if (currentSubscription.contains(topic) && !toRemove.contains(topic))
+        latch.countDown()
+      else
+        forNewTopics.add((topic, latch))
+    }
+
+    if (forNewTopics.isEmpty && toRemove.isEmpty) return
+
+    val baseTopics = currentSubscription.asScala.toSet -- toRemove
+    val allTopics  = baseTopics ++ forNewTopics.map(_._1)
+    val newLatches = forNewTopics.map(_._2)
+
+    if (allTopics.isEmpty) {
+      if (!currentSubscription.isEmpty) consumer.unsubscribe()
+      return
+    }
+
+    consumer.subscribe(
+      allTopics.asJava,
+      new ConsumerRebalanceListener {
+        override def onPartitionsRevoked(partitions: util.Collection[TopicPartition]): Unit =
+          logger.debug(s"revoked partitions $partitions")
+
+        override def onPartitionsAssigned(partitions: util.Collection[TopicPartition]): Unit = {
+          logger.debug(s"assigned partitions $partitions")
+          newLatches.foreach(_.countDown())
         }
-      }
-      if (forSubscribe.isEmpty)
-        return Set.empty
-
-      forSubscribe.addAll(currentSubscription.asScala.map((_, new CountDownLatch(1))))
-      return forSubscribe.toSet
-    }
-    Set.empty
-  }
-
-  private def subscribeTopics(forSubscribe: Set[(String, CountDownLatch)]): Unit = {
-    if (forSubscribe.nonEmpty) {
-      val (topics, latches) =
-        forSubscribe.foldLeft((mutable.Set.empty[String], mutable.Set.empty[CountDownLatch]))((result, tl) => {
-          val (ts, ls)       = result
-          val (topic, latch) = tl
-          ts.add(topic)
-          ls.add(latch)
-          result
-        })
-      this.consumer.subscribe(
-        topics.asJava,
-        new ConsumerRebalanceListener {
-          override def onPartitionsRevoked(partitions: util.Collection[TopicPartition]): Unit = {
-            logger.debug(s"revoked partitions $partitions")
-          }
-
-          override def onPartitionsAssigned(partitions: util.Collection[TopicPartition]): Unit = {
-            logger.debug(s"assigned partitions $partitions")
-            latches.foreach(_.countDown())
-          }
-        },
-      )
-    }
+      },
+    )
   }
 
   override def run(): Unit = {
     try {
       val timeout = DynamicKafkaConsumer.initializationTimeout
       this.initLatch.await(timeout.length, timeout.unit)
-      subscribeTopics(getTopicsForSubscription)
+      updateSubscription()
       while (running.get) {
         val records = this.consumer.poll(Duration.ofMillis(1000))
         records.forEach(record =>
@@ -117,7 +124,7 @@ final class DynamicKafkaConsumer[K, V] private (
               this.onFailure(e)
           },
         )
-        subscribeTopics(getTopicsForSubscription)
+        updateSubscription()
       }
     } catch {
       case e: WakeupException =>
