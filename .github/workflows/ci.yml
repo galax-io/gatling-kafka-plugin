@@ -31,33 +31,31 @@ jobs:
     runs-on: ubuntu-24.04
     services:
       zookeeper:
-        image: wurstmeister/zookeeper
+        image: confluentinc/cp-zookeeper:7.9.2
         env:
-          ZOO_MY_ID: "1"
-          ZOO_PORT: "2181"
-          ZOO_SERVERS: server.1=zoo1:2888:3888
+          ZOOKEEPER_CLIENT_PORT: "2181"
+          ZOOKEEPER_TICK_TIME: "2000"
         ports:
           - '2181:2181'
       kafka:
-        image: wurstmeister/kafka:2.13-2.8.1
+        image: confluentinc/cp-kafka:7.9.2
         env:
           KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-          KAFKA_ADVERTISED_HOST_NAME: kafka
-          KAFKA_LISTENERS: BROKER://:9092,EXTERNAL://:9093
-          KAFKA_ADVERTISED_LISTENERS: BROKER://kafka:9092,EXTERNAL://localhost:9093
-          KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: BROKER:PLAINTEXT,EXTERNAL:PLAINTEXT
-          KAFKA_INTER_BROKER_LISTENER_NAME: BROKER
+          KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+          KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:9093
+          KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9093
+          KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
           KAFKA_BROKER_ID: "1"
           KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
-          KAFKA_CREATE_TOPICS: "myTopic1:1:1, test.t1:1:1, myTopic2:1:1, test.t2:1:1, myTopic3:1:1, test.t3:1:1"
+          KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
         ports:
           - '9092:9092'
           - '9093:9093'
       schema-registry:
-        image: confluentinc/cp-schema-registry:7.2.1
+        image: confluentinc/cp-schema-registry:7.9.2
         env:
           SCHEMA_REGISTRY_HOST_NAME: schema-registry
-          SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: 'kafka:9092,localhost:9093'
+          SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka:9092
           SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:9094
         ports:
           - '9094:9094'
@@ -89,6 +87,19 @@ jobs:
             ~/.cache/coursier
           key: sbt-${{ runner.os }}-${{ hashFiles('**/*.sbt') }}-${{ hashFiles('project/**') }}
           restore-keys: sbt-${{ runner.os }}-
+
+      - name: Wait for Kafka to be ready
+        run: |
+          echo "Waiting for Kafka broker on localhost:9093..."
+          for i in $(seq 1 30); do
+            if nc -z localhost 9093 2>/dev/null; then
+              echo "Kafka is ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Kafka did not become ready in time"
+          exit 1
 
       - name: Check Formatting
         run: sbt scalafmtCheckAll scalafmtSbtCheck
@@ -199,7 +210,7 @@ jobs:
             git push origin "$NEXT_TAG"
           fi
       - name: Publish to Sonatype via sbt-ci-release
-        if: startsWith(github.ref, 'refs/tags/v') || (github.ref == 'refs/heads/main' && steps.bump.outputs.tag)
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
           PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
           PGP_SECRET: ${{ secrets.PGP_SECRET }}
@@ -209,14 +220,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            TAG="${GITHUB_REF##*/}"
-          else
-            TAG="${{ steps.bump.outputs.tag }}"
-            export GITHUB_REF="refs/tags/${TAG}"
-            export GITHUB_REF_NAME="${TAG}"
-          fi
-
+          TAG="${GITHUB_REF##*/}"
           VERSION="${TAG#v}"
           echo "Publishing version $VERSION (tag $TAG)"
 
@@ -232,11 +236,9 @@ jobs:
       - name: Generate Changelog
         id: changelog
         uses: mikepenz/release-changelog-builder-action@v5
-        if: startsWith(github.ref, 'refs/tags/v') || (github.ref == 'refs/heads/main' && steps.bump.outputs.tag)
+        if: startsWith(github.ref, 'refs/tags/v')
         with:
           mode: "COMMIT"
-          fromTag: ${{ github.ref == 'refs/heads/main' && steps.bump.outputs.last_tag || '' }}
-          toTag:   ${{ github.ref == 'refs/heads/main' && steps.bump.outputs.tag || '' }}
           configurationJson: |
             {
               "template": "# Changelog\n\n#{{CHANGELOG}}",
@@ -263,10 +265,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v') || (github.ref == 'refs/heads/main' && steps.bump.outputs.tag)
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref == 'refs/heads/main' && steps.bump.outputs.tag || '' }}
           body: ${{ steps.changelog.outputs.changelog }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
