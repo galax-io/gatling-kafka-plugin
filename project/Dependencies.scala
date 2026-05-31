@@ -7,6 +7,7 @@ object Dependencies {
     val avro4s         = "4.1.2"
     val avro           = "1.12.0"
     val kafkaAvroSerde = "7.9.2"
+    val testcontainers = "0.41.8"
   }
 
   lazy val gatling: Seq[ModuleID] = Seq(
@@ -34,5 +35,10 @@ object Dependencies {
   lazy val avroSerdes: ModuleID   =
     ("io.confluent" % "kafka-streams-avro-serde" % Versions.kafkaAvroSerde).exclude("org.apache.kafka", "kafka-streams-scala")
   lazy val avroSerializers: ModuleID = "io.confluent" % "kafka-avro-serializer" % Versions.kafkaAvroSerde
+
+  lazy val testcontainers: Seq[ModuleID] = Seq(
+    "com.dimafeng" %% "testcontainers-scala-munit" % Versions.testcontainers % Test,
+    "com.dimafeng" %% "testcontainers-scala-kafka" % Versions.testcontainers % Test,
+  )
 
 }

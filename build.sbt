@@ -14,6 +14,7 @@ lazy val root = (project in file("."))
     libraryDependencies ++= kafka,
     libraryDependencies ++= Seq(avro4s, avroCore, avroSerdes, avroSerializers),
     libraryDependencies += "org.scalatest" %% "scalatest" % "3.2.19" % Test,
+    libraryDependencies ++= testcontainers,
     schemaRegistrySubjects ++= avroSchemas,
 //    schemaRegistryUrl := "http://test-schema-registry:8081",
     resolvers ++= Seq(
