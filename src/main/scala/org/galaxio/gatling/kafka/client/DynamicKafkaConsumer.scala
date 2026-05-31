@@ -8,7 +8,7 @@ import org.apache.kafka.common.errors.WakeupException
 import java.time.Duration
 import java.util
 import java.util.Properties
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 import java.util.concurrent.{ConcurrentLinkedQueue, CountDownLatch}
 import scala.collection.mutable
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
@@ -42,9 +42,10 @@ final class DynamicKafkaConsumer[K, V] private (
 
   private val topicsToRemove: java.util.Queue[String] = new ConcurrentLinkedQueue[String]()
 
-  private val running: AtomicBoolean        = new AtomicBoolean(true)
-  private val consumer: KafkaConsumer[K, V] = new KafkaConsumer[K, V](settings)
-  private val initLatch: CountDownLatch     = if (this.topicsQueue.isEmpty) new CountDownLatch(1) else new CountDownLatch(0)
+  private val running: AtomicBoolean                      = new AtomicBoolean(true)
+  private val consumer: KafkaConsumer[K, V]               = new KafkaConsumer[K, V](settings)
+  private val initLatch: CountDownLatch                   = if (this.topicsQueue.isEmpty) new CountDownLatch(1) else new CountDownLatch(0)
+  private val consumerFailure: AtomicReference[Exception] = new AtomicReference[Exception](null)
 
   def removeTopicSubscription(topic: String): Unit =
     topicsToRemove.add(topic)
@@ -53,12 +54,36 @@ final class DynamicKafkaConsumer[K, V] private (
       newTopic: String,
       assignTimeout: FiniteDuration = DynamicKafkaConsumer.defaultAssignTimeout,
   ): Boolean = {
-    val latch = new CountDownLatch(1)
+    failIfConsumerFailed()
+    val latch    = new CountDownLatch(1)
     this.topicsQueue.add(newTopic, latch)
     if (initLatch.getCount > 0) {
       initLatch.countDown()
     }
-    latch.await(assignTimeout.length, assignTimeout.unit)
+    val assigned = latch.await(assignTimeout.length, assignTimeout.unit)
+    failIfConsumerFailed()
+    assigned
+  }
+
+  private def failIfConsumerFailed(): Unit = {
+    val failure = consumerFailure.get()
+    if (failure != null) {
+      throw new IllegalStateException("Kafka consumer failed; dynamic consumer can no longer be used", failure)
+    }
+  }
+
+  private def markConsumerFailed(exception: Exception): Unit = {
+    if (consumerFailure.compareAndSet(null, exception)) {
+      while (!topicsQueue.isEmpty) {
+        val (_, latch) = topicsQueue.poll()
+        if (latch != null) {
+          latch.countDown()
+        }
+      }
+      if (initLatch.getCount > 0) {
+        initLatch.countDown()
+      }
+    }
   }
 
   /** Applies pending topic additions and removals in a single consumer.subscribe call so the ConsumerRebalanceListener is never
@@ -128,10 +153,14 @@ final class DynamicKafkaConsumer[K, V] private (
       case e: WakeupException =>
         // Ignore exception if closing
         // rethrow when someone call wakeup while it is working
-        if (running.get) throw e
+        if (running.get) {
+          markConsumerFailed(e)
+          this.onFailure(e)
+        }
       case e: Exception       =>
-        // unexpected exception
-        throw new RuntimeException(e)
+        // Propagate unexpected exception through the failure callback
+        markConsumerFailed(e)
+        this.onFailure(e)
     } finally {
       this.topicsQueue.clear()
       consumer.close()

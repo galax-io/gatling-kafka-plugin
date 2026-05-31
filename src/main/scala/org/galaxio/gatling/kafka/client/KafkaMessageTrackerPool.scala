@@ -11,6 +11,7 @@ import org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaMatcher
 import org.galaxio.gatling.kafka.request.{KafkaProtocolMessage, KafkaSerdesImplicits}
 
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.{ConcurrentHashMap, ExecutorService, Executors}
 import scala.concurrent.duration.FiniteDuration
 
@@ -49,8 +50,9 @@ final class KafkaMessageTrackerPool(
   }
 
   // consumerTopic -> (MatcherRef -> TrackerEntry)
-  private val trackers    = new ConcurrentHashMap[String, ConcurrentHashMap[MatcherRef, TrackerEntry]]
-  private val trackerName = "kafkaTracker"
+  private val trackers        = new ConcurrentHashMap[String, ConcurrentHashMap[MatcherRef, TrackerEntry]]
+  private val trackerName     = "kafkaTracker"
+  private val consumerFailure = new AtomicReference[Exception](null)
 
   // Per-instance executor so shutdown of one pool doesn't affect other pools or subsequent simulations.
   private val consumerExecutor: ExecutorService = Executors.newSingleThreadExecutor()
@@ -76,7 +78,19 @@ final class KafkaMessageTrackerPool(
           }
         }
       },
-      exception => logger.error(exception.getMessage, exception),
+      exception => {
+        logger.error(
+          "Consumer failure detected, propagating to {} active tracker(s): {}",
+          trackers.size(),
+          exception.getMessage,
+        )
+        logger.debug("Consumer failure stacktrace", exception)
+        if (consumerFailure.compareAndSet(null, exception)) {
+          val failure = KafkaMessageTracker.ConsumerFailure(exception.getMessage)
+          trackers.values().forEach(_.values().forEach(entry => entry.actor ! failure))
+          trackers.clear()
+        }
+      },
     )
 
   private val consumerFuture = consumerExecutor.submit(consumer)
@@ -95,6 +109,13 @@ final class KafkaMessageTrackerPool(
   private def withProducerTopic(producerTopic: String): KafkaProtocolMessage => KafkaProtocolMessage =
     _.copy(producerTopic = producerTopic)
 
+  private def failIfConsumerFailed(): Unit = {
+    val failure = consumerFailure.get()
+    if (failure != null) {
+      throw new IllegalStateException("Kafka consumer failed; tracker pool can no longer be used", failure)
+    }
+  }
+
   def tracker(
       producerTopic: String,
       consumerTopic: String,
@@ -102,6 +123,7 @@ final class KafkaMessageTrackerPool(
       responseTransformer: Option[KafkaProtocolMessage => KafkaProtocolMessage],
       timeout: FiniteDuration,
   ): ActorRef[KafkaMessageTracker.TrackerMessage] = {
+    failIfConsumerFailed()
 
     val mRef = new MatcherRef(messageMatcher)
 
@@ -125,6 +147,7 @@ final class KafkaMessageTrackerPool(
     if (found != null) return found
 
     // Slow path: subscribe first (blocking, no CHM lock held), then create actor and register.
+    failIfConsumerFailed()
     logger.debug(
       "Creating new tracker for topic {} matcher {}, there are currently {} other topic entries",
       consumerTopic,

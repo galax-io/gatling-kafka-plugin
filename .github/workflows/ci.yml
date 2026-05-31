@@ -91,7 +91,12 @@ jobs:
           restore-keys: sbt-${{ runner.os }}-
 
       - name: Check Formatting
-        run: sbt scalafmtCheckAll scalafmtSbtCheck
+        run: |
+          sbt scalafmtAll scalafmtSbt
+          if ! git diff --exit-code; then
+            echo "::error::Files were reformatted by scalafmt. See diff above."
+            exit 1
+          fi
 
       - name: Compile
         run: sbt clean compile
