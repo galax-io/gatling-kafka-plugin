@@ -97,26 +97,24 @@ final class KafkaMessageTrackerPool(
           consumerTopic,
           trackers.size(),
         )
-        val name            = genName(trackerName)
-        val transformations =
-          responseTransformer.fold(withProducerTopic(producerTopic))(_.compose(withProducerTopic(producerTopic)))
-        val t               =
-          actorSystem.actorOf(
-            KafkaMessageTracker.actor(
-              name,
-              statsEngine,
-              clock,
-              messageMatcher,
-              Option(transformations),
-            ),
-          )
         val assigned        = consumer.addTopicForSubscription(consumerTopic, timeout)
         if (!assigned) {
           throw new RuntimeException(
             s"Timed out waiting for consumer assignment to topic '$consumerTopic' after $timeout",
           )
         }
-        t
+        val name            = genName(trackerName)
+        val transformations =
+          responseTransformer.fold(withProducerTopic(producerTopic))(_.compose(withProducerTopic(producerTopic)))
+        actorSystem.actorOf(
+          KafkaMessageTracker.actor(
+            name,
+            statsEngine,
+            clock,
+            messageMatcher,
+            Option(transformations),
+          ),
+        )
       },
     )
     // Use compute (not computeIfAbsent+increment) so increment and the decrement in
