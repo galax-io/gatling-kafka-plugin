@@ -39,46 +39,63 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
         }
         val id = components.kafkaProtocol.messageMatcher.requestMatch(protocolMessage)
 
-        components.trackersPool.map { trackers =>
-          val consumerTopic   = protocolMessage.consumerTopic
-          var trackerAcquired = false
-          try {
-            val tracker = trackers.tracker(
-              protocolMessage.producerTopic,
-              consumerTopic,
-              components.kafkaProtocol.messageMatcher,
-              None,
-              components.kafkaProtocol.timeout,
-            )
-            trackerAcquired = true
-            tracker ! KafkaMessageTracker
-              .MessagePublished(
-                id,
-                clock.nowMillis,
-                components.kafkaProtocol.timeout.toMillis,
-                attributes.checks,
-                session,
-                next,
-                requestNameString,
-                onComplete = () => trackers.releaseTracker(consumerTopic),
-              )
-          } catch {
-            case e: Exception =>
-              if (trackerAcquired) trackers.releaseTracker(consumerTopic)
-              val requestEndDate = clock.nowMillis
-              logger.error(e.getMessage, e)
-              statsEngine.logResponse(
-                session.scenario,
-                session.groups,
-                requestNameString,
-                requestStartDate,
-                requestEndDate,
-                KO,
+        components.trackersPool match {
+          case Some(trackers) =>
+            val consumerTopic   = protocolMessage.consumerTopic
+            var trackerAcquired = false
+            try {
+              val tracker = trackers.tracker(
+                protocolMessage.producerTopic,
+                consumerTopic,
+                components.kafkaProtocol.messageMatcher,
                 None,
-                Some(e.getMessage),
+                components.kafkaProtocol.timeout,
               )
-              next ! session.logGroupRequestTimings(requestStartDate, requestEndDate).markAsFailed
-          }
+              trackerAcquired = true
+              tracker ! KafkaMessageTracker
+                .MessagePublished(
+                  id,
+                  clock.nowMillis,
+                  components.kafkaProtocol.timeout.toMillis,
+                  attributes.checks,
+                  session,
+                  next,
+                  requestNameString,
+                  onComplete = () => trackers.releaseTracker(consumerTopic),
+                )
+            } catch {
+              case e: Exception =>
+                if (trackerAcquired) trackers.releaseTracker(consumerTopic)
+                val requestEndDate = clock.nowMillis
+                logger.error(e.getMessage, e)
+                statsEngine.logResponse(
+                  session.scenario,
+                  session.groups,
+                  requestNameString,
+                  requestStartDate,
+                  requestEndDate,
+                  KO,
+                  None,
+                  Some(e.getMessage),
+                )
+                next ! session.logGroupRequestTimings(requestStartDate, requestEndDate).markAsFailed
+            }
+          case None           =>
+            val requestEndDate = clock.nowMillis
+            val msg            =
+              "Request-reply requires consumer settings (consumeSettings) in the Kafka protocol configuration"
+            logger.error(msg)
+            statsEngine.logResponse(
+              session.scenario,
+              session.groups,
+              requestNameString,
+              requestStartDate,
+              requestEndDate,
+              KO,
+              None,
+              Some(msg),
+            )
+            next ! session.logGroupRequestTimings(requestStartDate, requestEndDate).markAsFailed
         }
       },
       e => {
