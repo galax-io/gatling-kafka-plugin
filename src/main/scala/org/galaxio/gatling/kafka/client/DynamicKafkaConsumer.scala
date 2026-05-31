@@ -77,7 +77,9 @@ final class DynamicKafkaConsumer[K, V] private (
 
     while (!topicsQueue.isEmpty) {
       val (topic, latch) = topicsQueue.poll()
-      if (currentSubscription.contains(topic))
+      // Don't short-circuit if the topic is also pending removal — let it pass through
+      // to forNewTopics so the re-add wins and the topic stays in allTopics.
+      if (currentSubscription.contains(topic) && !toRemove.contains(topic))
         latch.countDown()
       else
         forNewTopics.add((topic, latch))
