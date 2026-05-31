@@ -70,19 +70,20 @@ object KafkaProtocol {
           trackerPools.computeIfAbsent(
             servers.toString,
             _ => {
-              val key  = servers.toString
-              val pool = KafkaMessageTrackerPool(
+              val key = servers.toString
+              // Register eviction BEFORE creating the pool. registerOnTermination is LIFO,
+              // so the pool's own consumer.close() hook (registered inside its constructor)
+              // will fire FIRST on shutdown, then this eviction hook fires — ensuring the
+              // consumer is fully closed before a new simulation can create a replacement pool.
+              coreComponents.actorSystem.registerOnTermination {
+                trackerPools.remove(key)
+              }
+              KafkaMessageTrackerPool(
                 protocol.consumerProperties,
                 coreComponents.actorSystem,
                 coreComponents.statsEngine,
                 coreComponents.clock,
               )
-              // Evict on termination so a subsequent simulation doesn't get a stale pool
-              // with a closed DynamicKafkaConsumer.
-              coreComponents.actorSystem.registerOnTermination {
-                trackerPools.remove(key)
-              }
-              pool
             },
           ),
         )
