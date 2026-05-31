@@ -40,7 +40,16 @@ final class KafkaMessageTrackerPool(
       refCount: AtomicInteger,
   )
 
-  private val trackers    = new ConcurrentHashMap[String, TrackerEntry]
+  // Uses reference equality so distinct matcher instances with the same identityHashCode
+  // are never conflated (identityHashCode collisions only affect bucket distribution).
+  private class MatcherRef(val matcher: KafkaMatcher) {
+    override def hashCode(): Int           = System.identityHashCode(matcher)
+    override def equals(obj: Any): Boolean = obj.isInstanceOf[MatcherRef] && (matcher eq obj.asInstanceOf[MatcherRef].matcher)
+    override def toString: String          = s"${matcher.getClass.getSimpleName}@${System.identityHashCode(matcher)}"
+  }
+
+  // consumerTopic -> (MatcherRef -> TrackerEntry)
+  private val trackers    = new ConcurrentHashMap[String, ConcurrentHashMap[MatcherRef, TrackerEntry]]
   private val trackerName = "kafkaTracker"
 
   // Per-instance executor so shutdown of one pool doesn't affect other pools or subsequent simulations.
@@ -56,12 +65,16 @@ final class KafkaMessageTrackerPool(
       record => {
         val kafkaProtocolMessage = KafkaProtocolMessage.from(record, None)
         val receivedTimestamp    = clock.nowMillis
-        Option(trackers.get(record.topic())).foreach(
-          _.actor ! MessageConsumed(
-            receivedTimestamp,
-            kafkaProtocolMessage,
-          ),
-        )
+        // Lock-free read: a stale snapshot after concurrent removal is benign —
+        // the tracker actor simply won't match any pending request.
+        Option(trackers.get(record.topic())).foreach { innerMap =>
+          innerMap.values().forEach { entry =>
+            entry.actor ! MessageConsumed(
+              receivedTimestamp,
+              kafkaProtocolMessage,
+            )
+          }
+        }
       },
       exception => logger.error(exception.getMessage, exception),
     )
@@ -90,25 +103,32 @@ final class KafkaMessageTrackerPool(
       timeout: FiniteDuration,
   ): ActorRef[KafkaMessageTracker.TrackerMessage] = {
 
-    // Fast path: atomic get-and-increment via computeIfPresent — avoids holding the
-    // CHM bin lock during the blocking addTopicForSubscription in the slow path,
-    // while ensuring the refcount increment is atomic with the presence check
-    // (no race window with a concurrent releaseTracker that removes the entry).
+    val mRef = new MatcherRef(messageMatcher)
+
+    // Fast path: outer computeIfPresent holds the bin lock while we touch the inner
+    // map, so a concurrent releaseTracker cannot remove the outer entry in between.
     var found: ActorRef[KafkaMessageTracker.TrackerMessage] = null
     trackers.computeIfPresent(
       consumerTopic,
-      (_, entry) => {
-        entry.refCount.incrementAndGet()
-        found = entry.actor
-        entry
+      (_, innerMap) => {
+        innerMap.computeIfPresent(
+          mRef,
+          (_, entry) => {
+            entry.refCount.incrementAndGet()
+            found = entry.actor
+            entry
+          },
+        )
+        innerMap
       },
     )
     if (found != null) return found
 
     // Slow path: subscribe first (blocking, no CHM lock held), then create actor and register.
     logger.debug(
-      "Creating new tracker for topic {}, there are currently {} other trackers",
+      "Creating new tracker for topic {} matcher {}, there are currently {} other topic entries",
       consumerTopic,
+      mRef,
       trackers.size(),
     )
     val assigned        = consumer.addTopicForSubscription(consumerTopic, timeout)
@@ -130,41 +150,52 @@ final class KafkaMessageTrackerPool(
       ),
     )
 
-    // Atomic insert-or-increment: if a concurrent thread won the race and already
-    // registered a tracker, increment their refcount and use their actor.
-    // The losing thread's actor receives no messages and is GC'd at actor system termination.
+    // Atomic insert-or-increment under the outer bin lock so a concurrent
+    // releaseTracker cannot remove the outer entry between get-or-create and insert.
     var result: ActorRef[KafkaMessageTracker.TrackerMessage] = null
     trackers.compute(
       consumerTopic,
       (_, existing) => {
-        if (existing != null) {
-          existing.refCount.incrementAndGet()
-          result = existing.actor
-          existing
-        } else {
-          result = newActor
-          TrackerEntry(newActor, new AtomicInteger(1))
-        }
+        val innerMap = if (existing != null) existing else new ConcurrentHashMap[MatcherRef, TrackerEntry]()
+        innerMap.compute(
+          mRef,
+          (_, entry) => {
+            if (entry != null) {
+              entry.refCount.incrementAndGet()
+              result = entry.actor
+              entry
+            } else {
+              result = newActor
+              TrackerEntry(newActor, new AtomicInteger(1))
+            }
+          },
+        )
+        innerMap
       },
     )
     result
   }
 
-  def releaseTracker(consumerTopic: String): Unit = {
-    // Atomic decrement-and-remove: computeIfPresent serialises with the fast-path
-    // computeIfPresent and the slow-path compute, so no window exists where a
-    // concurrent tracker() call can observe a stale entry.
-    var doCleanup = false
+  def releaseTracker(consumerTopic: String, messageMatcher: KafkaMatcher): Unit = {
+    val mRef          = new MatcherRef(messageMatcher)
+    var doUnsubscribe = false
     trackers.computeIfPresent(
       consumerTopic,
-      (_, entry) => {
-        if (entry.refCount.decrementAndGet() <= 0) {
-          doCleanup = true
+      (_, innerMap) => {
+        innerMap.computeIfPresent(
+          mRef,
+          (_, entry) => {
+            if (entry.refCount.decrementAndGet() <= 0) null
+            else entry
+          },
+        )
+        if (innerMap.isEmpty) {
+          doUnsubscribe = true
           null
-        } else entry
+        } else innerMap
       },
     )
-    if (doCleanup) {
+    if (doUnsubscribe) {
       consumer.removeTopicSubscription(consumerTopic)
     }
   }
