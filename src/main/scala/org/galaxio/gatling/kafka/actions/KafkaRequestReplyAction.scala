@@ -83,7 +83,8 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
           case None           =>
             val requestEndDate = clock.nowMillis
             val msg            =
-              "Request-reply requires consumer settings (consumeSettings) in the Kafka protocol configuration"
+              s"Request-reply requires consumer settings (consumeSettings) in the Kafka protocol configuration, " +
+                s"otherwise the virtual user will hang for ${components.kafkaProtocol.timeout} with no reply"
             logger.error(msg)
             statsEngine.logResponse(
               session.scenario,
