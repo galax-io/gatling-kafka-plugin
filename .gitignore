@@ -51,7 +51,3 @@ project/plugins/project/
 /.bsp/
 .DS_Store
 /results
-
-# Local guidance
-AGENTS.md
-CLAUDE.md
