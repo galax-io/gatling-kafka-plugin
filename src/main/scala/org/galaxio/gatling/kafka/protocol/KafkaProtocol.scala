@@ -69,13 +69,21 @@ object KafkaProtocol {
         .flatMap(servers =>
           trackerPools.computeIfAbsent(
             servers.toString,
-            _ =>
-              KafkaMessageTrackerPool(
+            _ => {
+              val key  = servers.toString
+              val pool = KafkaMessageTrackerPool(
                 protocol.consumerProperties,
                 coreComponents.actorSystem,
                 coreComponents.statsEngine,
                 coreComponents.clock,
-              ),
+              )
+              // Evict on termination so a subsequent simulation doesn't get a stale pool
+              // with a closed DynamicKafkaConsumer.
+              coreComponents.actorSystem.registerOnTermination {
+                trackerPools.remove(key)
+              }
+              pool
+            },
           ),
         )
 
