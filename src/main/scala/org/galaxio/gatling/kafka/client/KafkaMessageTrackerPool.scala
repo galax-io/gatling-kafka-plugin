@@ -40,12 +40,17 @@ final class KafkaMessageTrackerPool(
       refCount: AtomicInteger,
   )
 
-  // consumerTopic -> (matcherKey -> TrackerEntry)
-  private val trackers    = new ConcurrentHashMap[String, ConcurrentHashMap[String, TrackerEntry]]
-  private val trackerName = "kafkaTracker"
+  // Uses reference equality so distinct matcher instances with the same identityHashCode
+  // are never conflated (identityHashCode collisions only affect bucket distribution).
+  private class MatcherRef(val matcher: KafkaMatcher) {
+    override def hashCode(): Int           = System.identityHashCode(matcher)
+    override def equals(obj: Any): Boolean = obj.isInstanceOf[MatcherRef] && (matcher eq obj.asInstanceOf[MatcherRef].matcher)
+    override def toString: String          = s"${matcher.getClass.getSimpleName}@${System.identityHashCode(matcher)}"
+  }
 
-  private def matcherKey(messageMatcher: KafkaMatcher): String =
-    s"${messageMatcher.getClass.getName}@${System.identityHashCode(messageMatcher)}"
+  // consumerTopic -> (MatcherRef -> TrackerEntry)
+  private val trackers    = new ConcurrentHashMap[String, ConcurrentHashMap[MatcherRef, TrackerEntry]]
+  private val trackerName = "kafkaTracker"
 
   // Per-instance executor so shutdown of one pool doesn't affect other pools or subsequent simulations.
   private val consumerExecutor: ExecutorService = Executors.newSingleThreadExecutor()
@@ -60,6 +65,8 @@ final class KafkaMessageTrackerPool(
       record => {
         val kafkaProtocolMessage = KafkaProtocolMessage.from(record, None)
         val receivedTimestamp    = clock.nowMillis
+        // Lock-free read: a stale snapshot after concurrent removal is benign —
+        // the tracker actor simply won't match any pending request.
         Option(trackers.get(record.topic())).foreach { innerMap =>
           innerMap.values().forEach { entry =>
             entry.actor ! MessageConsumed(
@@ -96,7 +103,7 @@ final class KafkaMessageTrackerPool(
       timeout: FiniteDuration,
   ): ActorRef[KafkaMessageTracker.TrackerMessage] = {
 
-    val mKey = matcherKey(messageMatcher)
+    val mRef = new MatcherRef(messageMatcher)
 
     // Fast path: outer computeIfPresent holds the bin lock while we touch the inner
     // map, so a concurrent releaseTracker cannot remove the outer entry in between.
@@ -105,7 +112,7 @@ final class KafkaMessageTrackerPool(
       consumerTopic,
       (_, innerMap) => {
         innerMap.computeIfPresent(
-          mKey,
+          mRef,
           (_, entry) => {
             entry.refCount.incrementAndGet()
             found = entry.actor
@@ -121,7 +128,7 @@ final class KafkaMessageTrackerPool(
     logger.debug(
       "Creating new tracker for topic {} matcher {}, there are currently {} other topic entries",
       consumerTopic,
-      mKey,
+      mRef,
       trackers.size(),
     )
     val assigned        = consumer.addTopicForSubscription(consumerTopic, timeout)
@@ -149,9 +156,9 @@ final class KafkaMessageTrackerPool(
     trackers.compute(
       consumerTopic,
       (_, existing) => {
-        val innerMap = if (existing != null) existing else new ConcurrentHashMap[String, TrackerEntry]()
+        val innerMap = if (existing != null) existing else new ConcurrentHashMap[MatcherRef, TrackerEntry]()
         innerMap.compute(
-          mKey,
+          mRef,
           (_, entry) => {
             if (entry != null) {
               entry.refCount.incrementAndGet()
@@ -170,13 +177,13 @@ final class KafkaMessageTrackerPool(
   }
 
   def releaseTracker(consumerTopic: String, messageMatcher: KafkaMatcher): Unit = {
-    val mKey          = matcherKey(messageMatcher)
+    val mRef          = new MatcherRef(messageMatcher)
     var doUnsubscribe = false
     trackers.computeIfPresent(
       consumerTopic,
       (_, innerMap) => {
         innerMap.computeIfPresent(
-          mKey,
+          mRef,
           (_, entry) => {
             if (entry.refCount.decrementAndGet() <= 0) null
             else entry
