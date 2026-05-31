@@ -26,7 +26,6 @@ object KafkaMessageTrackerPool {
       new KafkaMessageTrackerPool(consumerSettings, actorSystem, statsEngine, clock),
     )
 
-  private val consumerExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 }
 
 final class KafkaMessageTrackerPool(
@@ -40,6 +39,9 @@ final class KafkaMessageTrackerPool(
   private val trackers         = new ConcurrentHashMap[String, ActorRef[KafkaMessageTracker.TrackerMessage]]
   private val trackerRefCounts = new ConcurrentHashMap[String, AtomicInteger]()
   private val trackerName      = "kafkaTracker"
+
+  // Per-instance executor so shutdown of one pool doesn't affect other pools or subsequent simulations.
+  private val consumerExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
   private val consumer: DynamicKafkaConsumer[Array[Byte], Array[Byte]] =
     DynamicKafkaConsumer(
@@ -63,7 +65,7 @@ final class KafkaMessageTrackerPool(
       exception => logger.error(exception.getMessage, exception),
     )
 
-  private val consumerFuture = KafkaMessageTrackerPool.consumerExecutor.submit(consumer)
+  private val consumerFuture = consumerExecutor.submit(consumer)
   actorSystem.registerOnTermination {
     logger.debug("Closing consumer {}", consumer)
     consumer.close()
@@ -73,7 +75,7 @@ final class KafkaMessageTrackerPool(
       case e: Throwable =>
         logger.error(e.getMessage, e)
     }
-    KafkaMessageTrackerPool.consumerExecutor.shutdown()
+    consumerExecutor.shutdown()
   }
 
   private def withProducerTopic(producerTopic: String): KafkaProtocolMessage => KafkaProtocolMessage =

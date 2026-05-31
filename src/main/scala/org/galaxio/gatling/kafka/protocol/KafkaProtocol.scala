@@ -39,9 +39,21 @@ object KafkaProtocol {
     private val senders      = new ConcurrentHashMap[String, KafkaSender]()
     private val trackerPools = new ConcurrentHashMap[String, Option[KafkaMessageTrackerPool]]()
 
-    private def getOrCreateSender(protocol: KafkaProtocol): KafkaSender =
+    private def getOrCreateSender(coreComponents: CoreComponents, protocol: KafkaProtocol): KafkaSender =
       protocol.producerProperties.get(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG) match {
-        case Some(servers) => this.senders.computeIfAbsent(servers.toString, _ => KafkaSender(protocol.producerProperties))
+        case Some(servers) =>
+          this.senders.computeIfAbsent(
+            servers.toString,
+            _ => {
+              val sender = KafkaSender(protocol.producerProperties)
+              val key    = servers.toString
+              coreComponents.actorSystem.registerOnTermination {
+                sender.close()
+                senders.remove(key) // evict so a subsequent simulation doesn't get a closed sender
+              }
+              sender
+            },
+          )
         case None          =>
           throw new IllegalArgumentException(
             s"Producer settings don't set the required '${ProducerConfig.BOOTSTRAP_SERVERS_CONFIG}' parameter",
@@ -57,13 +69,21 @@ object KafkaProtocol {
         .flatMap(servers =>
           trackerPools.computeIfAbsent(
             servers.toString,
-            _ =>
-              KafkaMessageTrackerPool(
+            _ => {
+              val key  = servers.toString
+              val pool = KafkaMessageTrackerPool(
                 protocol.consumerProperties,
                 coreComponents.actorSystem,
                 coreComponents.statsEngine,
                 coreComponents.clock,
-              ),
+              )
+              // Evict on termination so a subsequent simulation doesn't get a stale pool
+              // with a closed DynamicKafkaConsumer.
+              coreComponents.actorSystem.registerOnTermination {
+                trackerPools.remove(key)
+              }
+              pool
+            },
           ),
         )
 
@@ -79,7 +99,7 @@ object KafkaProtocol {
           coreComponents,
           kafkaProtocol,
           getOrCreateTrackerPool(coreComponents, kafkaProtocol),
-          getOrCreateSender(kafkaProtocol),
+          getOrCreateSender(coreComponents, kafkaProtocol),
         )
   }
 }

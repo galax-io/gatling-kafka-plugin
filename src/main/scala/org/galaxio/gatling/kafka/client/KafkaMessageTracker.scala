@@ -87,7 +87,8 @@ class KafkaMessageTracker[K, V](
     // message was received; publish stats and remove from the map
     case MessageConsumed(receivedTimestamp, forTransformMessage) =>
       val message = responseTransformer.map(_(forTransformMessage)).getOrElse(forTransformMessage)
-      if (messageMatcher.responseMatch(message) == null) {
+      val replyId = messageMatcher.responseMatch(message)
+      if (replyId == null) {
         logger.error("no messageMatcher key for read message {}", message.key)
       } else {
         if (message.key == null || message.value == null) {
@@ -96,7 +97,6 @@ class KafkaMessageTracker[K, V](
           logger.trace(" --- received key={} value={}", describeBytes(message.key), describeBytes(message.value))
         }
 
-        val replyId    = messageMatcher.responseMatch(message)
         val messageKey = describeBytes(message.key)
         logMessage(s"Record received key=$messageKey", message)
         // if key is missing, message was already acked and is a dup, or request timeout
@@ -128,17 +128,18 @@ class KafkaMessageTracker[K, V](
         val matchKey = makeKeyForSentMessages(mp.matchId)
         logger.warn("Did not receive match for {} - key: {} after {}ms", describeBytes(mp.matchId), matchKey, mp.replyTimeout)
         sentMessages.remove(matchKey)
-        executeNext(
-          mp.session.markAsFailed,
-          mp.sentTimestamp,
-          now,
-          KO,
-          mp.next,
-          mp.requestName,
-          None,
-          Some(s"Reply timeout after ${mp.replyTimeout} ms"),
-        )
-        mp.onComplete()
+        try
+          executeNext(
+            mp.session.markAsFailed,
+            mp.sentTimestamp,
+            now,
+            KO,
+            mp.next,
+            mp.requestName,
+            None,
+            Some(s"Reply timeout after ${mp.replyTimeout} ms"),
+          )
+        finally mp.onComplete()
       }
       timedOutMessages.clear()
       stay
