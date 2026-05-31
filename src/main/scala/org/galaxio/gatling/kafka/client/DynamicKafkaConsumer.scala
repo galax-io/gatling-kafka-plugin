@@ -122,15 +122,24 @@ final class DynamicKafkaConsumer[K, V] private (
               this.onFailure(e)
           },
         )
-        updateSubscription()
+        try updateSubscription()
+        catch {
+          case e: Exception =>
+            this.onFailure(e)
+            throw e
+        }
       }
     } catch {
       case e: WakeupException =>
         // Ignore exception if closing
         // rethrow when someone call wakeup while it is working
-        if (running.get) throw e
+        if (running.get) {
+          this.onFailure(e)
+          throw e
+        }
       case e: Exception       =>
-        // unexpected exception
+        // Propagate failure to waiting requests before dying
+        this.onFailure(e)
         throw new RuntimeException(e)
     } finally {
       this.topicsQueue.clear()

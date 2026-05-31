@@ -6,7 +6,7 @@ import io.gatling.core.stats.StatsEngine
 import io.gatling.core.util.NameGen
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.galaxio.gatling.kafka.KafkaLogging
-import org.galaxio.gatling.kafka.client.KafkaMessageTracker.MessageConsumed
+import org.galaxio.gatling.kafka.client.KafkaMessageTracker.{ConsumerFailure, MessageConsumed}
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaMatcher
 import org.galaxio.gatling.kafka.request.{KafkaProtocolMessage, KafkaSerdesImplicits}
 
@@ -63,7 +63,11 @@ final class KafkaMessageTrackerPool(
           ),
         )
       },
-      exception => logger.error(exception.getMessage, exception),
+      exception => {
+        logger.error("Consumer failure, propagating to {} active tracker(s): {}", trackers.size(), exception.getMessage, exception)
+        val failure = ConsumerFailure(exception.getMessage)
+        trackers.values().forEach(_.actor ! failure)
+      },
     )
 
   private val consumerFuture = consumerExecutor.submit(consumer)

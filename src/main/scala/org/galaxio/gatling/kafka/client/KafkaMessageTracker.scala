@@ -45,6 +45,12 @@ object KafkaMessageTracker {
       message: KafkaProtocolMessage,
   ) extends TrackerMessage
 
+  /** Signals that the background consumer encountered an infrastructure failure (e.g. broker
+    * unreachable, poll error). All waiting requests should be failed immediately rather than
+    * waiting for their reply timeout.
+    */
+  final case class ConsumerFailure(errorMessage: String) extends TrackerMessage
+
   private final case object TimeoutScan extends TrackerMessage
 
   private def makeKeyForSentMessages(m: Array[Byte]): String =
@@ -112,6 +118,27 @@ class KafkaMessageTracker[K, V](
             try processMessage(session, sentTimestamp, receivedTimestamp, checks, message, next, requestName)
             finally onComplete()
         }
+      }
+      stay
+
+    case ConsumerFailure(errorMessage) =>
+      val now = clock.nowMillis
+      logger.error("Consumer failure propagated to tracker: {}", errorMessage)
+      val pending = sentMessages.values.toList
+      sentMessages.clear()
+      for (mp <- pending) {
+        try
+          executeNext(
+            mp.session.markAsFailed,
+            mp.sentTimestamp,
+            now,
+            KO,
+            mp.next,
+            mp.requestName,
+            None,
+            Some(s"Consumer failure: $errorMessage"),
+          )
+        finally mp.onComplete()
       }
       stay
 
