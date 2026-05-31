@@ -19,7 +19,9 @@ import scala.jdk.CollectionConverters._
 class KafkaIntegrationSpec extends munit.FunSuite with TestContainerForAll {
 
   override val containerDef: KafkaContainer.Def =
-    KafkaContainer.Def(DockerImageName.parse("confluentinc/cp-kafka:7.9.2"))
+    KafkaContainer.Def(
+      DockerImageName.parse("confluentinc/cp-kafka:7.9.5").asCompatibleSubstituteFor("apache/kafka"),
+    )
 
   private def producerSettings(bootstrap: String): Map[String, AnyRef] = Map(
     ProducerConfig.BOOTSTRAP_SERVERS_CONFIG      -> bootstrap,
