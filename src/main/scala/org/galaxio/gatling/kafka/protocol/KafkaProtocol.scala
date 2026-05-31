@@ -46,7 +46,11 @@ object KafkaProtocol {
             servers.toString,
             _ => {
               val sender = KafkaSender(protocol.producerProperties)
-              coreComponents.actorSystem.registerOnTermination(sender.close())
+              val key    = servers.toString
+              coreComponents.actorSystem.registerOnTermination {
+                sender.close()
+                senders.remove(key) // evict so a subsequent simulation doesn't get a closed sender
+              }
               sender
             },
           )
