@@ -21,7 +21,7 @@ object DynamicKafkaConsumer {
       topics: Set[String],
       onRecord: ConsumerRecord[K, V] => Unit,
       onFailure: Exception => Unit,
-  ): DynamicKafkaConsumer[K, V] = {
+  ): DynamicKafkaConsumer[K, V]     = {
     val settings = new Properties()
     settings.putAll(settingsMap.asJava)
     new DynamicKafkaConsumer[K, V](settings, topics, onRecord, onFailure)
