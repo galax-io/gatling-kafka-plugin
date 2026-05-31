@@ -1,6 +1,6 @@
 package org.galaxio.gatling.kafka.integration
 
-import com.dimafeng.testcontainers.KafkaContainer
+import com.dimafeng.testcontainers.ConfluentKafkaContainer
 import com.dimafeng.testcontainers.munit.TestContainerForAll
 import org.apache.kafka.clients.admin.{AdminClient, AdminClientConfig, NewTopic}
 import org.apache.kafka.clients.consumer.ConsumerConfig
@@ -18,8 +18,8 @@ import scala.jdk.CollectionConverters._
 
 class KafkaIntegrationSpec extends munit.FunSuite with TestContainerForAll {
 
-  override val containerDef: KafkaContainer.Def =
-    KafkaContainer.Def(DockerImageName.parse("confluentinc/cp-kafka:7.9.2"))
+  override val containerDef: ConfluentKafkaContainer.Def =
+    ConfluentKafkaContainer.Def(DockerImageName.parse("confluentinc/cp-kafka:7.9.5"))
 
   private def producerSettings(bootstrap: String): Map[String, AnyRef] = Map(
     ProducerConfig.BOOTSTRAP_SERVERS_CONFIG      -> bootstrap,
