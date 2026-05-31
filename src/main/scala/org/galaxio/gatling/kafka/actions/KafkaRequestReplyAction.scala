@@ -42,12 +42,13 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
         components.trackersPool match {
           case Some(trackers) =>
             val consumerTopic   = protocolMessage.consumerTopic
+            val matcher         = components.kafkaProtocol.messageMatcher
             var trackerAcquired = false
             try {
               val tracker = trackers.tracker(
                 protocolMessage.producerTopic,
                 consumerTopic,
-                components.kafkaProtocol.messageMatcher,
+                matcher,
                 None,
                 components.kafkaProtocol.timeout,
               )
@@ -61,11 +62,11 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
                   session,
                   next,
                   requestNameString,
-                  onComplete = () => trackers.releaseTracker(consumerTopic),
+                  onComplete = () => trackers.releaseTracker(consumerTopic, matcher),
                 )
             } catch {
               case e: Exception =>
-                if (trackerAcquired) trackers.releaseTracker(consumerTopic)
+                if (trackerAcquired) trackers.releaseTracker(consumerTopic, matcher)
                 val requestEndDate = clock.nowMillis
                 logger.error(e.getMessage, e)
                 statsEngine.logResponse(
