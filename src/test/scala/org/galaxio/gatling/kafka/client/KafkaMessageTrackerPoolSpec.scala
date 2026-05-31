@@ -33,7 +33,7 @@ class KafkaMessageTrackerPoolSpec extends munit.FunSuite {
       field.get(pool).asInstanceOf[AtomicReference[Exception]].set(new RuntimeException("boom"))
 
       val thrown = intercept[IllegalStateException] {
-          pool.tracker(
+        pool.tracker(
           producerTopic = "producer-topic",
           consumerTopic = "consumer-topic",
           messageMatcher = KafkaKeyMatcher,

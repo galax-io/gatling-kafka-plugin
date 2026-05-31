@@ -50,8 +50,8 @@ final class KafkaMessageTrackerPool(
   }
 
   // consumerTopic -> (MatcherRef -> TrackerEntry)
-  private val trackers    = new ConcurrentHashMap[String, ConcurrentHashMap[MatcherRef, TrackerEntry]]
-  private val trackerName = "kafkaTracker"
+  private val trackers        = new ConcurrentHashMap[String, ConcurrentHashMap[MatcherRef, TrackerEntry]]
+  private val trackerName     = "kafkaTracker"
   private val consumerFailure = new AtomicReference[Exception](null)
 
   // Per-instance executor so shutdown of one pool doesn't affect other pools or subsequent simulations.
