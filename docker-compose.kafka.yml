@@ -1,6 +1,6 @@
 services:
   zookeeper:
-    image: confluentinc/cp-zookeeper:7.9.2
+    image: confluentinc/cp-zookeeper:7.9.5
     container_name: gatling-kafka-zookeeper
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
@@ -9,7 +9,7 @@ services:
       - "2181:2181"
 
   kafka:
-    image: confluentinc/cp-kafka:7.9.2
+    image: confluentinc/cp-kafka:7.9.5
     container_name: gatling-kafka-broker
     depends_on:
       - zookeeper
@@ -27,7 +27,7 @@ services:
       - "9093:9093"
 
   schema-registry:
-    image: confluentinc/cp-schema-registry:7.9.2
+    image: confluentinc/cp-schema-registry:7.9.5
     container_name: gatling-kafka-schema-registry
     depends_on:
       - kafka
@@ -39,7 +39,7 @@ services:
       - "9094:9094"
 
   topic-init:
-    image: confluentinc/cp-kafka:7.9.2
+    image: confluentinc/cp-kafka:7.9.5
     container_name: gatling-kafka-topic-init
     depends_on:
       - kafka
