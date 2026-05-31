@@ -89,40 +89,52 @@ final class KafkaMessageTrackerPool(
       timeout: FiniteDuration,
   ): ActorRef[KafkaMessageTracker.TrackerMessage] = {
 
-    val tracker = trackers.computeIfAbsent(
+    // Fast path: non-blocking get — avoids holding the CHM bin lock during
+    // the potentially long addTopicForSubscription await (up to `timeout`).
+    val existing = trackers.get(consumerTopic)
+    if (existing != null) {
+      trackerRefCounts.compute(
+        consumerTopic,
+        (_, c) => {
+          val count = if (c == null) new AtomicInteger(0) else c
+          count.incrementAndGet()
+          count
+        },
+      )
+      return existing
+    }
+
+    // Slow path: subscribe first (blocking, no CHM lock held), then register.
+    logger.debug(
+      "Creating new tracker for topic {}, there are currently {} other trackers",
       consumerTopic,
-      _ => {
-        logger.debug(
-          "Computing new tracker for topic {}, there are currently {} other trackers",
-          consumerTopic,
-          trackers.size(),
-        )
-        val assigned        = consumer.addTopicForSubscription(consumerTopic, timeout)
-        if (!assigned) {
-          throw new RuntimeException(
-            s"Timed out waiting for consumer assignment to topic '$consumerTopic' after $timeout",
-          )
-        }
-        val name            = genName(trackerName)
-        val transformations =
-          responseTransformer.fold(withProducerTopic(producerTopic))(_.compose(withProducerTopic(producerTopic)))
-        actorSystem.actorOf(
-          KafkaMessageTracker.actor(
-            name,
-            statsEngine,
-            clock,
-            messageMatcher,
-            Option(transformations),
-          ),
-        )
-      },
+      trackers.size(),
     )
-    // Use compute (not computeIfAbsent+increment) so increment and the decrement in
-    // releaseTracker are serialized on the same key, preventing count drift.
+    val assigned        = consumer.addTopicForSubscription(consumerTopic, timeout)
+    if (!assigned) {
+      throw new RuntimeException(
+        s"Timed out waiting for consumer assignment to topic '$consumerTopic' after $timeout",
+      )
+    }
+    val name            = genName(trackerName)
+    val transformations =
+      responseTransformer.fold(withProducerTopic(producerTopic))(_.compose(withProducerTopic(producerTopic)))
+    val newActor        = actorSystem.actorOf(
+      KafkaMessageTracker.actor(
+        name,
+        statsEngine,
+        clock,
+        messageMatcher,
+        Option(transformations),
+      ),
+    )
+    // putIfAbsent: if a concurrent thread won the race, use their tracker.
+    // Our actor will be GC'd at actor system termination (no messages routed to it).
+    val tracker         = Option(trackers.putIfAbsent(consumerTopic, newActor)).getOrElse(newActor)
     trackerRefCounts.compute(
       consumerTopic,
-      (_, existing) => {
-        val count = if (existing == null) new AtomicInteger(0) else existing
+      (_, c) => {
+        val count = if (c == null) new AtomicInteger(0) else c
         count.incrementAndGet()
         count
       },
