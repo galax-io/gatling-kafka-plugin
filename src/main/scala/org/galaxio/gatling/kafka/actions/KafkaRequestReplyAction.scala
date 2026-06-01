@@ -21,7 +21,7 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
     coreComponents: CoreComponents,
     val next: Action,
     throttler: Option[ActorRef[Throttler.Command]],
-) extends KafkaAction[K, V](components, attributes, throttler) {
+) extends KafkaAction[K, V](attributes, throttler) {
 
   override def name: String    = genName("kafkaRequestReply")
   val statsEngine: StatsEngine = coreComponents.statsEngine

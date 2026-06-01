@@ -14,7 +14,7 @@ class BasicSimulation : Simulation() {
         .topic("test.topic")
         .properties(mapOf<String, Any>(ProducerConfig.ACKS_CONFIG to "1"))
 
-    private val kafkaProtocolC = kafka().requestReply()
+    private val kafkaProtocolC = kafka()
         .producerSettings(
             mapOf<String, Any>(
                 ProducerConfig.ACKS_CONFIG to "1",

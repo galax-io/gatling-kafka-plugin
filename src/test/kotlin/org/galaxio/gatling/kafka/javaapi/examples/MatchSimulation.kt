@@ -11,7 +11,7 @@ import java.util.concurrent.atomic.AtomicInteger
 
 class MatchSimulation : Simulation() {
 
-    private val kafkaProtocolMatchByValue = kafka().requestReply()
+    private val kafkaProtocolMatchByValue = kafka()
         .producerSettings(
             mapOf<String, Any>(
                 ProducerConfig.ACKS_CONFIG to "1",
@@ -32,7 +32,7 @@ class MatchSimulation : Simulation() {
         return "Custom Message".toByteArray() // just returning something
     }
 
-    private val kafkaProtocolMatchByMessage = kafka().requestReply()
+    private val kafkaProtocolMatchByMessage = kafka()
         .producerSettings(
             mapOf<String, Any>(
                 ProducerConfig.ACKS_CONFIG to "1",

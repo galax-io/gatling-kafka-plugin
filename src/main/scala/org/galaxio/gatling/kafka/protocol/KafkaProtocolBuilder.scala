@@ -10,22 +10,6 @@ import scala.concurrent.duration.{DurationInt, FiniteDuration}
 
 object KafkaProtocolBuilder {
 
-  case class KafkaProtocolBuilderPropertiesStep(topic: String) {
-
-    def properties(producerSettings: Map[String, Object]): KafkaProtocolBuilderBackwardCompatible =
-      KafkaProtocolBuilderBackwardCompatible(topic, producerSettings, 60.seconds)
-  }
-
-  @deprecated("use topic definition in kafka request builders", "1.0.0")
-  def topic(name: String): KafkaProtocolBuilderPropertiesStep =
-    KafkaProtocolBuilderPropertiesStep(name)
-
-  @deprecated(
-    "separate definition of the protocol for the requestReply scheme is no longer required; use producerSettings right away",
-    "1.0.0",
-  )
-  def requestReply: KafkaProtocolBuilder.type = KafkaProtocolBuilder
-
   def producerSettings(ps: Map[String, AnyRef]): KPProducerSettingsStep = KPProducerSettingsStep(ps)
 
   def producerSettings(pp: (String, AnyRef), pps: (String, AnyRef)*): KPProducerSettingsStep = producerSettings(
@@ -94,6 +78,6 @@ final case class KafkaProtocolBuilder(
           ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG -> Serdes.ByteArray().deserializer().getClass.getName,
         )
 
-    KafkaProtocol(None, producerSettings ++ serializers, consumerSettingsWithDefaults, timeout, messageMatcher)
+    KafkaProtocol(producerSettings ++ serializers, consumerSettingsWithDefaults, timeout, messageMatcher)
   }
 }
