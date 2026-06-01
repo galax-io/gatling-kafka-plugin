@@ -21,22 +21,11 @@ final class KafkaRequestAction[K: ClassTag, V: ClassTag](
     val coreComponents: CoreComponents,
     val next: Action,
     val throttler: Option[ActorRef[Throttler.Command]],
-) extends KafkaAction[K, V](components, attributes, throttler) {
+) extends KafkaAction[K, V](attributes, throttler) {
 
   override def name: String    = genName("kafkaRequest")
   val statsEngine: StatsEngine = coreComponents.statsEngine
   val clock: Clock             = coreComponents.clock
-
-  private def reportUnbuildableRequest(session: Session, error: String): Unit = {
-    val errorMessage = KafkaRequestFailureMessages.buildFailure(error)
-    val loggedName   = attributes.requestName(session) match {
-      case Success(requestNameValue) =>
-        statsEngine.logRequestCrash(session.scenario, session.groups, requestNameValue, errorMessage)
-        requestNameValue
-      case _                         => name
-    }
-    logger.error(s"'$loggedName' failed to execute: $errorMessage")
-  }
 
   override def sendKafkaMessage(requestNameString: String, protocolMessage: KafkaProtocolMessage, session: Session): Unit = {
     val requestStartDate = clock.nowMillis

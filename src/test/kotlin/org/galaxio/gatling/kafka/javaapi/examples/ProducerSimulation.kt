@@ -12,7 +12,7 @@ class ProducerSimulation : Simulation() {
     private val ser = KafkaAvroSerializer(CachedSchemaRegistryClient("schRegUrl".split(','), 16),) as Serializer<MyAvroClass>
     private val de = KafkaAvroDeserializer(CachedSchemaRegistryClient("schRegUrl".split(','), 16),) as Deserializer<MyAvroClass>
 
-    private val kafkaConsumerConf = kafka().topic("test.topic")
+    private val kafkaConsumerConf = kafka()
         .properties(mapOf<String, Any>(ProducerConfig.ACKS_CONFIG to "1",
             ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to "localhost:9092",
             ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to "org.apache.kafka.common.serialization.StringSerializer",
@@ -20,9 +20,9 @@ class ProducerSimulation : Simulation() {
         ))
 
     private val scn = scenario("Basic")
-        .exec(kafka("BasicRequest").send("foo"))
-        .exec(kafka("dld").send("true", "12.0"))
-        .exec(kafka("avro_serde").send("#{sessionIdKey}", avro(
+        .exec(kafka("BasicRequest").topic("test.topic").send("foo"))
+        .exec(kafka("dld").topic("test.topic").send("true", "12.0"))
+        .exec(kafka("avro_serde").topic("test.topic").send("#{sessionIdKey}", avro(
             { session: Session -> session.get("event") },
                 ser,
                 de

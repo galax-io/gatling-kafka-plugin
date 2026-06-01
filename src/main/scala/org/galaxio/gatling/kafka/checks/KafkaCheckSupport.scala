@@ -23,8 +23,6 @@ import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 import scala.annotation.implicitNotFound
 
 trait KafkaCheckSupport {
-  def messageCheck: KafkaMessageCheck.type = KafkaMessageCheck
-
   def avroBody[T: Serde]: CheckBuilder.Find[KafkaMessageCheckType, KafkaProtocolMessage, T] =
     AvroBodyCheckBuilder._avroBody
 

@@ -109,20 +109,8 @@ object KafkaProtocol {
 }
 
 final case class KafkaProtocol(
-    producerTopic: Option[String], // TODO: remove after 1.1.0 (when topic moved from protocol to request builders)
     producerProperties: Map[String, AnyRef],
     consumerProperties: Map[String, AnyRef],
     timeout: FiniteDuration,
     messageMatcher: KafkaMatcher,
-) extends Protocol {
-
-  @deprecated("use topic definition in kafka request builders", "1.0.0")
-  def topic(t: String): KafkaProtocol = copy(producerTopic = Some(t))
-
-  def properties(properties: Map[String, AnyRef]): KafkaProtocol =
-    copy(producerProperties = properties)
-
-  def producerProperties(properties: Map[String, AnyRef]): KafkaProtocol = copy(producerProperties = properties)
-  def consumerProperties(properties: Map[String, AnyRef]): KafkaProtocol = copy(consumerProperties = properties)
-  def timeout(t: FiniteDuration): KafkaProtocol                          = copy(timeout = t)
-}
+) extends Protocol

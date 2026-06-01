@@ -16,7 +16,6 @@ class AvroClassWithRequestReplySimulation : Simulation() {
 
     // protocol
     val kafkaProtocolRRAvro = kafka()
-        .requestReply()
         .producerSettings(
             mapOf<String, Any>(
                 ProducerConfig.ACKS_CONFIG to "1",
