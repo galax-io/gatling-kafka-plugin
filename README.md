@@ -29,14 +29,12 @@ Kafka protocol plugin for [Gatling](https://gatling.io/) load testing framework.
 
 | Branch / Line | Gatling | Scala | Java |
 |---|---|---|---|
-| `main` | 3.13.5 | 2.13.16 | 17+ |
+| `main` / `1.0.x` | 3.13.5 | 2.13.16 | 17+ |
 | 0.22.x | 3.13.x | 2.13 | 17+ |
 | 0.21.x | 3.12.x | 2.13 | 17+ |
 | 0.20.5 | 3.11.5 | 2.13 | 17+ |
 
-> **Version guidance:** if you are on Gatling `3.11.5`, use plugin `0.20.5`. Do not use `0.22.x` on Gatling `3.11.5`; the `0.22.x` line on `main` targets Gatling `3.13.x`.
->
-> Header support is available on the Gatling `3.11.5` line in `0.20.5`, and on newer lines such as `0.22.x` for Gatling `3.13.x`.
+> **Version guidance:** if you are on Gatling `3.11.5`, use plugin `0.20.5`. The `1.0.x` / `main` line targets Gatling `3.13.x`.
 >
 > **Upgrading from an older release?** Start with the [Migration Guide](#migration-guide) below. It summarizes the supported upgrade paths and the breaking or behavioral changes that tend to matter most.
 >
@@ -200,7 +198,7 @@ kafka("silent request")
   .silent
 ```
 
-Protocol-level `.topic(...)` is deprecated and only kept as a backward-compatible fallback. New producer scenarios should set the topic on each request builder with `kafka("name").topic("...")`.
+Set the topic on each request builder with `kafka("name").topic("...")`.
 
 ---
 
@@ -455,11 +453,31 @@ Use this section as release-based upgrade notes. Start from the version you are 
 
 | Current line | Target line | Notes |
 |---|---|---|
-| `0.20.5` | `main` / `0.22.x` | Move from the Gatling `3.11.5` line to Gatling `3.13.x`, update request-reply consumer settings, and re-check example usage against the current README. |
-| `0.21.x` | `main` / `0.22.x` | Stay on Gatling `3.13.x`, but review request-reply defaults, supported DSL surface, and current example entry points. |
-| `0.20.x` or older examples | `main` / `0.22.x` | Treat this as a full doc refresh. Do not assume older consume-only or per-action matcher APIs are still present on `main`. |
+| `0.22.x` / RC | `1.0.0` | Remove protocol-level `.topic(...)` calls, set topic on each request builder. Remove any use of `messageCheck`. |
+| `0.20.5` | `1.0.x` | Move from Gatling `3.11.5` to `3.13.x`, update request-reply consumer settings, re-check examples against current README. |
+| `0.21.x` | `1.0.x` | Stay on Gatling `3.13.x`, review request-reply defaults and DSL surface. |
+| `0.20.x` or older | `1.0.x` | Treat as full doc refresh. Older consume-only or per-action matcher APIs are not present. |
 
-### Upgrading to `main` / `0.22.x`
+### Upgrading to `1.0.0` from `0.22.x` / RC
+
+#### Protocol-level topic API removed
+
+The `kafka.topic("...")` shorthand on the protocol builder was deprecated in `1.0.0-RC1` and is now removed.
+
+| Before (removed) | After |
+|---|---|
+| `kafka.topic("my-topic").properties(Map(...))` | `kafka.producerSettings(Map(...))...` |
+| `kafka("req").send(payload)` with protocol-level topic | `kafka("req").topic("my-topic").send(payload)` |
+
+Every request builder must now declare its own topic with `.topic("...")` or `.requestTopic("...").replyTopic("...")`.
+
+#### `KafkaMessageCheck` removed
+
+`messageCheck` accessor removed from the DSL. Use `simpleCheck { msg => ... }` or the standard `jsonPath` / `bodyString` check builders directly.
+
+---
+
+### Upgrading to `main` / `1.0.x`
 
 #### Request-reply runtime moved from `KafkaStreams` to `KafkaConsumer`
 
