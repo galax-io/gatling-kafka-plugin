@@ -32,9 +32,9 @@ Kafka protocol plugin for [Gatling](https://gatling.io/) load testing framework.
 | `main` / `1.0.x` | 3.13.5 | 2.13.16 | 17+ |
 | 0.22.x | 3.13.x | 2.13 | 17+ |
 | 0.21.x | 3.12.x | 2.13 | 17+ |
-| 0.20.4 | 3.11.5 | 2.13 | 17+ |
+| 0.20.3 | 3.11.5 | 2.13 | 17+ |
 
-> **Version guidance:** if you are on Gatling `3.11.5`, use plugin `0.20.4`. The `1.0.x` / `main` line targets Gatling `3.13.x`.
+> **Version guidance:** if you are on Gatling `3.11.5`, use plugin `0.20.3`. The `1.0.x` / `main` line targets Gatling `3.13.x`.
 >
 > **Upgrading from an older release?** Start with the [Migration Guide](#migration-guide) below. It summarizes the supported upgrade paths and the breaking or behavioral changes that tend to matter most.
 >
@@ -454,7 +454,7 @@ Use this section as release-based upgrade notes. Start from the version you are 
 | Current line | Target line | Notes |
 |---|---|---|
 | `0.22.x` / RC | `1.0.0` | Remove protocol-level `.topic(...)` calls, set topic on each request builder. Remove any use of `messageCheck`. |
-| `0.20.4` | `1.0.x` | Move from Gatling `3.11.5` to `3.13.x`, update request-reply consumer settings, re-check examples against current README. |
+| `0.20.3` | `1.0.x` | Move from Gatling `3.11.5` to `3.13.x`, update request-reply consumer settings, re-check examples against current README. |
 | `0.21.x` | `1.0.x` | Stay on Gatling `3.13.x`, review request-reply defaults and DSL surface. |
 | `0.20.x` or older | `1.0.x` | Treat as full doc refresh. Older consume-only or per-action matcher APIs are not present. |
 
