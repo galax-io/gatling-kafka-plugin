@@ -219,6 +219,10 @@ jobs:
             TAG="${GITHUB_REF##*/}"
           else
             TAG="${{ steps.bump.outputs.tag }}"
+            # sbt-ci-release detects release vs snapshot from GITHUB_REF;
+            # override so it sees a tag context, not refs/heads/main
+            export GITHUB_REF="refs/tags/${TAG}"
+            export GITHUB_REF_NAME="${TAG}"
           fi
           VERSION="${TAG#v}"
           echo "Publishing version $VERSION (tag $TAG)"
@@ -227,11 +231,7 @@ jobs:
             echo "$PGP_SECRET" | base64 --decode | gpg --batch --import
           fi
 
-          if sbt 'show dynver' >/dev/null 2>&1; then
-            sbt ci-release
-          else
-            sbt "set ThisBuild/version := \"${VERSION}\"" ci-release
-          fi
+          sbt "set ThisBuild/version := \"${VERSION}\"" ci-release
       - name: Generate Changelog
         id: changelog
         uses: mikepenz/release-changelog-builder-action@v5
