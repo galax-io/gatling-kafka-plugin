@@ -109,6 +109,7 @@ jobs:
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v4
+        continue-on-error: true
 
   release:
     name: Release (tag-driven)
