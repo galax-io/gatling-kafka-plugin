@@ -216,6 +216,7 @@ jobs:
       - name: Upload coverage reports to Codecov
         if: always()
         uses: codecov/codecov-action@v4
+        continue-on-error: true
 
   release:
     name: Release
@@ -224,7 +225,7 @@ jobs:
     timeout-minutes: 20
     if: >-
       github.event_name == 'push' &&
-      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/deprecated/gatling-3-11' || startsWith(github.ref, 'refs/tags/v'))
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/backport/v0.20.4-headers' || startsWith(github.ref, 'refs/tags/v'))
     permissions:
       contents: write
     steps:
@@ -258,7 +259,7 @@ jobs:
 
       - name: Compute next version & create tag
         id: bump
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/deprecated/gatling-3-11'
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/backport/v0.20.4-headers'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
@@ -322,7 +323,7 @@ jobs:
       - name: Publish to Sonatype via sbt-ci-release
         if: >-
           startsWith(github.ref, 'refs/tags/v') ||
-          ((github.ref == 'refs/heads/main' || github.ref == 'refs/heads/deprecated/gatling-3-11') && steps.bump.outputs.tag)
+          ((github.ref == 'refs/heads/main' || github.ref == 'refs/heads/backport/v0.20.4-headers') && steps.bump.outputs.tag)
         env:
           PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
           PGP_SECRET: ${{ secrets.PGP_SECRET }}
@@ -347,22 +348,18 @@ jobs:
             echo "$PGP_SECRET" | base64 --decode | gpg --batch --import
           fi
 
-          if sbt 'show dynver' >/dev/null 2>&1; then
-            sbt ci-release
-          else
-            sbt "set ThisBuild/version := \"${VERSION}\"" ci-release
-          fi
+          sbt "set ThisBuild/version := \"${VERSION}\"" ci-release
 
       - name: Generate Changelog
         id: changelog
         uses: mikepenz/release-changelog-builder-action@v6
         if: >-
           startsWith(github.ref, 'refs/tags/v') ||
-          ((github.ref == 'refs/heads/main' || github.ref == 'refs/heads/deprecated/gatling-3-11') && steps.bump.outputs.tag)
+          ((github.ref == 'refs/heads/main' || github.ref == 'refs/heads/backport/v0.20.4-headers') && steps.bump.outputs.tag)
         with:
           mode: "COMMIT"
-          fromTag: ${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/deprecated/gatling-3-11') && steps.bump.outputs.last_tag || '' }}
-          toTag: ${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/deprecated/gatling-3-11') && steps.bump.outputs.tag || '' }}
+          fromTag: ${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/backport/v0.20.4-headers') && steps.bump.outputs.last_tag || '' }}
+          toTag: ${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/backport/v0.20.4-headers') && steps.bump.outputs.tag || '' }}
           configuration: ".github/changelog/release-changelog-builder.json"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -370,10 +367,10 @@ jobs:
       - name: Create GitHub Release
         if: >-
           startsWith(github.ref, 'refs/tags/v') ||
-          ((github.ref == 'refs/heads/main' || github.ref == 'refs/heads/deprecated/gatling-3-11') && steps.bump.outputs.tag)
+          ((github.ref == 'refs/heads/main' || github.ref == 'refs/heads/backport/v0.20.4-headers') && steps.bump.outputs.tag)
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/deprecated/gatling-3-11') && steps.bump.outputs.tag || '' }}
+          tag_name: ${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/backport/v0.20.4-headers') && steps.bump.outputs.tag || '' }}
           body: ${{ steps.changelog.outputs.changelog }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
