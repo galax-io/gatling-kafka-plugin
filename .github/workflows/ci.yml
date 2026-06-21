@@ -228,9 +228,9 @@ jobs:
           fi
 
           if sbt 'show dynver' >/dev/null 2>&1; then
-            sbt ci-release
+            GITHUB_REF="refs/tags/$TAG" sbt ci-release
           else
-            sbt "set ThisBuild/version := \"${VERSION}\"" ci-release
+            GITHUB_REF="refs/tags/$TAG" sbt "set ThisBuild/version := \"${VERSION}\"" ci-release
           fi
       - name: Generate Changelog
         id: changelog
