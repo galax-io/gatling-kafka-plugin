@@ -1,0 +1,53 @@
+# git-cliff configuration — https://git-cliff.org
+# Release notes from Conventional Commits. Plain, grouped, quiet.
+
+[changelog]
+header = """
+# Changelog
+
+All notable changes to this project are documented here.\n
+"""
+# Tera template. `<!-- NN -->` prefixes only order the groups; `striptags` drops them.
+body = """
+{% if version -%}
+## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else -%}
+## [Unreleased]
+{% endif -%}
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim }}
+{% for commit in commits -%}
+- {{ commit.message | split(pat="\n") | first | trim | upper_first }} ([{{ commit.id | truncate(length=7, end="") }}](https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}/commit/{{ commit.id }}))
+{% endfor -%}
+{% endfor %}
+"""
+footer = ""
+trim = true
+
+[git]
+conventional_commits = true
+# false: a commit that fails strict Conventional Commits parsing still reaches commit_parsers
+# (caught by the trailing catch-all below) instead of being silently dropped from the notes.
+filter_unconventional = false
+split_commits = false
+# First match wins. Deps before the maintenance catch-all; breaking first.
+commit_parsers = [
+  { message = "^[a-z]+(\\(.+\\))?!:", group = "<!-- 00 -->Breaking changes" },
+  # `footer` and `body` both: git-cliff matches `body` against the parsed conventional
+  # body, which EXCLUDES footers, so the canonical `BREAKING CHANGE: …` trailer only
+  # matches via `footer`. Keeping `body` too still catches the words used mid-prose.
+  { footer = ".*BREAKING CHANGE", group = "<!-- 00 -->Breaking changes" },
+  { body = ".*BREAKING CHANGE", group = "<!-- 00 -->Breaking changes" },
+  { message = "^feat", group = "<!-- 01 -->Features" },
+  { message = "^fix", group = "<!-- 02 -->Fixes" },
+  { message = "^perf", group = "<!-- 03 -->Performance" },
+  { message = "^docs", group = "<!-- 04 -->Documentation" },
+  { message = "^chore\\(deps\\)", group = "<!-- 05 -->Dependencies" },
+  { message = "^(refactor|test|ci|build|chore|style|revert)", group = "<!-- 06 -->Maintenance" },
+  # Catch-all: a non-Conventional-Commit message still ships (e.g. an older or squash-merged commit)
+  # instead of silently vanishing from the notes.
+  { message = ".*", group = "<!-- 07 -->Other" },
+]
+filter_commits = false
+tag_pattern = "v[0-9].*"
+sort_commits = "newest"
