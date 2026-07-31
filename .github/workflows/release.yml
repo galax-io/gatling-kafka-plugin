@@ -1,0 +1,101 @@
+name: Release
+
+# Manual, tag-driven releases.
+# Trunk is `main`; `release/*` branches are cut from `main` for stabilization.
+# Pushing a `vX.Y.Z` tag on `main` or a `release/*` branch publishes to Sonatype
+# (via sbt-ci-release / dynver) and creates a GitHub Release with git-cliff notes.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+env:
+  SBT_OPTS: -Dsbt.color=true -Dsbt.log.noformat=false -Dsbt.supershell=false
+  JAVA_OPTS: -Xms2G -Xmx2G -Xss4M -XX:+UseG1GC
+  JVM_OPTS: -Xms2G -Xmx2G -Xss4M -XX:+UseG1GC
+  FORCE_COLOR: "1"
+  TERM: xterm-256color
+
+jobs:
+  release:
+    name: Release (tag-driven)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Validate tag & resolve changelog range
+        id: prep
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          git branch -r --contains "$TAG" | grep -qE 'origin/(release/|main$)' \
+            || { echo "::error::Tag $TAG is not on main or release/*"; exit 1; }
+          PREV=$(git describe --tags --abbrev=0 --first-parent "${TAG}^" --match 'v[0-9]*' 2>/dev/null || true)
+          # No reachable previous tag (first release, or a tag on a release/* branch that
+          # was never merged back): fall back to --latest. Passing no range at all makes
+          # git-cliff regenerate the WHOLE history into this release's body.
+          if [ -n "$PREV" ]; then
+            RANGE="${PREV}..${TAG}"
+          else
+            RANGE="--latest"
+            echo "::notice::No previous v* tag reachable from ${TAG}; using --latest."
+          fi
+          echo "cliff_args=${RANGE} --strip header" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Java (Temurin 17) with sbt cache
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: sbt
+      - uses: sbt/setup-sbt@v1
+      - name: Cache Coursier
+        uses: coursier/cache-action@v6
+      - name: Cache Ivy/SBT
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.ivy2/cache
+            ~/.sbt
+            ~/.cache/coursier
+          key: sbt-${{ runner.os }}-${{ hashFiles('**/*.sbt') }}-${{ hashFiles('project/**') }}
+          restore-keys: sbt-${{ runner.os }}-
+
+      # Unit + Testcontainers integration specs. The Gatling example simulations
+      # need the full Kafka/Schema Registry stack and already gate `main` in ci.yml,
+      # so the tag (cut from `main`) has been through them.
+      - name: Compile & test
+        run: sbt clean compile test
+
+      - name: Publish to Sonatype via sbt-ci-release
+        env:
+          PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
+          PGP_SECRET: ${{ secrets.PGP_SECRET }}
+          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
+          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
+        run: sbt ci-release
+
+      - name: Generate release notes
+        id: changelog
+        uses: orhun/git-cliff-action@f50e11560dce63f7c33227798f90b924471a88b5 # v4.8.0
+        with:
+          config: cliff.toml
+          args: ${{ steps.prep.outputs.cliff_args }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
+        with:
+          body: ${{ steps.changelog.outputs.content }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
