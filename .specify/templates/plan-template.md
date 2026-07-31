@@ -40,7 +40,32 @@
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-[Gates determined based on constitution file]
+*Source: `.specify/memory/constitution.md` v1.0.0. Answer each gate; any NO must be justified in
+Complexity Tracking below or the plan does not proceed.*
+
+- [ ] **I. Published API Compatibility**: Does this feature change any public Scala DSL or
+      `javaapi` signature, default protocol setting, or serialized format? If YES — approval
+      obtained, `!:`/`BREAKING CHANGE` marker planned where breaking, README Migration Guide entry
+      planned, deprecation path kept compiling for one minor release, and `ExampleSmokeValidation`
+      still constructs every README/example simulation.
+- [ ] **II. Real Broker Over Mocks**: Every Kafka interaction this feature touches — consumer
+      lifecycle, tracker-pool concurrency, reply correlation, timeouts, error propagation — is
+      validated against Testcontainers or the `docker-compose.kafka.yml` stack. Mocks are confined
+      to units with no Kafka interaction.
+- [ ] **III. Layer Separation & Single Wire Contract**: `KafkaSender` / `KafkaMessageTracker` /
+      `DynamicKafkaConsumer` responsibilities stay separate; `KafkaProtocolMessage` and
+      `KafkaMatcher` are extended rather than duplicated; collaborators are injected into actions,
+      not constructed inside them; no new abstraction without a second real caller.
+- [ ] **IV. Test-First for Behavior Change**: Every behavior change in this plan has a test that
+      fails first. Bug fixes reproduce the bug before fixing it. Tests are not deferred to a later
+      phase and are not marked optional.
+- [ ] **V. One Concern per Change, Always Green**: Spec artifacts commit separately and first; work
+      decomposes to one issue per semantic commit, each green under
+      `sbt scalafmtCheckAll scalafmtSbtCheck compile test`; PRs are single-concern and carry a
+      milestone plus `Closes #NNN`.
+- [ ] **Constraints**: No new dependency (or non-Scala-Steward upgrade) without approval; Avro and
+      Schema Registry support stays `provided` and optional; README compatibility table updated if
+      a supported Gatling version changes.
 
 ## Project Structure
 

@@ -1,50 +1,194 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+<!--
+Sync Impact Report
+==================
+Version change: (unversioned template) → 1.0.0
+Bump rationale: Initial ratification. Every placeholder replaced with concrete,
+enforceable rules derived from the repository's existing process (AGENTS.md,
+.github/workflows/, scripts/, README.md). No prior version existed, so this is
+1.0.0 rather than a MAJOR bump of something.
+
+Modified principles (template placeholder → ratified name):
+  [PRINCIPLE_1_NAME] → I. Published API Compatibility (NON-NEGOTIABLE)
+  [PRINCIPLE_2_NAME] → II. Real Broker Over Mocks
+  [PRINCIPLE_3_NAME] → III. Layer Separation & Single Wire Contract
+  [PRINCIPLE_4_NAME] → IV. Test-First for Behavior Change
+  [PRINCIPLE_5_NAME] → V. One Concern per Change, Always Green
+
+Added sections:
+  [SECTION_2_NAME] → Technology & Compatibility Constraints
+  [SECTION_3_NAME] → Development Workflow & Quality Gates
+  Governance → concrete amendment procedure, versioning policy, compliance review
+
+Removed sections: none
+
+Templates requiring updates:
+  ✅ .specify/templates/plan-template.md — Constitution Check filled with concrete gates
+  ✅ .specify/templates/tasks-template.md — test-optionality note reconciled with
+     Principle IV; path conventions corrected to this repo's Scala/sbt layout
+  ✅ .specify/templates/spec-template.md — reviewed, already aligned (no mandatory
+     section added or removed by this constitution)
+  ✅ AGENTS.md — reviewed, consistent; constitution governs where they diverge
+  ✅ README.md — reviewed, consistent (Compatibility, Migration Guide, Releasing)
+  ⚠ .specify/templates/commands/*.md — directory does not exist in this install; N/A
+
+Deferred TODOs: none
+-->
+
+# Gatling Kafka Plugin Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. Published API Compatibility (NON-NEGOTIABLE)
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+The Scala DSL under `org.galaxio.gatling.kafka`, the Java facade under
+`org.galaxio.gatling.kafka.javaapi`, default protocol settings, and serialized wire formats form a
+published contract consumed by downstream Gatling simulations. Sonatype releases are permanent and
+cannot be withdrawn.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+- Changes to public signatures, observable behavior, or serialized formats MUST be proposed and
+  approved before implementation. They are never a side effect of another change.
+- A breaking change MUST carry a `!:` or `BREAKING CHANGE` Conventional Commit marker so it drives
+  a major version, and MUST ship with a Migration Guide entry in `README.md` in the same PR.
+- Deprecate before removing: a replaced entry point MUST keep compiling for at least one minor
+  release, annotated as deprecated with its replacement named.
+- `ExampleSmokeValidation` MUST keep constructing every README and example simulation against the
+  current API. A failure there is an API break to reconsider, not a check to relax.
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+**Rationale**: Users pin one plugin version against one Gatling version. Silent signature or
+default drift breaks load-test suites at runtime, in the environment where they are hardest to
+diagnose, and the broken artifact can never be unpublished.
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### II. Real Broker Over Mocks
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+Kafka behavior MUST be validated against a real broker — Testcontainers under `sbt test`, or the
+`docker-compose.kafka.yml` stack for the Gatling simulations CI runs.
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+- Mocks and stubs are permitted only for units with no Kafka interaction: matchers, serializers,
+  check materialization, and builder wiring.
+- Consumer lifecycle, tracker-pool concurrency, reply correlation, timeout handling, and error
+  propagation MUST be exercised end-to-end against a broker, never asserted against a stub.
+- Where a real integration path exists, substituting a mock for it MUST be treated as a gap in
+  coverage rather than as coverage.
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+**Rationale**: Rebalancing, offset-commit timing, and correlation races are precisely the behaviors
+a mock reproduces incorrectly, and precisely the behaviors this plugin exists to get right.
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+### III. Layer Separation & Single Wire Contract
+
+`KafkaSender` sends, `KafkaMessageTracker` and `KafkaMessageTrackerPool` track, and
+`DynamicKafkaConsumer` consumes. These responsibilities MUST NOT be merged into one another.
+
+- `KafkaProtocolMessage` is the single wire representation and `KafkaMatcher` the single matching
+  contract. Extend them. Parallel message or matcher types MUST NOT be introduced.
+- Actions MUST receive their collaborators by injection and MUST NOT construct them internally, so
+  each layer stays independently testable.
+- Control flow MUST NOT be expressed through exceptions, and dead or duplicated code MUST NOT be
+  merged.
+- Abstraction is introduced when a second real caller exists, not in anticipation of one. In public
+  API surface a speculative abstraction immediately becomes a compatibility obligation under
+  Principle I.
+
+**Rationale**: Send, track, and consume fail independently and under different conditions. Keeping
+them separate is what makes a failure attributable to one of them; one wire type and one matching
+contract are what keep that attribution meaningful across the Scala and Java surfaces.
+
+### IV. Test-First for Behavior Change
+
+Every behavior change MUST land with a test that fails before the change and passes after it.
+
+- Follow red-green-refactor where practical. At minimum, add a focused regression test that names
+  the behavior being introduced or fixed.
+- A bug fix MUST include a test that reproduces the bug against the pre-fix code.
+- Tests are NOT optional for behavior work, in specs, plans, or task lists. A feature specification
+  cannot waive this principle.
+- Pure refactors that change no observable behavior are exempt from new tests and MUST be
+  demonstrable as such by the existing suite passing unchanged.
+
+**Rationale**: This plugin's failures are asynchronous and intermittent — a missed reply, a
+mistimed commit, a leaked consumer. Only a test written to fail first proves the fix addresses the
+reported behavior rather than coincidentally hiding it.
+
+### V. One Concern per Change, Always Green
+
+- Spec-first: `specs/NNN-*/` artifacts land as their own `docs(speckit): …` commit BEFORE any
+  `feat` or `fix` commit. Spec artifacts MUST NOT be folded into implementation commits.
+- One tracked issue maps to one semantic commit (`feat(scope): … (#NNN)`), and each such commit
+  MUST be green on its own under `sbt scalafmtCheckAll scalafmtSbtCheck compile test`.
+- One concern per PR. Documentation, refactors, and opportunistic improvements go in separate PRs
+  and MUST NOT be mixed into an issue commit.
+- Commits express intent, not path: no add-then-remove churn within a PR. Squash before review.
+- Every PR MUST be assigned to the active milestone and MUST close its issue via `Closes #NNN`. A
+  PR without a milestone MUST NOT merge.
+- Conventional Commit subjects MUST be accurate. git-cliff derives the release notes from them and
+  the release version is chosen from them.
+
+**Rationale**: The changelog, the released version number, and the milestone release gate are all
+generated from commit and PR metadata. Inaccurate metadata produces a wrong release, not merely an
+untidy history.
+
+## Technology & Compatibility Constraints
+
+- Scala 2.13 on sbt, Java 17+. `build.sbt`, `project/Dependencies.scala`, and
+  `project/plugins.sbt` are the single source of truth for language, Gatling, Kafka, and Avro
+  versions. This constitution MUST NOT restate those version numbers.
+- Avro4s and Confluent Schema Registry support is `provided` scope and MUST remain optional: the
+  plugin MUST stay usable with plain serialization and no Schema Registry on the classpath.
+- New dependencies and non-Scala-Steward upgrades require approval before merge. Adding a
+  dependency to the published artifact's `compile` scope is an API-surface decision governed by
+  Principle I.
+- Gatling compatibility is per-release-line and published in the README compatibility table. That
+  table MUST be updated in the same PR that changes a supported Gatling version.
+- `.github/workflows/` is the source of truth for formatting, compile, test, coverage, and release
+  behavior. Local commands mirror CI; where the two disagree, CI is correct and the local command
+  is fixed.
+
+## Development Workflow & Quality Gates
+
+**Branching**: Trunk-based. Branch from `main`; `release/*` branches are cut from `main` for
+stabilization. Rebase only — merge commits MUST NOT appear in PR branches. Never force-push to
+`main` and never commit directly to `main`.
+
+**Before every push**: format with `sbt scalafmtAll scalafmtSbt`, then verify with
+`sbt scalafmtCheckAll scalafmtSbtCheck compile test`. The shared `.githooks/pre-commit` hook,
+enabled once per clone via `scripts/install-hooks.sh`, enforces formatting on every commit;
+compile and tests are enforced by CI.
+
+**Full CI gate** requires the Compose stack (Kafka, Zookeeper, Schema Registry) and runs
+`KafkaGatlingTest` and `KafkaJavaapiMethodsGatlingTest` under coverage alongside `sbt test`. The
+exact invocation lives in `AGENTS.md` and `.github/workflows/ci.yml`.
+
+**Milestone linkage** is enforced by `scripts/check-linkage.sh` with the `linkage-guard` and
+`milestone-guard` PreToolUse hooks. A release milestone is tag-ready only when every issue in it is
+closed and every PR merged. Release milestones MUST be named `vX.Y.0 <description>`, or
+`vX.Y.Z <description>` for a dedicated patch milestone, so that `--for-tag` resolves.
+
+**Release** is manual and tag-driven. The version comes from the tag via dynver and is chosen from
+the Conventional Commits since the last tag: `feat` → minor, `!:` or `BREAKING CHANGE` → major,
+otherwise patch. Tags are valid only on `main` or `release/*`. A published tag MUST NEVER be
+deleted and a version number MUST NEVER be reused.
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+This constitution supersedes ad-hoc practice. Where it and `AGENTS.md` disagree, this document
+governs and `AGENTS.md` MUST be corrected in the same PR that surfaces the conflict. `AGENTS.md`
+remains the runtime development guide and carries the operational detail; this document carries the
+non-negotiables.
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Amendment procedure**: an amendment is a PR that (a) edits this file, (b) updates the Sync Impact
+Report at the top of it, and (c) updates every dependent artifact the change touches —
+`.specify/templates/plan-template.md`, `.specify/templates/spec-template.md`,
+`.specify/templates/tasks-template.md`, `AGENTS.md`, and `README.md`. An amendment that leaves a
+dependent artifact contradicting a principle is incomplete and MUST NOT merge.
+
+**Versioning policy** for this document, semantic and independent of the plugin's release version:
+
+- **MAJOR**: a principle is removed, or redefined in a way that invalidates previously compliant
+  work.
+- **MINOR**: a principle or section is added, or existing guidance is materially expanded.
+- **PATCH**: clarification, wording, or typo fix that changes no obligation.
+
+**Compliance review**: every PR review MUST verify the change against these principles. A deviation
+is permitted only when it is recorded in the plan's Complexity Tracking table with the rejected
+simpler alternative named. An undocumented deviation blocks merge.
+
+**Version**: 1.0.0 | **Ratified**: 2026-07-31 | **Last Amended**: 2026-07-31

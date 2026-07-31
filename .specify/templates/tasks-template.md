@@ -9,7 +9,7 @@ description: "Task list template for feature implementation"
 
 **Prerequisites**: plan.md (required), spec.md (required for user stories), research.md, data-model.md, contracts/
 
-**Tests**: The examples below include test tasks. Tests are OPTIONAL - only include them if explicitly requested in the feature specification.
+**Tests**: Per Constitution Principle IV (Test-First for Behavior Change), test tasks are MANDATORY for any task that changes observable behavior, and each must be written to fail before its implementation task. A feature specification cannot waive this. Only pure refactors that change no observable behavior may omit new tests, and those must be identifiable as such by the existing suite passing unchanged. Per Principle II, Kafka interactions are tested against Testcontainers or the `docker-compose.kafka.yml` stack — not mocks.
 
 **Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story.
 
@@ -21,10 +21,15 @@ description: "Task list template for feature implementation"
 
 ## Path Conventions
 
-- **Single project**: `src/`, `tests/` at repository root
-- **Web app**: `backend/src/`, `frontend/src/`
-- **Mobile**: `api/src/`, `ios/src/` or `android/src/`
-- Paths shown below assume single project - adjust based on plan.md structure
+This is a single-module Scala/sbt project (`gatling-kafka-plugin`):
+
+- **Scala plugin sources**: `src/main/scala/org/galaxio/gatling/kafka/{protocol,actions,client,checks,request}/`
+- **Java facade**: `src/main/java/org/galaxio/gatling/kafka/javaapi/`
+- **Tests**: `src/test/scala/`, `src/test/java/`, `src/test/kotlin/`
+- **Build/dependency truth**: `build.sbt`, `project/Dependencies.scala`, `project/plugins.sbt`
+
+The sample tasks below use generic placeholder paths — replace them with real paths from the tree
+above per plan.md.
 
 <!--
   ============================================================================
@@ -80,19 +85,19 @@ Examples of foundational tasks (adjust based on your project):
 
 **Independent Test**: [How to verify this story works on its own]
 
-### Tests for User Story 1 (OPTIONAL - only if tests requested) ⚠️
+### Tests for User Story 1 (MANDATORY for behavior change — Principle IV) ⚠️
 
 > **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 
-- [ ] T010 [P] [US1] Contract test for [endpoint] in tests/contract/test_[name].py
-- [ ] T011 [P] [US1] Integration test for [user journey] in tests/integration/test_[name].py
+- [ ] T010 [P] [US1] Unit test for [component] in src/test/scala/[path]/[Name]Spec.scala
+- [ ] T011 [P] [US1] Testcontainers integration test for [Kafka journey] in src/test/scala/[path]/[Name]IntegrationSpec.scala
 
 ### Implementation for User Story 1
 
-- [ ] T012 [P] [US1] Create [Entity1] model in src/models/[entity1].py
-- [ ] T013 [P] [US1] Create [Entity2] model in src/models/[entity2].py
-- [ ] T014 [US1] Implement [Service] in src/services/[service].py (depends on T012, T013)
-- [ ] T015 [US1] Implement [endpoint/feature] in src/[location]/[file].py
+- [ ] T012 [P] [US1] Create [type] in src/main/scala/org/galaxio/gatling/kafka/[layer]/[Name].scala
+- [ ] T013 [P] [US1] Extend KafkaProtocolMessage/KafkaMatcher if needed (Principle III: extend, don't duplicate)
+- [ ] T014 [US1] Implement [component] in src/main/scala/org/galaxio/gatling/kafka/[layer]/[Name].scala (depends on T012, T013)
+- [ ] T015 [US1] Wire into action/builder in src/main/scala/org/galaxio/gatling/kafka/actions/[Name].scala (inject collaborators — Principle III)
 - [ ] T016 [US1] Add validation and error handling
 - [ ] T017 [US1] Add logging for user story 1 operations
 
@@ -106,16 +111,16 @@ Examples of foundational tasks (adjust based on your project):
 
 **Independent Test**: [How to verify this story works on its own]
 
-### Tests for User Story 2 (OPTIONAL - only if tests requested) ⚠️
+### Tests for User Story 2 (MANDATORY for behavior change — Principle IV) ⚠️
 
-- [ ] T018 [P] [US2] Contract test for [endpoint] in tests/contract/test_[name].py
-- [ ] T019 [P] [US2] Integration test for [user journey] in tests/integration/test_[name].py
+- [ ] T018 [P] [US2] Unit test for [component] in src/test/scala/[path]/[Name]Spec.scala
+- [ ] T019 [P] [US2] Testcontainers integration test for [Kafka journey] in src/test/scala/[path]/[Name]IntegrationSpec.scala
 
 ### Implementation for User Story 2
 
-- [ ] T020 [P] [US2] Create [Entity] model in src/models/[entity].py
-- [ ] T021 [US2] Implement [Service] in src/services/[service].py
-- [ ] T022 [US2] Implement [endpoint/feature] in src/[location]/[file].py
+- [ ] T020 [P] [US2] Create [type] in src/main/scala/org/galaxio/gatling/kafka/[layer]/[Name].scala
+- [ ] T021 [US2] Implement [component] in src/main/scala/org/galaxio/gatling/kafka/[layer]/[Name].scala
+- [ ] T022 [US2] Expose via DSL in src/main/scala/org/galaxio/gatling/kafka/KafkaDsl.scala (Principle I: API-surface change)
 - [ ] T023 [US2] Integrate with User Story 1 components (if needed)
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work independently
@@ -128,16 +133,16 @@ Examples of foundational tasks (adjust based on your project):
 
 **Independent Test**: [How to verify this story works on its own]
 
-### Tests for User Story 3 (OPTIONAL - only if tests requested) ⚠️
+### Tests for User Story 3 (MANDATORY for behavior change — Principle IV) ⚠️
 
-- [ ] T024 [P] [US3] Contract test for [endpoint] in tests/contract/test_[name].py
-- [ ] T025 [P] [US3] Integration test for [user journey] in tests/integration/test_[name].py
+- [ ] T024 [P] [US3] Unit test for [component] in src/test/scala/[path]/[Name]Spec.scala
+- [ ] T025 [P] [US3] Testcontainers integration test for [Kafka journey] in src/test/scala/[path]/[Name]IntegrationSpec.scala
 
 ### Implementation for User Story 3
 
-- [ ] T026 [P] [US3] Create [Entity] model in src/models/[entity].py
-- [ ] T027 [US3] Implement [Service] in src/services/[service].py
-- [ ] T028 [US3] Implement [endpoint/feature] in src/[location]/[file].py
+- [ ] T026 [P] [US3] Create [type] in src/main/scala/org/galaxio/gatling/kafka/[layer]/[Name].scala
+- [ ] T027 [US3] Implement [component] in src/main/scala/org/galaxio/gatling/kafka/[layer]/[Name].scala
+- [ ] T028 [US3] Mirror on the Java facade in src/main/java/org/galaxio/gatling/kafka/javaapi/[Name].java
 
 **Checkpoint**: All user stories should now be independently functional
 
@@ -151,11 +156,12 @@ Examples of foundational tasks (adjust based on your project):
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] TXXX [P] Documentation updates in docs/
-- [ ] TXXX Code cleanup and refactoring
+- [ ] TXXX [P] Documentation updates in README.md (separate PR — Principle V, one concern per PR)
+- [ ] TXXX Code cleanup and refactoring (separate PR)
 - [ ] TXXX Performance optimization across all stories
-- [ ] TXXX [P] Additional unit tests (if requested) in tests/unit/
-- [ ] TXXX Security hardening
+- [ ] TXXX [P] Additional unit tests in src/test/scala/
+- [ ] TXXX Run `sbt scalafmtAll scalafmtSbt` then `sbt scalafmtCheckAll scalafmtSbtCheck compile test`
+- [ ] TXXX Run `sbt "Test / runMain org.galaxio.gatling.kafka.examples.ExampleSmokeValidation"` (API-compat gate, Principle I)
 - [ ] TXXX Run quickstart.md validation
 
 ---
@@ -179,7 +185,8 @@ Examples of foundational tasks (adjust based on your project):
 
 ### Within Each User Story
 
-- Tests (if included) MUST be written and FAIL before implementation
+- Tests MUST be written and MUST FAIL before implementation (Principle IV; exempt only for pure
+  refactors with no observable behavior change)
 - Models before services
 - Services before endpoints
 - Core implementation before integration
@@ -199,13 +206,13 @@ Examples of foundational tasks (adjust based on your project):
 ## Parallel Example: User Story 1
 
 ```bash
-# Launch all tests for User Story 1 together (if tests requested):
-Task: "Contract test for [endpoint] in tests/contract/test_[name].py"
-Task: "Integration test for [user journey] in tests/integration/test_[name].py"
+# Launch all tests for User Story 1 together:
+Task: "Unit test for [component] in src/test/scala/[path]/[Name]Spec.scala"
+Task: "Testcontainers integration test for [Kafka journey] in src/test/scala/[path]/[Name]IntegrationSpec.scala"
 
-# Launch all models for User Story 1 together:
-Task: "Create [Entity1] model in src/models/[entity1].py"
-Task: "Create [Entity2] model in src/models/[entity2].py"
+# Launch all independent types for User Story 1 together:
+Task: "Create [type] in src/main/scala/org/galaxio/gatling/kafka/[layer]/[Name].scala"
+Task: "Extend KafkaProtocolMessage/KafkaMatcher as needed"
 ```
 
 ---
@@ -247,6 +254,7 @@ With multiple developers:
 - [Story] label maps task to specific user story for traceability
 - Each user story should be independently completable and testable
 - Verify tests fail before implementing
-- Commit after each task or logical group
+- Commit per tracked issue, not per task: one issue = one semantic commit, green on its own under
+  `sbt scalafmtCheckAll scalafmtSbtCheck compile test` (Principle V)
 - Stop at any checkpoint to validate story independently
 - Avoid: vague tasks, same file conflicts, cross-story dependencies that break independence
