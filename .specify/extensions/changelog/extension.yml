@@ -1,0 +1,42 @@
+schema_version: "1.0"
+
+extension:
+  id: changelog
+  name: Spec Changelog
+  version: "1.0.0"
+  description: "Auto-generate changelogs and release notes from spec git history and requirement diffs"
+  author: Quratulain-bilal
+  repository: https://github.com/Quratulain-bilal/spec-kit-changelog
+  license: MIT
+
+requires:
+  speckit_version: ">= 0.4.0"
+
+provides:
+  commands:
+    - name: speckit.changelog.generate
+      file: commands/speckit.changelog.generate.md
+      description: "Generate full changelog from spec history"
+    - name: speckit.changelog.release
+      file: commands/speckit.changelog.release.md
+      description: "Generate release notes for a specific version"
+    - name: speckit.changelog.diff
+      file: commands/speckit.changelog.diff.md
+      description: "Human-readable diff between spec versions"
+    - name: speckit.changelog.notify
+      file: commands/speckit.changelog.notify.md
+      description: "Generate stakeholder notifications from changes"
+
+hooks:
+  after_implement:
+    command: speckit.changelog.generate
+    optional: true
+    prompt: "Generate a changelog entry for this change?"
+    description: "Offer to generate changelog entry after implementation"
+
+tags:
+  - changelog
+  - release-notes
+  - documentation
+  - git-history
+  - notifications

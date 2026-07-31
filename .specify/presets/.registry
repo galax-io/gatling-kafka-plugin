@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "presets": {
+    "claude-ask-questions": {
+      "version": "1.0.0",
+      "source": "local",
+      "manifest_hash": "sha256:df86035abc0a128286bef51699f330b54e1d5d92373ccf1b0ba079b0168a0880",
+      "enabled": true,
+      "priority": 10,
+      "registered_commands": {
+        "claude": [
+          "speckit.clarify",
+          "speckit.checklist"
+        ]
+      },
+      "registered_skills": [
+        "speckit-clarify",
+        "speckit-checklist"
+      ],
+      "installed_at": "2026-07-31T08:49:19.687482+00:00"
+    }
+  }
+}
