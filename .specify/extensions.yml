@@ -28,7 +28,12 @@ hooks:
     condition: null
   - extension: worktrees
     command: speckit.worktrees.create
-    enabled: true
+    # Disabled: before_specify already runs speckit.git.feature, which does
+    # `git checkout -b <feature>` in the main tree. `git worktree add` then refuses
+    # that branch ("already used by worktree at ..."), and since this hook is
+    # optional: false the whole /speckit.specify run fails. Spawn a worktree
+    # explicitly with /speckit.worktrees.create when you actually want one.
+    enabled: false
     optional: false
     priority: 10
     prompt: Execute speckit.worktrees.create?
