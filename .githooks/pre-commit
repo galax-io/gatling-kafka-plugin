@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+#
+# pre-commit — format Scala + sbt sources with scalafmt and re-stage the files
+# this commit touches, so the recorded snapshot is scalafmt-clean.
+#
+# Runs: sbt scalafmtAll scalafmtSbt   (compile + tests run in CI, not per commit,
+# so this hook stays fast and needs no Docker/Kafka stack.)
+# Bypass: SKIP_SCALAFMT=1 git commit …   (or: git commit --no-verify)
+#
+# Shared via core.hooksPath (scripts/install-hooks.sh).
+set -euo pipefail
+
+if [ "${SKIP_SCALAFMT:-0}" = "1" ]; then
+  echo "pre-commit: SKIP_SCALAFMT=1 — skipping scalafmt." >&2
+  exit 0
+fi
+
+cd "$(git rev-parse --show-toplevel)"
+
+# Paths staged for THIS commit. R (rename) must be in the filter: `git mv` plus an
+# edit is reported as a single R entry, and omitting it leaves `staged` empty, so the
+# guard below short-circuits and the renamed file is committed unformatted.
+# --name-only already prints just the destination path for an R entry.
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+[ -n "$staged" ] || exit 0
+
+# Files carrying BOTH staged and unstaged hunks (`git add -p`, or an edit made after
+# staging). scalafmt rewrites the worktree copy, so a blanket `git add` on these would
+# also commit the hunks the author deliberately withheld. Compute the set BEFORE
+# formatting — afterwards every formatted file looks partially staged.
+partial=$(comm -12 \
+  <(printf '%s\n' "$staged" | sort -u) \
+  <(git diff --name-only | sort -u))
+
+# -batch + closed stdin: a scalafmt/load failure exits non-zero instead of
+# dropping to sbt's interactive "(r)etry?" prompt and hanging the commit.
+echo "pre-commit: sbt scalafmtAll scalafmtSbt …" >&2
+sbt -batch scalafmtAll scalafmtSbt < /dev/null
+
+# Re-stage the originally-staged paths that still exist after formatting, so the commit
+# records the formatted content (no unstaged reformat drift that would later fail CI's
+# scalafmtCheckAll) — but never a partially-staged one, since `git add` cannot separate
+# scalafmt's edit from the author's withheld hunks.
+n=0
+skipped=0
+while IFS= read -r f; do
+  [ -n "$f" ] && [ -e "$f" ] || continue
+  if [ -n "$partial" ] && printf '%s\n' "$partial" | grep -qxF -- "$f"; then
+    skipped=$((skipped + 1))
+    continue
+  fi
+  git add -- "$f"
+  n=$((n + 1))
+done <<< "$staged"
+
+echo "pre-commit: formatted; re-staged $n file(s)." >&2
+
+if [ "$skipped" -gt 0 ]; then
+  {
+    echo "pre-commit: WARNING — left $skipped partially-staged file(s) alone:"
+    printf '%s\n' "$partial" | sed 's/^/  - /'
+    echo "  They have unstaged hunks, so re-staging would commit changes you withheld."
+    echo "  Your staged content is committed as-is; scalafmt's edits stay in the worktree."
+    echo "  If CI's scalafmtCheckAll then fails, stage the formatting and amend."
+  } >&2
+fi

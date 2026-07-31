@@ -1,0 +1,53 @@
+name: Launch Scala Steward
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * 0'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  scala-steward:
+    name: Launch Scala Steward
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Launch Scala Steward
+        id: steward
+        uses: scala-steward-org/scala-steward-action@v2
+        with:
+          # Same as gatling-jdbc-plugin. Bump PRs land authored by github-actions[bot],
+          # and their ci.yml run is created but parked in `action_required` until a
+          # maintainer clicks "Approve and run" — so they cannot merge green untested,
+          # they just wait. To drop that approval step, run Steward under a PAT or
+          # GitHub App token instead of the default one.
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          JAVA_OPTS: -Xms512m -Xmx2g -XX:+UseG1GC
+
+      - name: Show run summary
+        if: always()
+        shell: bash
+        run: |
+          f="/home/runner/scala-steward/workspace/run-summary.md"
+          if [ -f "$f" ]; then
+            echo "::group::Scala Steward run-summary.md"
+            sed -n '1,400p' "$f"
+            echo "::endgroup::"
+          fi
+
+      - name: Upload run summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scala-steward-run-summary
+          path: /home/runner/scala-steward/workspace/run-summary.md
+          if-no-files-found: ignore
