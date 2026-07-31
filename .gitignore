@@ -51,3 +51,15 @@ project/plugins/project/
 /.bsp/
 .DS_Store
 /results
+
+### Tooling scratch (Metals / Bloop / MCP)
+.metals/
+.bloop/
+project/metals.sbt
+project/project/
+.mcp.json
+
+### Agent / spec-kit scratch
+.claude/settings.local.json
+.claude/worktrees/
+speckit-install.log
