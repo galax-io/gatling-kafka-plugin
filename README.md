@@ -1,6 +1,7 @@
 # Gatling Kafka Plugin
 
 [![CI](https://github.com/galax-io/gatling-kafka-plugin/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/galax-io/gatling-kafka-plugin/actions/workflows/ci.yml)
+[![Release](https://github.com/galax-io/gatling-kafka-plugin/actions/workflows/release.yml/badge.svg)](https://github.com/galax-io/gatling-kafka-plugin/actions/workflows/release.yml)
 [![Maven Central](https://img.shields.io/maven-central/v/org.galaxio/gatling-kafka-plugin_2.13.svg?color=success)](https://search.maven.org/search?q=org.galaxio.gatling-kafka)
 [![codecov](https://codecov.io/github/galax-io/gatling-kafka-plugin/coverage.svg?branch=main)](https://codecov.io/github/galax-io/gatling-kafka-plugin?branch=main)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
@@ -23,6 +24,7 @@ Kafka protocol plugin for [Gatling](https://gatling.io/) load testing framework.
 - [Migration Guide](#migration-guide)
 - [Examples](#examples)
 - [Contributing](#contributing)
+- [Releasing](#releasing)
 - [License](#license)
 
 ## Compatibility
@@ -549,6 +551,18 @@ sbt "Test / runMain org.galaxio.gatling.kafka.examples.ExampleSmokeValidation"
 
 ## Contributing
 
+Enable the shared git hook once per clone — `pre-commit` runs scalafmt and re-stages the files
+you touched, so CI's formatting gate never trips on you:
+
+```bash
+./scripts/install-hooks.sh
+```
+
+Bypass it with `SKIP_SCALAFMT=1 git commit …` (or `git commit --no-verify`) when needed.
+
+Commit subjects follow [Conventional Commits](https://www.conventionalcommits.org/) — release
+notes are generated from them.
+
 ```bash
 # Compile the library
 sbt compile
@@ -568,6 +582,25 @@ sbt scalafmtAll scalafmtSbt
 # Recommended local check before pushing (matches the main CI flow)
 sbt clean compile "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaGatlingTest" "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaJavaapiMethodsGatlingTest" test
 ```
+
+## Releasing
+
+Releases are manual and tag-driven. Pushing a `vX.Y.Z` tag that is reachable from `main` (or a
+`release/*` branch) runs [`release.yml`](.github/workflows/release.yml): it compiles, tests,
+publishes to Sonatype via `sbt-ci-release` (version derived from the tag by dynver), and opens a
+GitHub Release with notes rendered by [git-cliff](https://git-cliff.org) from
+[`cliff.toml`](cliff.toml).
+
+```bash
+git checkout main && git pull
+git tag -a vX.Y.Z -m "Release vX.Y.Z"
+git push origin vX.Y.Z
+```
+
+Nothing publishes from a branch push — [`ci.yml`](.github/workflows/ci.yml) only lints, compiles,
+and tests. A tag that is not on `main`/`release/*` is rejected by the workflow. Published
+coordinates are immutable: to fix a bad release, ship the next patch version rather than moving
+the tag.
 
 ## License
 
