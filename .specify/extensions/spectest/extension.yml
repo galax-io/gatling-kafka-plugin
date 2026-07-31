@@ -1,0 +1,43 @@
+schema_version: "1.0"
+
+extension:
+  id: spectest
+  name: "SpecTest"
+  version: "1.0.0"
+  description: "Auto-generate test scaffolds from spec criteria, map coverage, and find untested requirements"
+  author: "Quratulain-bilal"
+  repository: "https://github.com/Quratulain-bilal/spec-kit-spectest"
+  license: "MIT"
+
+requires:
+  speckit_version: ">=0.4.0"
+
+provides:
+  commands:
+    - name: speckit.spectest.generate
+      file: commands/speckit.spectest.generate.md
+      description: "Generate test scaffolds from spec acceptance criteria and user scenarios"
+    - name: speckit.spectest.coverage
+      file: commands/speckit.spectest.coverage.md
+      description: "Map spec requirements to test files and calculate requirement-level coverage"
+    - name: speckit.spectest.gaps
+      file: commands/speckit.spectest.gaps.md
+      description: "Find spec requirements with no matching tests and suggest what to test"
+    - name: speckit.spectest.plan
+      file: commands/speckit.spectest.plan.md
+      description: "Generate a structured test plan document from spec scenarios and success criteria"
+
+hooks:
+  after_implement:
+    command: speckit.spectest.gaps
+    optional: true
+    prompt: "Check for untested spec requirements?"
+    description: "Scan for spec requirements with no matching tests after implementation"
+
+tags:
+  - "testing"
+  - "test-generation"
+  - "coverage"
+  - "quality"
+  - "automation"
+  - "traceability"

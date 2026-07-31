@@ -1,0 +1,72 @@
+schema_version: "1.0"
+
+extension:
+  id: harness
+  name: "Research Harness"
+  version: "1.0.0"
+  description: "State-externalizing research harness: budgeted exploration, evidence curation, and claim verification for spec-driven development"
+  category: "process"
+  effect: "read-write"
+  author: formin
+  repository: https://github.com/formin/spec-kit-harness
+  license: MIT
+  homepage: https://github.com/formin/spec-kit-harness
+
+requires:
+  speckit_version: ">=0.2.0"
+
+provides:
+  commands:
+    - name: speckit.harness.init
+      file: commands/speckit.harness.init.md
+      description: "Initialize externalized harness state (budget, candidates, curated set, evidence, verification, observations) for the active feature"
+    - name: speckit.harness.explore
+      file: commands/speckit.harness.explore.md
+      description: "Run a budget-aware exploration loop that externalizes every finding into the harness state files"
+    - name: speckit.harness.verify
+      file: commands/speckit.harness.verify.md
+      description: "Adversarially verify claims in spec/plan artifacts against primary sources and record verdicts"
+    - name: speckit.harness.status
+      file: commands/speckit.harness.status.md
+      description: "Render a compact, budget-aware slice of the harness state with a recommended next action"
+    - name: speckit.harness.report
+      file: commands/speckit.harness.report.md
+      description: "Synthesize curated evidence and verification records into the feature's research.md with a coverage table"
+
+  config:
+    - name: "harness-config.yml"
+      template: "config-template.yml"
+      description: "Budgets, curation caps, and rendering slice sizes"
+      required: false
+
+hooks:
+  after_specify:
+    command: speckit.harness.init
+    optional: true
+    prompt: "Set up a state-externalized research harness for this feature?"
+    description: "Initialize harness state after specification"
+  after_plan:
+    command: speckit.harness.verify
+    optional: true
+    prompt: "Verify plan claims against primary sources and the harness evidence base?"
+    description: "Run claim verification after planning"
+
+tags:
+  - "research"
+  - "verification"
+  - "evidence"
+  - "context-management"
+  - "workflow"
+
+defaults:
+  budget:
+    searches: 30
+    inspections: 40
+    verifications: 20
+    context_tokens: 4000
+  curation:
+    max_curated: 25
+  rendering:
+    candidates_slice: 10
+    curated_slice: 15
+    observations_slice: 8
