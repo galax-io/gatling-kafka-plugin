@@ -7,7 +7,7 @@ import Dependencies.*
 // worktrees too. (sbt-git helper; sets ThisBuild / useConsoleForROGit := true.)
 useReadableConsoleGit
 
-val scalaV      = "2.13.16"
+val scalaV      = "2.13.18"
 val avroSchemas = Seq() // for example Seq(RegistrySubject("test-hello-schema", 1))
 
 lazy val root = (project in file("."))
