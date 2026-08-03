@@ -190,6 +190,61 @@ send(msg) ───────▶ ack callback:
    the next poll cycle. The known no-op-subscribe latch defect stays tracked as #164 and is
    neither fixed nor worsened here.
 
+### Discovered during implementation (design deltas from the original outline)
+
+1. **Readiness must not live in the rebalance listener.** `updateSubscription` captured the pending
+   latches (now futures) in the `ConsumerRebalanceListener` closure. Kafka keeps only the most
+   recent listener, so a second `subscribe()` issued before the first rebalance completed silently
+   discarded the first listener *and the readiness it held* — the caller then waited out its full
+   timeout for a topic that was subscribed and healthy. Blocking acquisition hid this by
+   serialising subscriptions; making acquisition concurrent exposed it immediately (traced on the
+   CI simulation: `Timed out waiting for consumer assignment to topic 'test.t1' after 60 seconds`).
+   Readiness therefore lives on the consumer in `awaitingAssignment: topic -> pending futures`, and
+   is resolved from `consumer.assignment()` by `completeAssignedReadiness()`, called from the
+   listener and after every poll. Side effects: readiness now completes only when the topic is
+   genuinely assigned (previously *any* assignment completed *all* pending latches), and
+   `subscribe()` is skipped when the topic set is unchanged, since readiness no longer depends on a
+   rebalance being triggered.
+
+2. **`docker-compose.kafka.yml` needed `KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0`.** The test
+   broker was inheriting Kafka's 3 s default, so the first assignment of every new consumer group
+   took ~3 s. `KafkaGatlingTest` has no echo service — its "replies" are published by sibling
+   scenarios at +1 s and +2 s — so with `auto.offset.reset` at its `latest` default those replies
+   landed before the reply consumer was assigned and were skipped. The simulation passed only
+   because the blocking acquisition froze the shared producer I/O thread and thereby also delayed
+   the sibling scenario's publish until after the assignment: it was green *because of* the defect
+   under fix. Zeroing the delay on the test broker (what Testcontainers' own Kafka module does)
+   makes the simulation deterministic instead of dependent on that stall. Verified: KO rate is back
+   to the baseline 1-of-9 (11.11%), the one KO being `scnRRwo`, which is failing by design.
+
+3. **Making acquisition non-blocking moved failure handling, and the first cut lost some of it.** A
+   review pass over this branch found several guarantees that the pre-fix code held only because the
+   producer's I/O thread serialised everything, and that the asynchronous version had to re-establish
+   explicitly:
+   - The action's `try`/`catch` around acquisition was deleted, but `acquireTracker` can still throw
+     synchronously (`RejectedExecutionException` once the setup executor is shut down). The slow path
+     is now wrapped and reports through `onFailure`; both paths hand the tracker over via
+     `deliverReady`, which keeps a throwing `onReady` from escaping into the delivery callback and
+     from being reported as a second, contradictory outcome for a request already in the mailbox.
+   - `registerTracker` created the tracker actor *before* the deduplicating `compute`. With callbacks
+     no longer serialised, N concurrent first uses of a topic all reach it and N-1 actors were started
+     and orphaned, each still running its own periodic timeout scan. The actor is now created inside
+     the insert branch.
+   - `close()` drains `topicsQueue` from its own thread, so `updateSubscription`'s
+     `val (topic, readiness) = topicsQueue.poll()` could destructure `null` and take the whole pool
+     down through `markConsumerFailed`. Null-guarded.
+   - The readiness continuation did not re-check `consumerFailure`, dropping a guard the pre-fix code
+     had on both sides of the blocking wait; and `setupExecutor.shutdownNow()` discarded exactly the
+     continuations the shutdown ordering exists to preserve (a `ScheduledThreadPoolExecutor` cancels
+     even zero-delay queued tasks on shutdown unless told otherwise). Both restored.
+   - Readiness parked for a topic that is then unsubscribed is now failed explicitly instead of
+     waiting out the caller's full timeout on a topic nobody listens to.
+
+   Two review findings are deliberately left open: readiness now requires the topic in this member's
+   own `assignment()`, which changes behaviour for a user-supplied shared `group.id` (a decision, not
+   a repair), and `awaitingAssignment` still retains entries for readiness resolved purely by the
+   pool's timeout.
+
 ### Explicitly out of scope (sibling milestone issues)
 
 - #143 — poll after full unsubscribe crashes the consumer and poisons the pool

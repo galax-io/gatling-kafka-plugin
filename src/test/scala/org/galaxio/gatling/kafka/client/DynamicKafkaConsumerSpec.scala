@@ -1,11 +1,12 @@
 package org.galaxio.gatling.kafka.client
 
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.{CompletableFuture, ExecutionException, TimeUnit, TimeoutException}
 
 class DynamicKafkaConsumerSpec extends munit.FunSuite {
 
-  test("removeTopicSubscription queues topic for removal") {
-    val consumer = DynamicKafkaConsumer[Array[Byte], Array[Byte]](
+  private def newConsumer(): DynamicKafkaConsumer[Array[Byte], Array[Byte]] =
+    DynamicKafkaConsumer[Array[Byte], Array[Byte]](
       Map(
         "bootstrap.servers"  -> "localhost:0",
         "key.deserializer"   -> "org.apache.kafka.common.serialization.ByteArrayDeserializer",
@@ -15,6 +16,32 @@ class DynamicKafkaConsumerSpec extends munit.FunSuite {
       _ => (),
       _ => (),
     )
+
+  private def subscriptionQueue(
+      consumer: DynamicKafkaConsumer[_, _],
+  ): java.util.Queue[(String, CompletableFuture[Void])] = {
+    val field = classOf[DynamicKafkaConsumer[_, _]].getDeclaredField("topicsQueue")
+    field.setAccessible(true)
+    field.get(consumer).asInstanceOf[java.util.Queue[(String, CompletableFuture[Void])]]
+  }
+
+  private def failureRef(consumer: DynamicKafkaConsumer[_, _]): AtomicReference[Exception] = {
+    val field = classOf[DynamicKafkaConsumer[_, _]].getDeclaredField("consumerFailure")
+    field.setAccessible(true)
+    field.get(consumer).asInstanceOf[AtomicReference[Exception]]
+  }
+
+  private def markConsumerFailed(consumer: DynamicKafkaConsumer[_, _], exception: Exception): Unit = {
+    val method = classOf[DynamicKafkaConsumer[_, _]].getDeclaredMethod("markConsumerFailed", classOf[Exception])
+    method.setAccessible(true)
+    method.invoke(consumer, exception)
+  }
+
+  private def causeOf(future: CompletableFuture[Void]): Throwable =
+    intercept[ExecutionException](future.get(1, TimeUnit.SECONDS)).getCause
+
+  test("removeTopicSubscription queues topic for removal") {
+    val consumer = newConsumer()
     try {
       consumer.removeTopicSubscription("topic-1")
       consumer.removeTopicSubscription("topic-2")
@@ -31,103 +58,66 @@ class DynamicKafkaConsumerSpec extends munit.FunSuite {
     }
   }
 
-  test("addTopicForSubscription queues topic with latch") {
-    val consumer = DynamicKafkaConsumer[Array[Byte], Array[Byte]](
-      Map(
-        "bootstrap.servers"  -> "localhost:0",
-        "key.deserializer"   -> "org.apache.kafka.common.serialization.ByteArrayDeserializer",
-        "value.deserializer" -> "org.apache.kafka.common.serialization.ByteArrayDeserializer",
-      ),
-      Set.empty,
-      _ => (),
-      _ => (),
-    )
+  // No consumer thread runs in this suite, so nothing here can complete a readiness: these tests cover
+  // queueing and the fail-fast paths only. Readiness actually resolving from an assignment needs a
+  // broker and is covered by TrackerAcquisitionIsolationSpec.
+  test("requestTopicSubscription queues the topic and returns without blocking") {
+    val consumer = newConsumer()
     try {
-      val field = classOf[DynamicKafkaConsumer[_, _]].getDeclaredField("topicsQueue")
-      field.setAccessible(true)
-      val queue =
-        field.get(consumer).asInstanceOf[java.util.Queue[(String, java.util.concurrent.CountDownLatch)]]
-
+      val queue       = subscriptionQueue(consumer)
       val initialSize = queue.size()
 
-      val thread = new Thread(() => {
-        consumer.addTopicForSubscription("new-topic", scala.concurrent.duration.DurationInt(1).second)
-      })
-      thread.start()
-      Thread.sleep(100)
+      val readiness = consumer.requestTopicSubscription("new-topic")
 
       assertEquals(queue.size(), initialSize + 1)
-      thread.join(2000)
+      assertEquals(queue.peek()._1, "new-topic")
+      intercept[TimeoutException](readiness.get(50, TimeUnit.MILLISECONDS))
     } finally {
       consumer.close()
     }
   }
 
-  test("addTopicForSubscription fails fast after consumer failure") {
-    val consumer = DynamicKafkaConsumer[Array[Byte], Array[Byte]](
-      Map(
-        "bootstrap.servers"  -> "localhost:0",
-        "key.deserializer"   -> "org.apache.kafka.common.serialization.ByteArrayDeserializer",
-        "value.deserializer" -> "org.apache.kafka.common.serialization.ByteArrayDeserializer",
-      ),
-      Set.empty,
-      _ => (),
-      _ => (),
-    )
+  test("requestTopicSubscription returns a failed future after consumer failure") {
+    val consumer = newConsumer()
     try {
-      val queueField = classOf[DynamicKafkaConsumer[_, _]].getDeclaredField("topicsQueue")
-      queueField.setAccessible(true)
-      val queue      =
-        queueField.get(consumer).asInstanceOf[java.util.Queue[(String, java.util.concurrent.CountDownLatch)]]
+      failureRef(consumer).set(new RuntimeException("boom"))
 
-      val failureField    = classOf[DynamicKafkaConsumer[_, _]].getDeclaredField("consumerFailure")
-      failureField.setAccessible(true)
-      val consumerFailure = failureField.get(consumer).asInstanceOf[AtomicReference[Exception]]
+      val readiness = consumer.requestTopicSubscription("new-topic")
 
-      @volatile var thrown: IllegalStateException = null
-
-      val thread = new Thread(() => {
-        try {
-          consumer.addTopicForSubscription("new-topic", scala.concurrent.duration.DurationInt(10).seconds)
-        } catch {
-          case e: IllegalStateException => thrown = e
-        }
-      })
-
-      thread.start()
-
-      eventually(1000) {
-        assertEquals(queue.size(), 1)
-      }
-
-      consumerFailure.set(new RuntimeException("boom"))
-      val (_, latch) = queue.peek()
-      latch.countDown()
-
-      thread.join(2000)
-
-      assert(!thread.isAlive)
-      assert(thrown != null)
-      assert(thrown.getCause != null)
-      assertEquals(thrown.getCause.getMessage, "boom")
+      assert(readiness.isCompletedExceptionally, "expected an already-failed readiness future")
+      assertEquals(subscriptionQueue(consumer).size(), 0, "failed request must not be queued")
+      assertEquals(causeOf(readiness).getCause.getMessage, "boom")
     } finally {
       consumer.close()
     }
   }
 
-  private def eventually(timeoutMillis: Long)(assertion: => Unit): Unit = {
-    val deadline                  = System.currentTimeMillis() + timeoutMillis
-    var lastError: AssertionError = null
-    while (System.currentTimeMillis() < deadline) {
-      try {
-        assertion
-        return
-      } catch {
-        case e: AssertionError =>
-          lastError = e
-          Thread.sleep(10)
-      }
+  test("consumer failure fails readiness futures queued before it") {
+    val consumer = newConsumer()
+    try {
+      val readiness = consumer.requestTopicSubscription("new-topic")
+      assert(!readiness.isDone)
+
+      markConsumerFailed(consumer, new RuntimeException("boom"))
+
+      assert(readiness.isCompletedExceptionally, "queued readiness must fail when the consumer fails")
+      assertEquals(causeOf(readiness).getCause.getMessage, "boom")
+    } finally {
+      consumer.close()
     }
-    if (lastError != null) throw lastError
+  }
+
+  test("close fails readiness futures that are still pending") {
+    val consumer  = newConsumer()
+    val readiness = consumer.requestTopicSubscription("new-topic")
+    assert(!readiness.isDone)
+
+    consumer.close()
+
+    assert(readiness.isCompletedExceptionally, "pending readiness must not survive close")
+    assert(
+      causeOf(readiness).getMessage.contains("closed"),
+      s"unexpected failure message: ${causeOf(readiness).getMessage}",
+    )
   }
 }

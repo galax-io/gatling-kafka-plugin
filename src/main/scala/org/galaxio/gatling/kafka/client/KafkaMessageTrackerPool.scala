@@ -12,8 +12,17 @@ import org.galaxio.gatling.kafka.request.{KafkaProtocolMessage, KafkaSerdesImpli
 
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
-import java.util.concurrent.{ConcurrentHashMap, ExecutorService, Executors}
+import java.util.concurrent.{
+  CompletionException,
+  ConcurrentHashMap,
+  ExecutorService,
+  Executors,
+  ScheduledThreadPoolExecutor,
+  ThreadFactory,
+  TimeUnit,
+}
 import scala.concurrent.duration.FiniteDuration
+import scala.util.control.NonFatal
 
 object KafkaMessageTrackerPool {
 
@@ -27,6 +36,8 @@ object KafkaMessageTrackerPool {
       new KafkaMessageTrackerPool(consumerSettings, actorSystem, statsEngine, clock),
     )
 
+  /** How long simulation shutdown waits for queued acquisition continuations to report their outcome. */
+  private[client] val setupDrainTimeoutMillis: Long = 5000L
 }
 
 final class KafkaMessageTrackerPool(
@@ -56,6 +67,23 @@ final class KafkaMessageTrackerPool(
 
   // Per-instance executor so shutdown of one pool doesn't affect other pools or subsequent simulations.
   private val consumerExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+
+  // Subscription assignment can take until the reply timeout. Acquisition waits for it here instead of
+  // on the caller's thread, which is the producer's I/O callback thread and must never block.
+  private val setupExecutor: ScheduledThreadPoolExecutor = {
+    val executor = new ScheduledThreadPoolExecutor(
+      1,
+      new ThreadFactory {
+        override def newThread(runnable: Runnable): Thread = {
+          val thread = new Thread(runnable, "gatling-kafka-tracker-setup")
+          thread.setDaemon(true)
+          thread
+        }
+      },
+    )
+    executor.setRemoveOnCancelPolicy(true)
+    executor
+  }
 
   private val consumer: DynamicKafkaConsumer[Array[Byte], Array[Byte]] =
     DynamicKafkaConsumer(
@@ -104,26 +132,52 @@ final class KafkaMessageTrackerPool(
         logger.error(e.getMessage, e)
     }
     consumerExecutor.shutdown()
+    // Closing the consumer above failed every pending readiness, and those continuations are queued
+    // here: they still have to report that failure back to the waiting virtual users, so they must
+    // not be discarded. Shutdown drops queued tasks only when their remaining delay is positive, so
+    // this policy keeps the continuations (they are queued with no delay) while dropping the
+    // acquisition timeouts, which are scheduled up to a full reply timeout out and are moot now.
+    // Leaving it at the JDK default of true would instead hold those timeouts and stall termination
+    // until the grace period below expired.
+    setupExecutor.setExecuteExistingDelayedTasksAfterShutdownPolicy(false)
+    setupExecutor.shutdown()
+    if (!setupExecutor.awaitTermination(KafkaMessageTrackerPool.setupDrainTimeoutMillis, TimeUnit.MILLISECONDS)) {
+      logger.warn("Tracker setup executor did not drain in time; forcing shutdown")
+      setupExecutor.shutdownNow()
+    }
   }
 
   private def withProducerTopic(producerTopic: String): KafkaProtocolMessage => KafkaProtocolMessage =
     _.copy(producerTopic = producerTopic)
 
-  private def failIfConsumerFailed(): Unit = {
-    val failure = consumerFailure.get()
-    if (failure != null) {
-      throw new IllegalStateException("Kafka consumer failed; tracker pool can no longer be used", failure)
-    }
+  private def consumerFailedException(failure: Exception): IllegalStateException =
+    new IllegalStateException("Kafka consumer failed; tracker pool can no longer be used", failure)
+
+  private def completionCause(error: Throwable): Throwable = error match {
+    case e: CompletionException if e.getCause != null => e.getCause
+    case other                                        => other
   }
 
-  def tracker(
+  /** Obtains, creating it if needed, the tracker for `(consumerTopic, messageMatcher)` and hands it to `onReady`. Never blocks
+    * the calling thread: when the reply topic has to be subscribed first, the wait for its assignment happens on the pool's
+    * setup executor and `onReady` runs there once the assignment lands. Exactly one of `onReady` and `onFailure` is invoked,
+    * once.
+    */
+  def acquireTracker(
       producerTopic: String,
       consumerTopic: String,
       messageMatcher: KafkaMatcher,
       responseTransformer: Option[KafkaProtocolMessage => KafkaProtocolMessage],
       timeout: FiniteDuration,
-  ): ActorRef[KafkaMessageTracker.TrackerMessage] = {
-    failIfConsumerFailed()
+  )(
+      onReady: ActorRef[KafkaMessageTracker.TrackerMessage] => Unit,
+      onFailure: Throwable => Unit,
+  ): Unit = {
+    val failure = consumerFailure.get()
+    if (failure != null) {
+      onFailure(consumerFailedException(failure))
+      return
+    }
 
     val mRef = new MatcherRef(messageMatcher)
 
@@ -144,34 +198,101 @@ final class KafkaMessageTrackerPool(
         innerMap
       },
     )
-    if (found != null) return found
+    if (found != null) {
+      deliverReady(onReady, onFailure, found)
+      return
+    }
 
-    // Slow path: subscribe first (blocking, no CHM lock held), then create actor and register.
-    failIfConsumerFailed()
+    // Slow path needs the setup executor. Check it up front: once it is shut down a rejected
+    // continuation would be absorbed by the CompletableFuture that schedules it and never surface,
+    // leaving the caller with no outcome at all.
+    if (setupExecutor.isShutdown) {
+      onFailure(
+        new IllegalStateException(
+          s"Tracker pool is shutting down; cannot start tracking topic '$consumerTopic'",
+        ),
+      )
+      return
+    }
+
+    // Slow path: request the subscription and let the readiness future carry the wait.
     logger.debug(
       "Creating new tracker for topic {} matcher {}, there are currently {} other topic entries",
       consumerTopic,
       mRef,
       trackers.size(),
     )
-    val assigned        = consumer.addTopicForSubscription(consumerTopic, timeout)
-    if (!assigned) {
-      throw new RuntimeException(
-        s"Timed out waiting for consumer assignment to topic '$consumerTopic' after $timeout",
+    try {
+      val readiness   = consumer.requestTopicSubscription(consumerTopic)
+      val timeoutTask = setupExecutor.schedule(
+        new Runnable {
+          override def run(): Unit = {
+            readiness.completeExceptionally(
+              new RuntimeException(s"Timed out waiting for consumer assignment to topic '$consumerTopic' after $timeout"),
+            )
+          }
+        },
+        timeout.toMillis,
+        TimeUnit.MILLISECONDS,
       )
+
+      readiness.whenCompleteAsync(
+        (_: Void, error: Throwable) => {
+          timeoutTask.cancel(false)
+          if (error != null) onFailure(completionCause(error))
+          else {
+            // The consumer can have failed between the assignment landing and this continuation
+            // running; registering now would hand back a tracker that already missed the failure
+            // broadcast, and the caller would wait out its whole reply timeout instead.
+            val late = consumerFailure.get()
+            if (late != null) onFailure(consumerFailedException(late))
+            else {
+              var tracker: ActorRef[KafkaMessageTracker.TrackerMessage] = null
+              try tracker = registerTracker(producerTopic, consumerTopic, messageMatcher, responseTransformer, mRef)
+              catch { case NonFatal(e) => onFailure(e) }
+              if (tracker != null) deliverReady(onReady, onFailure, tracker)
+            }
+          }
+        },
+        setupExecutor,
+      )
+    } catch {
+      // The pool is being torn down: the setup executor rejects new work once it is shut down.
+      // Report it, rather than letting it escape into the producer's delivery callback where it
+      // would be swallowed and leave the virtual user with neither a success nor a failure.
+      case NonFatal(e) => onFailure(e)
     }
-    val name            = genName(trackerName)
+  }
+
+  /** Hands the tracker over, keeping a failure in `onReady` from escaping into the caller — which may be the producer's I/O
+    * callback, where it would be swallowed and leave the virtual user with no outcome at all.
+    *
+    * Such a failure is reported through `onFailure`. Handing over means telling the tracker actor, which enqueues the message
+    * before dispatching it, so in principle a request could be reported as failed and still be processed later. In practice the
+    * dispatch only rejects once the actor system's executor is shut down, which is terminal — the enqueued message can never
+    * run — so reporting the failure is right, and staying silent would drop the virtual user from the report entirely.
+    */
+  private def deliverReady(
+      onReady: ActorRef[KafkaMessageTracker.TrackerMessage] => Unit,
+      onFailure: Throwable => Unit,
+      tracker: ActorRef[KafkaMessageTracker.TrackerMessage],
+  ): Unit =
+    try onReady(tracker)
+    catch {
+      case NonFatal(e) =>
+        logger.error("Tracker was acquired but handing it to the caller failed", e)
+        onFailure(e)
+    }
+
+  private def registerTracker(
+      producerTopic: String,
+      consumerTopic: String,
+      messageMatcher: KafkaMatcher,
+      responseTransformer: Option[KafkaProtocolMessage => KafkaProtocolMessage],
+      mRef: MatcherRef,
+  ): ActorRef[KafkaMessageTracker.TrackerMessage] = {
     val transformations =
       responseTransformer.fold(withProducerTopic(producerTopic))(_.compose(withProducerTopic(producerTopic)))
-    val newActor        = actorSystem.actorOf(
-      KafkaMessageTracker.actor(
-        name,
-        statsEngine,
-        clock,
-        messageMatcher,
-        Option(transformations),
-      ),
-    )
 
     // Atomic insert-or-increment under the outer bin lock so a concurrent
     // releaseTracker cannot remove the outer entry between get-or-create and insert.
@@ -188,6 +309,20 @@ final class KafkaMessageTrackerPool(
               result = entry.actor
               entry
             } else {
+              // Started here rather than before the compute: acquisition no longer blocks, so N
+              // concurrent first uses of a topic all reach this point, and every loser of the race
+              // would otherwise leave behind a started actor that nothing ever stops — each one
+              // still running its own periodic timeout scan. Creating the actor does not touch
+              // `trackers`, so it is safe under the bin lock.
+              val newActor = actorSystem.actorOf(
+                KafkaMessageTracker.actor(
+                  genName(trackerName),
+                  statsEngine,
+                  clock,
+                  messageMatcher,
+                  Option(transformations),
+                ),
+              )
               result = newActor
               TrackerEntry(newActor, new AtomicInteger(1))
             }
