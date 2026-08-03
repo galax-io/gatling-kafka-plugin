@@ -22,6 +22,10 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      # Kafka's 3s default delays the first assignment of every new consumer group, which is far
+      # longer than the simulations wait before publishing replies. Test brokers set this to 0
+      # (Testcontainers' Kafka module does the same).
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
     ports:
       - "9092:9092"
       - "9093:9093"

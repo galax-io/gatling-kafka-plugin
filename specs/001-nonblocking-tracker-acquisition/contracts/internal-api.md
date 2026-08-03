@@ -34,8 +34,12 @@ def removeTopicSubscription(topic: String): Unit   // unchanged
 - G4. On consumer failure (`markConsumerFailed`) every queued future fails with the failure
   cause. On close / run-loop exit, remaining queued futures fail exceptionally ("consumer
   closed") — no future is left forever-pending (spec edge case: shutdown mid-preparation).
-- G5. Queue/coalescing semantics vs `removeTopicSubscription` are unchanged from today,
-  including the #164 no-op-subscribe defect (documented, out of scope).
+- G5. Readiness is resolved from the consumer's actual assignment, not from a rebalance callback:
+  pending futures are held on the consumer (`awaitingAssignment`), never captured by a
+  `ConsumerRebalanceListener`, because a later `subscribe()` replaces the listener and would strand
+  anything the previous one held. A future completes when its topic appears in
+  `consumer.assignment()` — so an assignment that excludes the topic no longer completes it, and
+  `subscribe()` is skipped when the topic set is unchanged.
 
 ## 2. `KafkaMessageTrackerPool`
 

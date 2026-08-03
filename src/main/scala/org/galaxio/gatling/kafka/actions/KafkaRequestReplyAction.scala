@@ -29,6 +29,22 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
 
   override def sendKafkaMessage(requestNameString: String, protocolMessage: KafkaProtocolMessage, session: Session): Unit = {
     val requestStartDate = clock.nowMillis
+
+    def reportFailure(message: String, responseCode: Option[String]): Unit = {
+      val requestEndDate = clock.nowMillis
+      statsEngine.logResponse(
+        session.scenario,
+        session.groups,
+        requestNameString,
+        requestStartDate,
+        requestEndDate,
+        KO,
+        responseCode,
+        Some(message),
+      )
+      next ! session.logGroupRequestTimings(requestStartDate, requestEndDate).markAsFailed
+    }
+
     components.sender.send(protocolMessage)(
       rm => {
         if (logger.underlying.isDebugEnabled) {
@@ -41,79 +57,45 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
 
         components.trackersPool match {
           case Some(trackers) =>
-            val consumerTopic   = protocolMessage.consumerTopic
-            val matcher         = components.kafkaProtocol.messageMatcher
-            var trackerAcquired = false
-            try {
-              val tracker = trackers.tracker(
-                protocolMessage.producerTopic,
-                consumerTopic,
-                matcher,
-                None,
-                components.kafkaProtocol.timeout,
-              )
-              trackerAcquired = true
-              tracker ! KafkaMessageTracker
-                .MessagePublished(
-                  id,
-                  clock.nowMillis,
-                  components.kafkaProtocol.timeout.toMillis,
-                  attributes.checks,
-                  session,
-                  next,
-                  requestNameString,
-                  onComplete = () => trackers.releaseTracker(consumerTopic, matcher),
-                )
-            } catch {
-              case e: Exception =>
-                if (trackerAcquired) trackers.releaseTracker(consumerTopic, matcher)
-                val requestEndDate = clock.nowMillis
+            val consumerTopic = protocolMessage.consumerTopic
+            val matcher       = components.kafkaProtocol.messageMatcher
+            // This body runs on the producer's I/O thread: acquisition hands back a tracker without
+            // waiting here, so a reply topic that is slow to be assigned cannot stall that thread.
+            trackers.acquireTracker(
+              protocolMessage.producerTopic,
+              consumerTopic,
+              matcher,
+              None,
+              components.kafkaProtocol.timeout,
+            )(
+              tracker =>
+                tracker ! KafkaMessageTracker
+                  .MessagePublished(
+                    id,
+                    clock.nowMillis,
+                    components.kafkaProtocol.timeout.toMillis,
+                    attributes.checks,
+                    session,
+                    next,
+                    requestNameString,
+                    onComplete = () => trackers.releaseTracker(consumerTopic, matcher),
+                  ),
+              e => {
                 logger.error(e.getMessage, e)
-                statsEngine.logResponse(
-                  session.scenario,
-                  session.groups,
-                  requestNameString,
-                  requestStartDate,
-                  requestEndDate,
-                  KO,
-                  None,
-                  Some(e.getMessage),
-                )
-                next ! session.logGroupRequestTimings(requestStartDate, requestEndDate).markAsFailed
-            }
+                reportFailure(e.getMessage, None)
+              },
+            )
           case None           =>
-            val requestEndDate = clock.nowMillis
-            val msg            =
+            val msg =
               s"Request-reply requires consumer settings (consumeSettings) in the Kafka protocol configuration, " +
                 s"otherwise the virtual user will hang for ${components.kafkaProtocol.timeout} with no reply"
             logger.error(msg)
-            statsEngine.logResponse(
-              session.scenario,
-              session.groups,
-              requestNameString,
-              requestStartDate,
-              requestEndDate,
-              KO,
-              None,
-              Some(msg),
-            )
-            next ! session.logGroupRequestTimings(requestStartDate, requestEndDate).markAsFailed
+            reportFailure(msg, None)
         }
       },
       e => {
-        val requestEndDate = clock.nowMillis
         logger.error(e.getMessage, e)
-        statsEngine.logResponse(
-          session.scenario,
-          session.groups,
-          requestNameString,
-          requestStartDate,
-          requestEndDate,
-          KO,
-          Some("500"),
-          Some(e.getMessage),
-        )
-        next ! session.logGroupRequestTimings(requestStartDate, requestEndDate).markAsFailed
+        reportFailure(e.getMessage, Some("500"))
       },
     )
   }

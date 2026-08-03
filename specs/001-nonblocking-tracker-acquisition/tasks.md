@@ -36,8 +36,8 @@ Single-module Scala/sbt project. All paths below are real and repo-relative:
 
 **Purpose**: Baseline sanity and the compatibility evidence the plan's Constitution gate cites.
 
-- [ ] T001 Verify clean baseline on branch `001-nonblocking-tracker-acquisition`: `sbt scalafmtCheckAll scalafmtSbtCheck compile test` green with Docker running (Testcontainers pulls images on first run)
-- [ ] T002 [P] Record the published-surface evidence for research.md R3: grep `src/main/java/ README.md src/test/scala/org/galaxio/gatling/kafka/examples/` for `addTopicForSubscription`, `tracker(`, `KafkaMessageTrackerPool`, `DynamicKafkaConsumer` and confirm the only call sites are `KafkaRequestReplyAction.scala`, protocol wiring, and the four test files named in plan.md; abort and re-plan if anything else appears
+- [X] T001 Verify clean baseline on branch `001-nonblocking-tracker-acquisition`: `sbt scalafmtCheckAll scalafmtSbtCheck compile test` green with Docker running (Testcontainers pulls images on first run)
+- [X] T002 [P] Record the published-surface evidence for research.md R3: grep `src/main/java/ README.md src/test/scala/org/galaxio/gatling/kafka/examples/` for `addTopicForSubscription`, `tracker(`, `KafkaMessageTrackerPool`, `DynamicKafkaConsumer` and confirm the only call sites are `KafkaRequestReplyAction.scala`, protocol wiring, and the four test files named in plan.md; abort and re-plan if anything else appears
 
 ---
 
@@ -49,10 +49,10 @@ the repo compiles at this checkpoint; it is deleted in US1 (T010) once the pool 
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T003 Write FAILING unit tests for `requestTopicSubscription` in src/test/scala/org/galaxio/gatling/kafka/client/DynamicKafkaConsumerSpec.scala: (a) returns a future, queue holds `(topic, future)` (replaces latch-based test at lines 34–64); (b) returns an already-failed future after consumer failure without throwing — G2 (replaces throw-based test at lines 66–95); (c) `close()` fails still-pending futures exceptionally ("consumer closed") — G4
-- [ ] T004 [P] Migrate the three `addTopicForSubscription` call sites in src/test/scala/org/galaxio/gatling/kafka/integration/KafkaIntegrationSpec.scala (lines 245, 439–464) to `requestTopicSubscription(topic).get(timeout)`-style waits on the test thread; the "very short timeout returns false" test becomes "very short `get` timeout throws `java.util.concurrent.TimeoutException` while the future stays pending" (does not compile until T005 — that is the red state)
-- [ ] T005 Implement promise-based readiness in src/main/scala/org/galaxio/gatling/kafka/client/DynamicKafkaConsumer.scala: `topicsQueue` element type `(String, CompletableFuture[Void])`; new `requestTopicSubscription(topic): CompletableFuture[Void]` (fail-fast already-failed future per G2, enqueue, poke `initLatch`, never block — G1); `updateSubscription` already-subscribed branch and `onPartitionsAssigned` complete futures (was `countDown`); `markConsumerFailed` completes queued futures exceptionally with the failure cause; `run()` finally-block and `close()` drain remaining queue entries exceptionally ("consumer closed") — G4; keep `addTopicForSubscription(topic, timeout): Boolean` as a temporary thin blocking delegate over the future preserving today's return/throw semantics
-- [ ] T006 Green gate for Phase 2: `sbt "testOnly org.galaxio.gatling.kafka.client.DynamicKafkaConsumerSpec"` and `sbt "testOnly org.galaxio.gatling.kafka.integration.KafkaIntegrationSpec"` pass; full `sbt compile test` still green
+- [X] T003 Write FAILING unit tests for `requestTopicSubscription` in src/test/scala/org/galaxio/gatling/kafka/client/DynamicKafkaConsumerSpec.scala: (a) returns a future, queue holds `(topic, future)` (replaces latch-based test at lines 34–64); (b) returns an already-failed future after consumer failure without throwing — G2 (replaces throw-based test at lines 66–95); (c) `close()` fails still-pending futures exceptionally ("consumer closed") — G4
+- [X] T004 [P] Migrate the three `addTopicForSubscription` call sites in src/test/scala/org/galaxio/gatling/kafka/integration/KafkaIntegrationSpec.scala (lines 245, 439–464) to `requestTopicSubscription(topic).get(timeout)`-style waits on the test thread; the "very short timeout returns false" test becomes "very short `get` timeout throws `java.util.concurrent.TimeoutException` while the future stays pending" (does not compile until T005 — that is the red state)
+- [X] T005 Implement promise-based readiness in src/main/scala/org/galaxio/gatling/kafka/client/DynamicKafkaConsumer.scala: `topicsQueue` element type `(String, CompletableFuture[Void])`; new `requestTopicSubscription(topic): CompletableFuture[Void]` (fail-fast already-failed future per G2, enqueue, poke `initLatch`, never block — G1); `updateSubscription` already-subscribed branch and `onPartitionsAssigned` complete futures (was `countDown`); `markConsumerFailed` completes queued futures exceptionally with the failure cause; `run()` finally-block and `close()` drain remaining queue entries exceptionally ("consumer closed") — G4; keep `addTopicForSubscription(topic, timeout): Boolean` as a temporary thin blocking delegate over the future preserving today's return/throw semantics
+- [X] T006 Green gate for Phase 2: `sbt "testOnly org.galaxio.gatling.kafka.client.DynamicKafkaConsumerSpec"` and `sbt "testOnly org.galaxio.gatling.kafka.integration.KafkaIntegrationSpec"` pass; full `sbt compile test` still green
 
 **Checkpoint**: Readiness is future-based and fully covered; consumer never leaves a pending
 future unresolved (assignment / already-subscribed / failure / close all resolve it).
@@ -69,16 +69,16 @@ readiness hangs affects only its own requests (spec US1, FR-001/FR-002/FR-007, S
 
 ### Tests for User Story 1 (write FIRST, observe FAIL) ⚠️
 
-- [ ] T007 [US1] Create src/test/scala/org/galaxio/gatling/kafka/integration/TrackerAcquisitionIsolationSpec.scala with its own Testcontainers Kafka container configured `KAFKA_AUTO_CREATE_TOPICS_ENABLE=false` (research R4) and a harness mirroring KafkaIntegrationSpec (real `KafkaSender`, `KafkaMessageTrackerPool`, short ~3 s reply timeout, pre-created healthy topic pair, nonexistent "poisoned" reply topic). Three FAILING tests: (1) fire poisoned-topic request-reply then healthy-topic request-reply through the shared producer — healthy completes in ≪ reply timeout (SC-001; red today: it queues behind the parked callback thread for the full timeout); (2) while the poisoned preparation is pending, additional healthy sends get delivery confirmations promptly (SC-002/FR-002); (3) N concurrent first-use requests against one new (pre-created) topic all proceed once assigned, with a single subscription request and no callback-thread stall (FR-007). Run the spec and record the red failures
+- [X] T007 [US1] Create src/test/scala/org/galaxio/gatling/kafka/integration/TrackerAcquisitionIsolationSpec.scala with its own Testcontainers Kafka container configured `KAFKA_AUTO_CREATE_TOPICS_ENABLE=false` (research R4) and a harness mirroring KafkaIntegrationSpec (real `KafkaSender`, `KafkaMessageTrackerPool`, short ~3 s reply timeout, pre-created healthy topic pair, nonexistent "poisoned" reply topic). Three FAILING tests: (1) fire poisoned-topic request-reply then healthy-topic request-reply through the shared producer — healthy completes in ≪ reply timeout (SC-001; red today: it queues behind the parked callback thread for the full timeout); (2) while the poisoned preparation is pending, additional healthy sends get delivery confirmations promptly (SC-002/FR-002); (3) N concurrent first-use requests against one new (pre-created) topic all proceed once assigned, with a single subscription request and no callback-thread stall (FR-007). Run the spec and record the red failures
 
 ### Implementation for User Story 1
 
-- [ ] T008 [US1] Implement `acquireTracker` in src/main/scala/org/galaxio/gatling/kafka/client/KafkaMessageTrackerPool.scala per contract G6–G10: add single-thread daemon `ScheduledThreadPoolExecutor` field (thread name `gatling-kafka-tracker-setup`), shut down in the existing `registerOnTermination` block; fast path = existing `computeIfPresent` refcount++ then `onReady` inline; poisoned-pool check reports via `onFailure` synchronously (G7); slow path = `consumer.requestTopicSubscription(topic)` + scheduled timeout task completing the future exceptionally with `RuntimeException("Timed out waiting for consumer assignment to topic '<topic>' after <timeout>")` (G8, cancelled if readiness wins) + `whenCompleteAsync` on the setup executor running the existing insert-or-increment `trackers.compute` then `onReady(actor)` / `onFailure(cause)` (G9); delete the blocking `tracker(...)` method
-- [ ] T009 [US1] Rewire src/main/scala/org/galaxio/gatling/kafka/actions/KafkaRequestReplyAction.scala per G11–G14: success callback keeps only debug log + `requestMatch` + `acquireTracker(...)` call; `onReady` records `sentTimestamp = clock.nowMillis` and sends `MessagePublished(..., onComplete = releaseTracker(...))` (G12); `onFailure` reuses the existing KO reporting extracted into a private helper shared with the send-failure branch (G13); remove the `trackerAcquired` try/catch-release block (pool owns registration consistency); send-failure branch stays byte-for-byte (G14/FR-006)
-- [ ] T010 [US1] Delete the temporary `addTopicForSubscription` delegate from src/main/scala/org/galaxio/gatling/kafka/client/DynamicKafkaConsumer.scala (no callers remain after T004/T008) and verify with `grep -rn addTopicForSubscription src/` → zero hits
-- [ ] T011 [P] [US1] Migrate the `pool.tracker(...)` call site (line 36) in src/test/scala/org/galaxio/gatling/kafka/client/KafkaMessageTrackerPoolSpec.scala to `acquireTracker` with a small await-both-callbacks test helper; assertions unchanged
-- [ ] T012 [P] [US1] Migrate acquire/release call sites in src/test/scala/org/galaxio/gatling/kafka/client/TrackerRefCountSpec.scala to the same helper; all existing refcount/release invariants must pass unchanged (G9; guards FR-006's no-residual-reservation property)
-- [ ] T013 [US1] Green gate for US1: TrackerAcquisitionIsolationSpec tests 1–3 pass; full `sbt compile test` green
+- [X] T008 [US1] Implement `acquireTracker` in src/main/scala/org/galaxio/gatling/kafka/client/KafkaMessageTrackerPool.scala per contract G6–G10: add single-thread daemon `ScheduledThreadPoolExecutor` field (thread name `gatling-kafka-tracker-setup`), shut down in the existing `registerOnTermination` block; fast path = existing `computeIfPresent` refcount++ then `onReady` inline; poisoned-pool check reports via `onFailure` synchronously (G7); slow path = `consumer.requestTopicSubscription(topic)` + scheduled timeout task completing the future exceptionally with `RuntimeException("Timed out waiting for consumer assignment to topic '<topic>' after <timeout>")` (G8, cancelled if readiness wins) + `whenCompleteAsync` on the setup executor running the existing insert-or-increment `trackers.compute` then `onReady(actor)` / `onFailure(cause)` (G9); delete the blocking `tracker(...)` method
+- [X] T009 [US1] Rewire src/main/scala/org/galaxio/gatling/kafka/actions/KafkaRequestReplyAction.scala per G11–G14: success callback keeps only debug log + `requestMatch` + `acquireTracker(...)` call; `onReady` records `sentTimestamp = clock.nowMillis` and sends `MessagePublished(..., onComplete = releaseTracker(...))` (G12); `onFailure` reuses the existing KO reporting extracted into a private helper shared with the send-failure branch (G13); remove the `trackerAcquired` try/catch-release block (pool owns registration consistency); send-failure branch stays byte-for-byte (G14/FR-006)
+- [X] T010 [US1] Delete the temporary `addTopicForSubscription` delegate from src/main/scala/org/galaxio/gatling/kafka/client/DynamicKafkaConsumer.scala (no callers remain after T004/T008) and verify with `grep -rn addTopicForSubscription src/` → zero hits
+- [X] T011 [P] [US1] Migrate the `pool.tracker(...)` call site (line 36) in src/test/scala/org/galaxio/gatling/kafka/client/KafkaMessageTrackerPoolSpec.scala to `acquireTracker` with a small await-both-callbacks test helper; assertions unchanged
+- [X] T012 [P] [US1] Migrate acquire/release call sites in src/test/scala/org/galaxio/gatling/kafka/client/TrackerRefCountSpec.scala to the same helper; all existing refcount/release invariants must pass unchanged (G9; guards FR-006's no-residual-reservation property)
+- [X] T013 [US1] Green gate for US1: TrackerAcquisitionIsolationSpec tests 1–3 pass; full `sbt compile test` green
 
 **Checkpoint**: The defect in #163 is neutralized — MVP. Delivery callbacks are non-blocking;
 cross-topic isolation proven against a real broker.
@@ -95,9 +95,9 @@ the pool stays usable and the topic retryable (spec US2, FR-003, SC-004).
 
 ### Tests for User Story 2 (write FIRST, observe FAIL) ⚠️
 
-- [ ] T014 [P] [US2] Add FAILING integration tests to src/test/scala/org/galaxio/gatling/kafka/integration/TrackerAcquisitionIsolationSpec.scala: (4) poisoned-topic request is reported KO at ≈ the reply timeout with an error message naming the topic and the timeout, and the virtual-user chain continues (SC-004); (5) after that KO — a healthy-topic request still completes OK, and a fresh poisoned-topic request attempts preparation again, KO-ing after its own full timeout rather than instantly (FR-003, retry-not-poisoned)
-- [ ] T015 [P] [US2] Add FAILING unit test to src/test/scala/org/galaxio/gatling/kafka/client/KafkaMessageTrackerPoolSpec.scala: after the pool's consumer-failure callback has fired, `acquireTracker` invokes `onFailure` synchronously on the calling thread with the existing "Kafka consumer failed; tracker pool can no longer be used" cause — and never invokes `onReady` (G7)
-- [ ] T016 [US2] Close any gaps the red tests expose in src/main/scala/org/galaxio/gatling/kafka/client/KafkaMessageTrackerPool.scala and src/main/scala/org/galaxio/gatling/kafka/actions/KafkaRequestReplyAction.scala (expected near-no-op if T008/T009 followed the contract: exact timeout message text, timeout-task cancellation on success, KO timing spanning request start → failure detection); green gate: US2 tests + full `sbt test`
+- [X] T014 [P] [US2] Add FAILING integration tests to src/test/scala/org/galaxio/gatling/kafka/integration/TrackerAcquisitionIsolationSpec.scala: (4) poisoned-topic request is reported KO at ≈ the reply timeout with an error message naming the topic and the timeout, and the virtual-user chain continues (SC-004); (5) after that KO — a healthy-topic request still completes OK, and a fresh poisoned-topic request attempts preparation again, KO-ing after its own full timeout rather than instantly (FR-003, retry-not-poisoned)
+- [X] T015 [P] [US2] Add FAILING unit test to src/test/scala/org/galaxio/gatling/kafka/client/KafkaMessageTrackerPoolSpec.scala: after the pool's consumer-failure callback has fired, `acquireTracker` invokes `onFailure` synchronously on the calling thread with the existing "Kafka consumer failed; tracker pool can no longer be used" cause — and never invokes `onReady` (G7)
+- [X] T016 [US2] Close any gaps the red tests expose in src/main/scala/org/galaxio/gatling/kafka/client/KafkaMessageTrackerPool.scala and src/main/scala/org/galaxio/gatling/kafka/actions/KafkaRequestReplyAction.scala (expected near-no-op if T008/T009 followed the contract: exact timeout message text, timeout-task cancellation on success, KO timing spanning request start → failure detection); green gate: US2 tests + full `sbt test`
 
 **Checkpoint**: Failure isolation proven — one misconfigured topic produces attributed KOs only.
 
@@ -113,8 +113,8 @@ TrackerAcquisitionIsolationSpec; CI Gatling simulations corroborate at the repor
 
 ### Tests for User Story 3 (write FIRST, observe FAIL if semantics drift) ⚠️
 
-- [ ] T017 [US3] Add integration test (6) to src/test/scala/org/galaxio/gatling/kafka/integration/TrackerAcquisitionIsolationSpec.scala using the recording-StatsEngine pattern from src/test/scala/org/galaxio/gatling/kafka/actions/KafkaRequestFailureMessagesSpec.scala: initiate a request-reply whose reply topic does not exist yet, create the topic via AdminClient after ~2 s (readiness then completes), have the responder reply immediately; assert the logged OK response duration is ≪ the 2 s readiness delay (sent timestamp recorded at tracking-ready instant — FR-005), and assert the KO case from T014 logs duration ≈ request-start → failure-detection. This test must FAIL if `sentTimestamp` is ever recorded at ack time or send-initiation time instead of `onReady`
-- [ ] T018 [US3] Verify `sentTimestamp` placement in src/main/scala/org/galaxio/gatling/kafka/actions/KafkaRequestReplyAction.scala matches G12 exactly (recorded inside `onReady`, immediately before `MessagePublished`); adjust if T017 is red; green gate: full `sbt test`
+- [X] T017 [US3] Add integration test (6) to src/test/scala/org/galaxio/gatling/kafka/integration/TrackerAcquisitionIsolationSpec.scala using the recording-StatsEngine pattern from src/test/scala/org/galaxio/gatling/kafka/actions/KafkaRequestFailureMessagesSpec.scala: initiate a request-reply whose reply topic does not exist yet, create the topic via AdminClient after ~2 s (readiness then completes), have the responder reply immediately; assert the logged OK response duration is ≪ the 2 s readiness delay (sent timestamp recorded at tracking-ready instant — FR-005), and assert the KO case from T014 logs duration ≈ request-start → failure-detection. This test must FAIL if `sentTimestamp` is ever recorded at ack time or send-initiation time instead of `onReady`
+- [X] T018 [US3] Verify `sentTimestamp` placement in src/main/scala/org/galaxio/gatling/kafka/actions/KafkaRequestReplyAction.scala matches G12 exactly (recorded inside `onReady`, immediately before `MessagePublished`); adjust if T017 is red; green gate: full `sbt test`
 
 **Checkpoint**: All three stories independently verified.
 
@@ -124,12 +124,12 @@ TrackerAcquisitionIsolationSpec; CI Gatling simulations corroborate at the repor
 
 **Purpose**: Repo-wide gates from quickstart.md (SC-005, FR-008) and contract conformance.
 
-- [ ] T019 Format: `sbt scalafmtAll scalafmtSbt`
-- [ ] T020 Full local gate green: `sbt scalafmtCheckAll scalafmtSbtCheck compile test`
-- [ ] T021 [P] API-compat witness (Principle I): `sbt "Test / runMain org.galaxio.gatling.kafka.examples.ExampleSmokeValidation"` passes unchanged
-- [ ] T022 CI-equivalent Gatling run against the Compose stack (`docker compose -f docker-compose.kafka.yml up -d` first): `sbt coverage "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaGatlingTest" "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaJavaapiMethodsGatlingTest" test coverageOff coverageReport` — request-reply timings in the report in line with current release (US3 witness)
-- [ ] T023 [P] Contract conformance sweep: `grep -rn "addTopicForSubscription\|def tracker(" src/main/` → zero hits (no blocking acquisition API survives); review the three changed main files against the thread-role table in contracts/internal-api.md (no `get`/`await`/`join` on producer-callback or consumer-thread paths)
-- [ ] T024 Execute [quickstart.md](quickstart.md) top to bottom and confirm every assertion-to-spec mapping row holds; then assemble the single `fix(client): keep tracker acquisition off the producer I/O thread (#163)` commit on top of the `docs(speckit)` commit, PR with milestone `v1.1.0 Request-reply reliability` + `Closes #163` (gate: `scripts/check-linkage.sh --pr <N>`)
+- [X] T019 Format: `sbt scalafmtAll scalafmtSbt`
+- [X] T020 Full local gate green: `sbt scalafmtCheckAll scalafmtSbtCheck compile test`
+- [X] T021 [P] API-compat witness (Principle I): `sbt "Test / runMain org.galaxio.gatling.kafka.examples.ExampleSmokeValidation"` passes unchanged
+- [X] T022 CI-equivalent Gatling run against the Compose stack (`docker compose -f docker-compose.kafka.yml up -d` first): `sbt coverage "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaGatlingTest" "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaJavaapiMethodsGatlingTest" test coverageOff coverageReport` — request-reply timings in the report in line with current release (US3 witness)
+- [X] T023 [P] Contract conformance sweep: `grep -rn "addTopicForSubscription\|def tracker(" src/main/` → zero hits (no blocking acquisition API survives); review the three changed main files against the thread-role table in contracts/internal-api.md (no `get`/`await`/`join` on producer-callback or consumer-thread paths)
+- [X] T024 Execute [quickstart.md](quickstart.md) top to bottom and confirm every assertion-to-spec mapping row holds; then assemble the single `fix(client): keep tracker acquisition off the producer I/O thread (#163)` commit on top of the `docs(speckit)` commit, PR with milestone `v1.1.0 Request-reply reliability` + `Closes #163` (gate: `scripts/check-linkage.sh --pr <N>`)
 
 ---
 
@@ -175,6 +175,31 @@ longer be parked by tracker acquisition — the reported defect is gone and inde
 US2 then locks failure attribution, US3 locks measurement semantics; both are thin verification
 layers over the same machinery. Stop-and-validate is possible at every checkpoint; the feature
 still ships as one semantic commit at the end (Principle V — tasks are steps, not commits).
+
+## Execution record (deviations from the plan as written)
+
+- **T005/T008 landed together; no temporary `addTopicForSubscription` delegate.** The delegate
+  existed only to keep Phase 2 compiling on its own; adding and deleting it inside one PR is the
+  add-then-remove churn Principle V forbids. Both phases were verified at one checkpoint instead.
+- **T012 required no migration.** `TrackerRefCountSpec` mirrors the `ConcurrentHashMap` refcount
+  algorithm locally and never calls the pool, so it guards the unchanged `registerTracker` /
+  `releaseTracker` logic as-is (10/10 green throughout).
+- **Red-first verification method.** The isolation spec cannot fail against the pre-fix *API* (it
+  would not compile), so the pre-fix *behaviour* was restored instead by making `acquireTracker`
+  wait inline on the readiness future. 4 of 6 tests went red with the intended diagnostics
+  (`delivery callback was held for 5252 ms waiting for the assignment`; `unrelated traffic took
+  5039 ms to get through while one reply topic was being assigned`), then green once the
+  asynchronous version was restored. Tests 4 and 5 cover failure attribution and pass either way,
+  by design.
+- **The isolation spec induces the stall with `KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS`, not with an
+  unassignable topic.** Subscribing to a nonexistent topic still fires `onPartitionsAssigned`, so
+  it produces no stall. A broker-side initial rebalance delay is a genuine slow assignment and needs
+  no `auto.create.topics.enable=false`.
+- **Two defects surfaced during T022 that the plan had not predicted** — the readiness-in-listener
+  strand and the test broker's 3 s rebalance delay. Both are written up in
+  [plan.md](plan.md#discovered-during-implementation-design-deltas-from-the-original-outline);
+  the second required the only file change outside the planned set,
+  `docker-compose.kafka.yml`.
 
 ## Notes
 

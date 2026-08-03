@@ -32,16 +32,21 @@ class KafkaMessageTrackerPoolSpec extends munit.FunSuite {
       field.setAccessible(true)
       field.get(pool).asInstanceOf[AtomicReference[Exception]].set(new RuntimeException("boom"))
 
-      val thrown = intercept[IllegalStateException] {
-        pool.tracker(
-          producerTopic = "producer-topic",
-          consumerTopic = "consumer-topic",
-          messageMatcher = KafkaKeyMatcher,
-          responseTransformer = None,
-          timeout = 1.second,
-        )
-      }
+      val ready   = new AtomicReference[AnyRef](null)
+      val failure = new AtomicReference[Throwable](null)
 
+      pool.acquireTracker(
+        producerTopic = "producer-topic",
+        consumerTopic = "consumer-topic",
+        messageMatcher = KafkaKeyMatcher,
+        responseTransformer = None,
+        timeout = 1.second,
+      )(tracker => ready.set(tracker), failure.set)
+
+      // Reported synchronously on the calling thread, never thrown and never as a tracker.
+      assert(ready.get() == null, "acquisition must not hand back a tracker from a failed pool")
+      val thrown = failure.get()
+      assert(thrown.isInstanceOf[IllegalStateException], s"unexpected failure type: $thrown")
       assert(thrown.getCause != null)
       assertEquals(thrown.getCause.getMessage, "boom")
     } finally {

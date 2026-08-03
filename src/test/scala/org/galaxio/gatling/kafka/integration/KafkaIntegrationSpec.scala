@@ -12,8 +12,7 @@ import org.testcontainers.utility.DockerImageName
 
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicReference
-import java.util.concurrent.{ConcurrentLinkedQueue, CountDownLatch, TimeUnit}
-import scala.concurrent.duration.DurationInt
+import java.util.concurrent.{ConcurrentLinkedQueue, CountDownLatch, TimeUnit, TimeoutException}
 import scala.jdk.CollectionConverters._
 
 class KafkaIntegrationSpec extends munit.FunSuite with TestContainerForAll {
@@ -242,8 +241,7 @@ class KafkaIntegrationSpec extends munit.FunSuite with TestContainerForAll {
       try {
         awaitConsumerReady(sender, initialTopic, consumerReady)
 
-        val assigned = consumer.addTopicForSubscription(dynamicTopic, 30.seconds)
-        assert(assigned, "Dynamic topic subscription timed out")
+        consumer.requestTopicSubscription(dynamicTopic).get(30, TimeUnit.SECONDS)
 
         val msg = KafkaProtocolMessage(
           key = "dk".getBytes,
@@ -436,7 +434,7 @@ class KafkaIntegrationSpec extends munit.FunSuite with TestContainerForAll {
     }
   }
 
-  test("addTopicForSubscription with very short timeout returns false") {
+  test("requestTopicSubscription stays pending until the assignment actually happens") {
     withContainers { kafka =>
       val bootstrap  = kafka.bootstrapServers
       val topic      = "test-sub-timeout"
@@ -460,9 +458,10 @@ class KafkaIntegrationSpec extends munit.FunSuite with TestContainerForAll {
       try {
         awaitConsumerReady(sender, setupTopic, consumerReady)
         sender.close()
-        // 1 nanosecond timeout — subscription cannot complete in time
-        val assigned = consumer.addTopicForSubscription(topic, scala.concurrent.duration.Duration.fromNanos(1))
-        assert(!assigned, "Expected subscription to time out")
+        // The caller owns the deadline now: readiness stays pending instead of reporting a timeout itself.
+        val readiness = consumer.requestTopicSubscription(topic)
+        intercept[TimeoutException](readiness.get(1, TimeUnit.MILLISECONDS))
+        assert(!readiness.isDone, "Expected readiness to still be pending")
       } finally {
         consumer.close()
         consumerThread.join(5000)
