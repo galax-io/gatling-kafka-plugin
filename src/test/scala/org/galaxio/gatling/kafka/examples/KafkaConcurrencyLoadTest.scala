@@ -34,27 +34,28 @@ class KafkaConcurrencyLoadTest extends Simulation {
   private val scenarioLoops = rampDuration + sustainFor + 15.seconds // outlasts the injection window
   private val probeMarker   = "_probe"
 
-  /** Known-loss budget, deliberately not zero.
+  /** Known-loss budget: deliberately not zero, and now a **count** rather than a percentage.
     *
     * A reply can still be dropped while its own request is being registered: `MessagePublished` and `MessageConsumed` reach the
     * tracker's mailbox from two different threads with no ordering between them, so a round-trip of a few milliseconds can be
-    * processed before the request it answers — see [[https://github.com/galax-io/gatling-kafka-plugin/issues/191 #191]]. Losses
-    * cluster on tracker re-registration, which happens after every reply because the entry is dropped at refcount zero
-    * ([[https://github.com/galax-io/gatling-kafka-plugin/issues/165 #165]]), so each loss re-arms the next one.
+    * processed before the request it answers — see [[https://github.com/galax-io/gatling-kafka-plugin/issues/191 #191]]. That
+    * race is now the only source of loss here.
     *
-    * Measured against a local broker on this code: 0.2135, 0.2143, 0.2144, 0.2307 and 0.2470% over five runs (14–16 KO of
-    * ~6,500). Before #163 the same simulation lost ~1.4% (38 KO of 2,724, of which 7 were assignment timeouts that #163 removed
-    * outright), so this ceiling still fails a regression to that behaviour by a wide margin.
+    * Measured against a local broker on this code, five runs: **0, 1, 1, 0 and 1 KO of ~6,760** (0–0.0148%). Before
+    * [[https://github.com/galax-io/gatling-kafka-plugin/issues/165 #165]] the same simulation lost 14–16 KO of ~6,500
+    * (0.2135–0.2470%): the tracker entry was dropped at refcount zero after every reply, and each re-registration re-armed the
+    * next loss. Holding the registration for the whole run removed that amplifier, leaving #191 on its own. Before #163 it lost
+    * ~1.4% (38 KO of 2,724, of which 7 were assignment timeouts that #163 removed outright).
     *
-    * The headroom above is deliberately thin — the worst measured run sits 0.003 points under the ceiling, i.e. one extra lost
-    * reply turns the run red. That is intended: a rate above this is worth looking at rather than absorbing. Be aware the
-    * losses are time-driven, not rate-driven — roughly one per reply-timeout cycle, so a run loses a near-fixed count whatever
-    * its throughput, and a slower machine reports a *higher* percentage for the same defect. If this starts failing on load
-    * rather than on a real regression, prefer a count-based ceiling (`global.failedRequests.count`) over widening this one.
+    * A count rather than a percentage because the losses are time-driven, not rate-driven — roughly one per reply-timeout
+    * cycle, so a run loses a near-fixed count whatever its throughput, and a slower machine would report a *higher* percentage
+    * for the same defect. This is the count-based ceiling the previous percentage budget recommended switching to.
     *
-    * Tighten to 0 once #191 lands; #165 alone should already push the observed rate close to zero.
+    * Headroom is one loss above the worst measured run — thin on purpose, so a regression surfaces instead of being absorbed.
+    * At the rate above that is roughly a 2% chance of a spurious red, which is the deliberate trade: this harness is run
+    * manually, not in CI, and a red run is meant to prompt a look. Tighten to 0 once #191 lands.
     */
-  private val KnownReplyLossBudgetPercent = 0.25
+  private val KnownReplyLossBudget: Long = 2
 
   // Stand-in for the external service under test: echoes every request straight back on the reply
   // topic with the same key and value, so the default key-based matcher (KafkaKeyMatcher) pairs each
@@ -165,7 +166,7 @@ class KafkaConcurrencyLoadTest extends Simulation {
     ),
   ).protocols(protocol)
     .assertions(
-      global.failedRequests.percent.lte(KnownReplyLossBudgetPercent),
+      global.failedRequests.count.lte(KnownReplyLossBudget),
     )
     .maxDuration(3.minutes)
 }
