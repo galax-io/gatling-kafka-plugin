@@ -189,7 +189,12 @@ class KafkaGatlingTest extends Simulation {
     scnRRwo.inject(atOnceUsers(1)).protocols(kafkaProtocolRRBytes2),
     scnwokey.inject(nothingFor(1), atOnceUsers(1)).protocols(kafkaConfwoKey),
   ).assertions(
-    global.failedRequests.percent.lt(15.0),
+    // Exactly one failure is expected, and it is by design: scnRRwo ("RequestReply w/o answer")
+    // sends a request-reply to a reply topic nobody ever answers, so it always KOs on its 1 s reply
+    // timeout. A count says that; the previous `percent.lt(15.0)` over a fixed 9 requests meant the
+    // same thing arithmetically while reading as tolerance for flakiness — and it would have hidden
+    // a second, real failure at 22%.
+    global.failedRequests.count.lte(1),
   ).maxDuration(120.seconds)
 
 }
