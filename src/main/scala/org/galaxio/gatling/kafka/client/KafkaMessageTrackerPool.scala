@@ -418,8 +418,8 @@ final class KafkaMessageTrackerPool(
 
   /** Records that one request has finished with this channel.
     *
-    * Reaching zero starts the idle clock; it does not release anything. See [[TrackerEntry]] for why the two are not the same
-    * event. Releasing happens in [[sweepIdleTrackers]], off the request path entirely.
+    * Reaching zero starts the idle clock; it does not release anything. See `TrackerEntry` for why the two are not the same
+    * event. Releasing happens in `sweepIdleTrackers`, off the request path entirely.
     */
   def releaseTracker(consumerTopic: String, messageMatcher: KafkaMatcher): Unit = {
     val mRef = new MatcherRef(messageMatcher)
