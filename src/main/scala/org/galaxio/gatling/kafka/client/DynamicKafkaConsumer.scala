@@ -168,8 +168,15 @@ final class DynamicKafkaConsumer[K, V] private (
       }
     }
 
+    // Never unsubscribe down to nothing. A consumer with no subscription and no assignment throws
+    // "Consumer is not subscribed to any topics" on the next poll, which fails the whole pool
+    // (issue #143). Idle-release makes emptying the set a routine event rather than a rare one, so
+    // the last subscription is deliberately kept: one idle topic per pool is bounded and costs a
+    // fetch that returns nothing, whereas the crash is terminal for the run.
     if (allTopics.isEmpty) {
-      if (currentSubscription.nonEmpty) consumer.unsubscribe()
+      if (currentSubscription.nonEmpty) {
+        logger.debug("Keeping the last subscription {} rather than unsubscribing to nothing", currentSubscription)
+      }
       return
     }
 

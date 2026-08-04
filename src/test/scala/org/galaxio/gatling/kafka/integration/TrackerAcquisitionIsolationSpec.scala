@@ -13,7 +13,7 @@ import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.common.serialization.{ByteArrayDeserializer, ByteArraySerializer}
 import org.galaxio.gatling.kafka.client.{DynamicKafkaConsumer, KafkaMessageTracker, KafkaMessageTrackerPool, KafkaSender}
-import org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaKeyMatcher
+import org.galaxio.gatling.kafka.protocol.KafkaProtocol.{KafkaKeyMatcher, KafkaMatcher, KafkaMessageMatcher}
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 import org.testcontainers.utility.DockerImageName
 
@@ -110,9 +110,12 @@ class TrackerAcquisitionIsolationSpec extends munit.FunSuite with TestContainerF
 
     val lastSession: AtomicReference[Session] = new AtomicReference[Session]()
 
+    /** Trips when the tracker hands a session on — the completion signal a virtual user actually observes. */
+    val completed: CountDownLatch = new CountDownLatch(1)
+
     override def !(session: Session): Unit = execute(session)
 
-    override def execute(session: Session): Unit = lastSession.set(session)
+    override def execute(session: Session): Unit = { lastSession.set(session); completed.countDown() }
   }
 
   private def message(topic: String, key: String, value: String): KafkaProtocolMessage =
@@ -340,7 +343,6 @@ class TrackerAcquisitionIsolationSpec extends munit.FunSuite with TestContainerF
         val ackAt      = new AtomicLong(0L)
         val sentAt     = new AtomicLong(0L)
         val registered = new CountDownLatch(1)
-        val matched    = new CountDownLatch(1)
         val failure    = new AtomicReference[Throwable](null)
         val next       = new RecordingAction
 
@@ -361,7 +363,6 @@ class TrackerAcquisitionIsolationSpec extends munit.FunSuite with TestContainerF
                   session = Session("scenario", 1L, null),
                   next = next,
                   requestName = "timing-request-reply",
-                  onComplete = () => matched.countDown(),
                 )
                 registered.countDown()
               },
@@ -387,7 +388,7 @@ class TrackerAcquisitionIsolationSpec extends munit.FunSuite with TestContainerF
         )
         assert(replySent.await(30, TimeUnit.SECONDS), "reply was never produced")
         assert(failure.get() == null, s"producing the reply failed: ${failure.get()}")
-        assert(matched.await(1, TimeUnit.MINUTES), "the tracker never matched the reply")
+        assert(next.completed.await(1, TimeUnit.MINUTES), "the tracker never matched the reply")
 
         val responses = statsEngine.responses.get()
         assertEquals(responses.size, 1, s"expected exactly one logged response, got $responses")
@@ -399,6 +400,47 @@ class TrackerAcquisitionIsolationSpec extends munit.FunSuite with TestContainerF
           reported < AssignmentStall.toMillis / 2,
           s"reported response time of $reported ms includes the $setupDuration ms of subscription setup",
         )
+      }
+    }
+  }
+
+  test("two matchers on one reply topic get independent trackers") {
+    withContainers { kafka =>
+      val bootstrap    = kafka.bootstrapServers
+      val requestTopic = "matcher-isolation-request"
+      val replyTopic   = "matcher-isolation-reply"
+      createTopics(bootstrap, requestTopic, replyTopic)
+
+      withPoolAndSender(bootstrap) { (pool, _, _) =>
+        // Two distinct matcher instances, deliberately not the shared KafkaKeyMatcher singleton:
+        // the pool keys trackers by matcher identity, so these must not be conflated.
+        val first  = KafkaMessageMatcher(_.key)
+        val second = KafkaMessageMatcher(_.key)
+
+        def acquire(matcher: KafkaMatcher): ActorRef[KafkaMessageTracker.TrackerMessage] = {
+          val ready   = new AtomicReference[ActorRef[KafkaMessageTracker.TrackerMessage]](null)
+          val failure = new AtomicReference[Throwable](null)
+          val settled = new CountDownLatch(1)
+          pool.acquireTracker(requestTopic, replyTopic, matcher, None, 60.seconds)(
+            tracker => { ready.set(tracker); settled.countDown() },
+            error => { failure.set(error); settled.countDown() },
+          )
+          assert(settled.await(2, TimeUnit.MINUTES), "acquisition never completed")
+          assert(failure.get() == null, s"acquisition failed: ${failure.get()}")
+          ready.get()
+        }
+
+        val firstTracker  = acquire(first)
+        val secondTracker = acquire(second)
+
+        assert(firstTracker != null && secondTracker != null, "acquisition produced no tracker")
+        assert(
+          firstTracker ne secondTracker,
+          "two distinct matchers on one topic were conflated into a single tracker",
+        )
+        // Both stay acquirable: neither matcher's registration displaced the other's.
+        assert(acquire(first) eq firstTracker, "the first matcher's tracker was replaced")
+        assert(acquire(second) eq secondTracker, "the second matcher's tracker was replaced")
       }
     }
   }

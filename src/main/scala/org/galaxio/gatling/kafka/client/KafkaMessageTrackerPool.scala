@@ -10,8 +10,7 @@ import org.galaxio.gatling.kafka.client.KafkaMessageTracker.MessageConsumed
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaMatcher
 import org.galaxio.gatling.kafka.request.{KafkaProtocolMessage, KafkaSerdesImplicits}
 
-import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.{AtomicInteger, AtomicLong, AtomicReference}
 import java.util.concurrent.{
   CompletionException,
   ConcurrentHashMap,
@@ -38,6 +37,18 @@ object KafkaMessageTrackerPool {
 
   /** How long simulation shutdown waits for queued acquisition continuations to report their outcome. */
   private[client] val setupDrainTimeoutMillis: Long = 5000L
+
+  /** How often idle reply channels are checked for release. */
+  private[client] val idleSweepIntervalMillis: Long = 1000L
+
+  /** Default idle grace before a reply channel is released.
+    *
+    * Deliberately not derived from the protocol's reply timeout: that would make the grace shorter than a single channel
+    * establishment whenever the timeout is short, so a scenario would churn exactly as issue #165 describes. This is a
+    * think-time scale, not a request-latency scale — it needs to outlast the gaps a realistic profile puts between requests
+    * (pacing, pauses, ramp) and nothing else.
+    */
+  private[kafka] val defaultIdleGraceMillis: Long = 30000L
 }
 
 final class KafkaMessageTrackerPool(
@@ -47,9 +58,31 @@ final class KafkaMessageTrackerPool(
     clock: Clock,
 ) extends KafkaLogging with NameGen with KafkaSerdesImplicits {
 
+  /** How long a reply channel may sit with nothing in flight before it is released.
+    *
+    * Not a constructor parameter: adding one would change this class's primary constructor signature, which is a binary break
+    * for anything compiled against the current release and would force a major version for what is a bug fix. Internal to the
+    * plugin and writable only so integration tests can shorten it — production never assigns it.
+    */
+  @volatile private[kafka] var idleGraceMillis: Long = KafkaMessageTrackerPool.defaultIdleGraceMillis
+
+  /** A reply channel and its bookkeeping.
+    *
+    * `refCount` is the number of requests currently in flight on this `(consumerTopic, matcher)`. It is an accurate measure of
+    * that, and an inaccurate predictor of future use — which is the distinction issue #165 turns on. Releasing the channel the
+    * moment the count reaches zero reads "nothing in flight" as "never needed again"; in a sequential scenario that inference
+    * is wrong after every single request, so the channel is destroyed milliseconds before it is needed again and every request
+    * pays a fresh subscription and rebalance.
+    *
+    * So reaching zero no longer tears the channel down — it starts an idle clock. `idleSweep` releases a channel only once it
+    * has had nothing in flight for `graceMillis`. A sequential scenario re-acquires long before that and keeps its channel; a
+    * reply topic derived per virtual user goes idle and is reclaimed, which is what issue #78 requires.
+    */
   private case class TrackerEntry(
       actor: ActorRef[KafkaMessageTracker.TrackerMessage],
       refCount: AtomicInteger,
+      /** `clock.nowMillis` when `refCount` last reached zero. Only meaningful while `refCount <= 0`. */
+      idleSince: AtomicLong,
   )
 
   // Uses reference equality so distinct matcher instances with the same identityHashCode
@@ -121,6 +154,17 @@ final class KafkaMessageTrackerPool(
       },
     )
 
+  // One sweep per pool, not a timer per tracker. Off both the producer callback and the consumer poll
+  // thread, so a release never sits on a path that measures latency.
+  private val idleSweep = setupExecutor.scheduleAtFixedRate(
+    () =>
+      try sweepIdleTrackers()
+      catch { case NonFatal(e) => logger.error("Idle tracker sweep failed", e) },
+    KafkaMessageTrackerPool.idleSweepIntervalMillis,
+    KafkaMessageTrackerPool.idleSweepIntervalMillis,
+    TimeUnit.MILLISECONDS,
+  )
+
   private val consumerFuture = consumerExecutor.submit(consumer)
   actorSystem.registerOnTermination {
     logger.debug("Closing consumer {}", consumer)
@@ -131,6 +175,7 @@ final class KafkaMessageTrackerPool(
       case e: Throwable =>
         logger.error(e.getMessage, e)
     }
+    idleSweep.cancel(false)
     consumerExecutor.shutdown()
     // Closing the consumer above failed every pending readiness, and those continuations are queued
     // here: they still have to report that failure back to the waiting virtual users, so they must
@@ -199,7 +244,13 @@ final class KafkaMessageTrackerPool(
       },
     )
     if (found != null) {
-      deliverReady(onReady, onFailure, found)
+      // The consumer can fail between the check above and this point, in which case the failure
+      // broadcast has already flushed this tracker and cleared the map. Handing it over anyway would
+      // leave the request to wait out its whole reply timeout instead of failing with the real cause
+      // — the same guard the readiness continuation applies on the slow path.
+      val late = consumerFailure.get()
+      if (late != null) onFailure(consumerFailedException(late))
+      else deliverReady(onReady, onFailure, found)
       return
     }
 
@@ -248,7 +299,8 @@ final class KafkaMessageTrackerPool(
             if (late != null) onFailure(consumerFailedException(late))
             else {
               var tracker: ActorRef[KafkaMessageTracker.TrackerMessage] = null
-              try tracker = registerTracker(producerTopic, consumerTopic, messageMatcher, responseTransformer, mRef)
+              try
+                tracker = registerTracker(producerTopic, consumerTopic, messageMatcher, responseTransformer, mRef)
               catch { case NonFatal(e) => onFailure(e) }
               if (tracker != null) deliverReady(onReady, onFailure, tracker)
             }
@@ -295,7 +347,7 @@ final class KafkaMessageTrackerPool(
       responseTransformer.fold(withProducerTopic(producerTopic))(_.compose(withProducerTopic(producerTopic)))
 
     // Atomic insert-or-increment under the outer bin lock so a concurrent
-    // releaseTracker cannot remove the outer entry between get-or-create and insert.
+    // sweep cannot remove the outer entry between get-or-create and insert.
     var result: ActorRef[KafkaMessageTracker.TrackerMessage] = null
     trackers.compute(
       consumerTopic,
@@ -324,7 +376,7 @@ final class KafkaMessageTrackerPool(
                 ),
               )
               result = newActor
-              TrackerEntry(newActor, new AtomicInteger(1))
+              TrackerEntry(newActor, new AtomicInteger(1), new AtomicLong(clock.nowMillis))
             }
           },
         )
@@ -334,27 +386,62 @@ final class KafkaMessageTrackerPool(
     result
   }
 
+  /** Records that one request has finished with this channel.
+    *
+    * Reaching zero starts the idle clock; it does not release anything. See [[TrackerEntry]] for why the two are not the same
+    * event. Releasing happens in [[sweepIdleTrackers]], off the request path entirely.
+    */
   def releaseTracker(consumerTopic: String, messageMatcher: KafkaMatcher): Unit = {
-    val mRef          = new MatcherRef(messageMatcher)
-    var doUnsubscribe = false
+    val mRef = new MatcherRef(messageMatcher)
     trackers.computeIfPresent(
       consumerTopic,
       (_, innerMap) => {
         innerMap.computeIfPresent(
           mRef,
           (_, entry) => {
-            if (entry.refCount.decrementAndGet() <= 0) null
-            else entry
+            if (entry.refCount.decrementAndGet() <= 0) entry.idleSince.set(clock.nowMillis)
+            entry
           },
         )
-        if (innerMap.isEmpty) {
-          doUnsubscribe = true
-          null
-        } else innerMap
+        innerMap
       },
     )
-    if (doUnsubscribe) {
-      consumer.removeTopicSubscription(consumerTopic)
+  }
+
+  /** Releases channels that have had nothing in flight for their grace period, and unsubscribes any reply topic left with no
+    * channels at all.
+    *
+    * Runs on the setup executor, so neither the producer's I/O callback thread nor the consumer's poll thread ever performs a
+    * release. Every removal re-checks the entry's state inside `computeIfPresent`, so a request acquiring concurrently either
+    * increments first (and the entry survives) or finds the entry already gone (and takes the slow path) — never both.
+    */
+  private[client] def sweepIdleTrackers(): Unit = {
+    val now = clock.nowMillis
+    trackers.forEach { (consumerTopic, innerMap) =>
+      innerMap.forEach { (mRef, entry) =>
+        if (entry.refCount.get() <= 0 && now - entry.idleSince.get() >= idleGraceMillis) {
+          innerMap.computeIfPresent(
+            mRef,
+            (_, current) =>
+              if (current.refCount.get() <= 0 && now - current.idleSince.get() >= idleGraceMillis) {
+                logger.debug("Releasing idle tracker for topic {} matcher {}", consumerTopic, mRef)
+                null
+              } else current,
+          )
+        }
+      }
+      if (innerMap.isEmpty) {
+        var doUnsubscribe = false
+        trackers.computeIfPresent(
+          consumerTopic,
+          (_, current) =>
+            if (current.isEmpty) {
+              doUnsubscribe = true
+              null
+            } else current,
+        )
+        if (doUnsubscribe) consumer.removeTopicSubscription(consumerTopic)
+      }
     }
   }
 }

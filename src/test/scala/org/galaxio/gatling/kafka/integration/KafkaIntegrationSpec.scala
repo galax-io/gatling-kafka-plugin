@@ -264,23 +264,26 @@ class KafkaIntegrationSpec extends munit.FunSuite with TestContainerForAll {
     }
   }
 
-  test("unsubscribe from topic stops message delivery") {
+  test("unsubscribe stops delivery for the removed topic and keeps the last subscription") {
     withContainers { kafka =>
       val bootstrap = kafka.bootstrapServers
-      val topic     = "test-unsubscribe"
-      createTopic(bootstrap, topic)
+      val dropped   = "test-unsubscribe-dropped"
+      val kept      = "test-unsubscribe-kept"
+      createTopic(bootstrap, dropped)
+      createTopic(bootstrap, kept)
 
       val consumerReady = new CountDownLatch(1)
-      val messageCount  = new java.util.concurrent.atomic.AtomicInteger(0)
+      val droppedCount  = new java.util.concurrent.atomic.AtomicInteger(0)
+      val keptCount     = new java.util.concurrent.atomic.AtomicInteger(0)
       val firstReceived = new CountDownLatch(1)
 
       val consumer       = DynamicKafkaConsumer[Array[Byte], Array[Byte]](
         consumerSettings(bootstrap, "group-unsub"),
-        Set(topic),
+        Set(dropped, kept),
         record => {
           consumerReady.countDown()
           if (new String(record.value()) != "_probe") {
-            messageCount.incrementAndGet()
+            if (record.topic() == dropped) droppedCount.incrementAndGet() else keptCount.incrementAndGet()
             firstReceived.countDown()
           }
         },
@@ -293,28 +296,38 @@ class KafkaIntegrationSpec extends munit.FunSuite with TestContainerForAll {
       val sender = KafkaSender(producerSettings(bootstrap))
 
       try {
-        awaitConsumerReady(sender, topic, consumerReady)
+        awaitConsumerReady(sender, dropped, consumerReady)
 
-        val msg1 = KafkaProtocolMessage("k".getBytes, "before-unsub".getBytes, topic, topic)
-        val l1   = new CountDownLatch(1)
-        sender.send(msg1)(_ => l1.countDown(), _ => l1.countDown())
+        val l1 = new CountDownLatch(1)
+        sender.send(KafkaProtocolMessage("k".getBytes, "before-unsub".getBytes, dropped, dropped))(
+          _ => l1.countDown(),
+          _ => l1.countDown(),
+        )
         l1.await(10, TimeUnit.SECONDS)
-
         assert(firstReceived.await(30, TimeUnit.SECONDS), "First message not received")
 
-        consumer.removeTopicSubscription(topic)
-        // Must wait for poll cycle to process the unsubscribe
-        Thread.sleep(3000)
+        consumer.removeTopicSubscription(dropped)
+        Thread.sleep(3000) // let a poll cycle apply the removal
 
-        val countAfterUnsub = messageCount.get()
+        val droppedAfter = droppedCount.get()
+        val keptAfter    = keptCount.get()
 
-        val msg2 = KafkaProtocolMessage("k".getBytes, "after-unsub".getBytes, topic, topic)
-        val l2   = new CountDownLatch(1)
-        sender.send(msg2)(_ => l2.countDown(), _ => l2.countDown())
+        val l2 = new CountDownLatch(1)
+        sender.send(KafkaProtocolMessage("k".getBytes, "after-unsub".getBytes, dropped, dropped))(
+          _ => l2.countDown(),
+          _ => l2.countDown(),
+        )
+        val l3 = new CountDownLatch(1)
+        sender.send(KafkaProtocolMessage("k".getBytes, "still-live".getBytes, kept, kept))(
+          _ => l3.countDown(),
+          _ => l3.countDown(),
+        )
         l2.await(10, TimeUnit.SECONDS)
+        l3.await(10, TimeUnit.SECONDS)
         Thread.sleep(5000)
 
-        assertEquals(messageCount.get(), countAfterUnsub, "Messages received after unsubscribe")
+        assertEquals(droppedCount.get(), droppedAfter, "Messages received after unsubscribe")
+        assertEquals(keptCount.get(), keptAfter + 1, "The remaining subscription stopped delivering")
       } finally {
         consumer.close()
         consumerThread.join(5000)
