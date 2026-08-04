@@ -1,7 +1,9 @@
 package org.galaxio.gatling.kafka.client
 
 import java.util.concurrent.atomic.AtomicReference
-import java.util.concurrent.{CompletableFuture, ExecutionException, TimeUnit, TimeoutException}
+import java.util.concurrent.{CompletableFuture, CopyOnWriteArrayList, ExecutionException, TimeUnit, TimeoutException}
+import scala.concurrent.duration.{DurationInt, FiniteDuration}
+import scala.jdk.CollectionConverters._
 
 class DynamicKafkaConsumerSpec extends munit.FunSuite {
 
@@ -104,6 +106,86 @@ class DynamicKafkaConsumerSpec extends munit.FunSuite {
       assertEquals(causeOf(readiness).getCause.getMessage, "boom")
     } finally {
       consumer.close()
+    }
+  }
+
+  // Issue #143. A simulation that ramps, warms up, or simply reaches request-reply late leaves this
+  // consumer running with nothing requested. It used to reach poll() on a consumer that had never
+  // subscribed, which threw and latched a failure that poisoned every tracker for the rest of the run.
+  private def newConsumerReporting(onFailure: Exception => Unit): DynamicKafkaConsumer[Array[Byte], Array[Byte]] =
+    DynamicKafkaConsumer[Array[Byte], Array[Byte]](
+      Map(
+        "bootstrap.servers"  -> "localhost:0",
+        "key.deserializer"   -> "org.apache.kafka.common.serialization.ByteArrayDeserializer",
+        "value.deserializer" -> "org.apache.kafka.common.serialization.ByteArrayDeserializer",
+      ),
+      Set.empty,
+      _ => (),
+      onFailure,
+    )
+
+  private def runningConsumer(
+      consumer: DynamicKafkaConsumer[Array[Byte], Array[Byte]],
+  )(body: => Unit): Unit = {
+    val thread = new Thread(consumer, "idle-consumer")
+    thread.setDaemon(true)
+    thread.start()
+    try body
+    finally {
+      consumer.close()
+      thread.join(10_000)
+      assert(!thread.isAlive, "the consumer thread must exit after close")
+    }
+  }
+
+  test("a consumer running with nothing requested never fails") {
+    val failures = new CopyOnWriteArrayList[Exception]()
+    val consumer = newConsumerReporting(failures.add(_))
+
+    runningConsumer(consumer) {
+      // Long enough that the loop has taken many turns with nothing subscribed.
+      Thread.sleep(1_000)
+
+      assertEquals(
+        failures.asScala.map(_.getMessage).toList,
+        Nil,
+        "an idle consumer must not report a failure",
+      )
+      assertEquals(failureRef(consumer).get(), null, "and must not latch one")
+    }
+  }
+
+  test("a topic requested long after startup is still accepted") {
+    val failures = new CopyOnWriteArrayList[Exception]()
+    val consumer = newConsumerReporting(failures.add(_))
+
+    runningConsumer(consumer) {
+      Thread.sleep(1_000)
+
+      val readiness = consumer.requestTopicSubscription("late-topic")
+
+      assert(
+        !readiness.isCompletedExceptionally,
+        "a topic requested long after startup must not be refused",
+      )
+      assertEquals(failures.size(), 0, "accepting a late topic must not report a failure")
+    }
+  }
+
+  test("a blank reply topic fails only that request, not the consumer") {
+    val failures = new CopyOnWriteArrayList[Exception]()
+    val consumer = newConsumerReporting(failures.add(_))
+
+    runningConsumer(consumer) {
+      // Reaches here from a replyTopic expression that resolved to nothing. Passed through to
+      // consumer.subscribe it throws on the consumer thread, where the catch-all latches a permanent
+      // consumer failure and kills request-reply for every scenario sharing this consumer.
+      val readiness = consumer.requestTopicSubscription("   ")
+      Thread.sleep(500)
+
+      assert(readiness.isCompletedExceptionally, "a blank topic must fail its own request")
+      assertEquals(failureRef(consumer).get(), null, "and must not latch a consumer failure")
+      assertEquals(failures.size(), 0, "nor report one")
     }
   }
 
