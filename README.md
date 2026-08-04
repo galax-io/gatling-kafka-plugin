@@ -460,6 +460,40 @@ Use this section as release-based upgrade notes. Start from the version you are 
 | `0.21.x` | `1.0.x` | Stay on Gatling `3.13.x`, review request-reply defaults and DSL surface. |
 | `0.20.x` or older | `1.0.x` | Treat as full doc refresh. Older consume-only or per-action matcher APIs are not present. |
 
+### Upgrading to `1.1.0`
+
+No changes to the DSL, the `javaapi` facade, protocol settings or wire formats. One behavioural change worth knowing about, in request-reply only.
+
+#### A request whose reply channel cannot be established is no longer published
+
+Request-reply now registers the pending request **before** handing the record to the producer, so that a reply cannot arrive
+before the plugin is watching for it. Previously the request was sent first and the reply channel acquired afterwards, which
+meant a reply from a fast responder could be received and silently discarded, and the request then failed on its reply timeout
+as though nothing had answered.
+
+The consequence: when acquiring the reply channel fails — for example the reply topic is never assigned within the configured
+timeout — the request is now reported as a failure **without** being published. Before, it was published first and then
+reported as a failure.
+
+- Reported results are unchanged: the same KO, the same error message, and the same response-time span.
+- What changes is that your system under test no longer receives a request whose reply the plugin could never have matched.
+- If a simulation depended on that request reaching the broker despite the failure, it will now see one fewer record on that
+  path.
+
+#### Reported request-reply times now include the produce leg
+
+A request-reply is now measured from the moment the record is handed to the producer. Previously it was measured from the
+broker's acknowledgement of that record, which excluded the produce round trip from every reported time.
+
+**Expect reported times to grow by one produce acknowledgement** — typically a few milliseconds against a local broker, more
+with `acks=all` or a loaded one. Nothing about the requests changed; only where the clock starts.
+
+This is the interval the virtual user actually waits for, and it is what every other Gatling protocol reports. If you compare
+percentiles across this upgrade, compare them knowing the earlier numbers omitted a leg.
+
+Channel setup is still never included: the clock starts after the reply channel exists, so a first request on a new reply topic
+is not charged for its subscription and rebalance.
+
 ### Upgrading to `1.0.0` from `0.22.x` / RC
 
 #### Protocol-level topic API removed
