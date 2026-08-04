@@ -574,10 +574,15 @@ class TrackerLifetimeSpec extends munit.FunSuite with TestContainerForAll {
         // Without this the guard is vacuous: if B dies on its first iteration the catch above absorbs
         // it and A is measured running alone, which passes trivially — including in the very
         // situation the test exists to detect.
+        // Liveness, not throughput. B's completed count is a function of machine speed — it is 20+
+        // locally and 3 on CI — so asserting a count is asserting how fast the runner is. What the
+        // guard actually needs is that B ran continuously: it exited only via the stop flag or its
+        // iteration cap (bFailures == 0, since any abort lands in the catch) and it was genuinely
+        // producing traffic (at least one completed round trip). Both hold regardless of speed.
         assertEquals(bFailures.get(), 0, "the competing scenario aborted, so it was not competing")
         assert(
-          responsesNamed(run, "b") >= 5,
-          s"the competing scenario only completed ${responsesNamed(run, "b")} requests; A was not measured under load",
+          responsesNamed(run, "b") >= 1,
+          "the competing scenario completed no requests at all; A was not measured under load",
         )
         result
       }
