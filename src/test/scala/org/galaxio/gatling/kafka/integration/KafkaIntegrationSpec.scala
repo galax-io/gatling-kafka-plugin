@@ -336,6 +336,73 @@ class KafkaIntegrationSpec extends munit.FunSuite with TestContainerForAll {
     }
   }
 
+  test("a topic removed and re-requested in the same batch is still assigned and still delivers") {
+    // Regression guard for issue #164. A removal and a re-subscription that land in the same
+    // updateSubscription batch cancel out: allTopics equals the current subscription, so
+    // consumer.subscribe() is skipped and no rebalance follows. Readiness used to hang off
+    // onPartitionsAssigned, so it was never signalled and the caller waited out its whole timeout
+    // on a topic that had been subscribed and healthy throughout. Readiness is now resolved from
+    // consumer.assignment() on every pass, which does not depend on a rebalance happening.
+    //
+    // Two topics, so the "never unsubscribe down to nothing" guard is not what keeps this alive —
+    // this has to pass on the coalescing path itself.
+    //
+    // The two queue writes below coalesce as long as no poll cycle (1s) separates them; back-to-back
+    // calls make that near-certain. A rare interleaving that splits them across cycles under-tests
+    // the coalescing path but cannot fail the test, since both assertions are about liveness.
+    withContainers { kafka =>
+      val bootstrap = kafka.bootstrapServers
+      val churned   = "test-coalesced-churned"
+      val stable    = "test-coalesced-stable"
+      createTopic(bootstrap, churned)
+      createTopic(bootstrap, stable)
+
+      val consumerReady = new CountDownLatch(1)
+      val afterReceived = new CountDownLatch(1)
+
+      val consumer       = DynamicKafkaConsumer[Array[Byte], Array[Byte]](
+        consumerSettings(bootstrap, "group-coalesced"),
+        Set(churned, stable),
+        record => {
+          consumerReady.countDown()
+          if (record.topic() == churned && new String(record.value()) == "after-rechurn") {
+            afterReceived.countDown()
+          }
+        },
+        e => fail(s"Consumer error: ${e.getMessage}"),
+      )
+      val consumerThread = new Thread(consumer, "coalesced-consumer")
+      consumerThread.setDaemon(true)
+      consumerThread.start()
+
+      val sender = KafkaSender(producerSettings(bootstrap))
+
+      try {
+        awaitConsumerReady(sender, churned, consumerReady)
+
+        consumer.removeTopicSubscription(churned)
+        val readiness = consumer.requestTopicSubscription(churned)
+
+        // Pre-fix this waited forever: the subscribe was a no-op, so no assignment callback fired.
+        readiness.get(30, TimeUnit.SECONDS)
+
+        val sent = new CountDownLatch(1)
+        sender.send(KafkaProtocolMessage("k".getBytes, "after-rechurn".getBytes, churned, churned))(
+          _ => sent.countDown(),
+          e => { fail(s"Send failed: $e"); sent.countDown() },
+        )
+        assert(sent.await(10, TimeUnit.SECONDS), "Send did not complete in time")
+
+        // Readiness resolving is only meaningful if the subscription really survived the batch.
+        assert(afterReceived.await(30, TimeUnit.SECONDS), "Re-requested topic stopped delivering")
+      } finally {
+        consumer.close()
+        consumerThread.join(5000)
+        sender.close()
+      }
+    }
+  }
+
   test("concurrent sends: multiple messages sent in parallel arrive correctly") {
     withContainers { kafka =>
       val bootstrap = kafka.bootstrapServers
