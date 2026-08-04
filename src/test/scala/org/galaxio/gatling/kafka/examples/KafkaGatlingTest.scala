@@ -6,20 +6,121 @@ import io.confluent.kafka.serializers.{KafkaAvroDeserializer, KafkaAvroSerialize
 import io.gatling.core.Predef._
 import io.gatling.core.feeder.Feeder
 import io.gatling.core.structure.ScenarioBuilder
+import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.producer.ProducerConfig
 import org.galaxio.gatling.kafka.Predef._
 import org.galaxio.gatling.kafka.avro4s._
 import org.apache.kafka.common.header.Headers
 import org.apache.kafka.common.header.internals.RecordHeaders
-import org.apache.kafka.common.serialization.{Deserializer, Serde, Serializer}
+import org.apache.kafka.common.serialization.{ByteArrayDeserializer, ByteArraySerializer, Deserializer, Serde, Serializer}
+import org.galaxio.gatling.kafka.client.{DynamicKafkaConsumer, KafkaSender}
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 
+import java.util.concurrent.{CountDownLatch, TimeUnit}
 import scala.concurrent.duration.DurationInt
 
 class KafkaGatlingTest extends Simulation {
 
   case class Ingredient(name: String, sugar: Double, fat: Double)
+
+  private val bootstrap = "localhost:9093"
+
+  /** Request topic → reply topic for the scenarios the responder serves.
+    *
+    * `myTopic4` is deliberately absent: `scnRRwo` publishes there and must never be answered, or the simulation loses its only
+    * reply-timeout coverage (issue #196).
+    */
+  private val echoRoutes: Map[String, String] = Map(
+    "myTopic1" -> "test.t1",
+    "myTopic2" -> "test.t2",
+  )
+
+  /** Header carrying when the responder answered. Round-trip metadata has to ride here rather than in the key or the value:
+    * `scnRR` matches by key and checks `jsonPath` on the value, `scnRR2` matches by value and checks `bodyBytes`. Any rewrite
+    * of either breaks correlation, a check, or both.
+    */
+  private val RespondedAtHeader = "x-responded-at"
+
+  private val probeMarker = "_probe"
+
+  // Stands in for the service under test. Before this existed the request-reply scenarios were "answered"
+  // by sibling fire-and-forget scenarios that happened to publish a matching key or value at a fixed
+  // delay — so the simulation exercised the matching code without ever exercising a round trip, and was
+  // green because of timing rather than because the plugin correlated anything (issue #196).
+  private val responderSender = KafkaSender(
+    Map(
+      ProducerConfig.ACKS_CONFIG                   -> "1",
+      ProducerConfig.BOOTSTRAP_SERVERS_CONFIG      -> bootstrap,
+      ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG   -> classOf[ByteArraySerializer].getName,
+      ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG -> classOf[ByteArraySerializer].getName,
+    ),
+  )
+
+  private val responderReady: CountDownLatch = new CountDownLatch(1)
+
+  private val responder = DynamicKafkaConsumer[Array[Byte], Array[Byte]](
+    Map(
+      ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG        -> bootstrap,
+      ConsumerConfig.GROUP_ID_CONFIG                 -> "kafka-gatling-test-responder",
+      ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG   -> classOf[ByteArrayDeserializer].getName,
+      ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG -> classOf[ByteArrayDeserializer].getName,
+      ConsumerConfig.AUTO_OFFSET_RESET_CONFIG        -> "earliest",
+    ),
+    echoRoutes.keySet,
+    record => {
+      responderReady.countDown()
+      if (new String(record.value()) != probeMarker) {
+        echoRoutes.get(record.topic()).foreach { replyTopic =>
+          val headers = new RecordHeaders()
+          headers.add(RespondedAtHeader, System.currentTimeMillis().toString.getBytes)
+          responderSender.send(
+            KafkaProtocolMessage(record.key(), record.value(), replyTopic, replyTopic, Some(headers)),
+          )(
+            _ => (),
+            // Never silent: a responder that stops echoing looks exactly like the plugin losing replies,
+            // and the run would fail its assertion with nothing pointing at the real cause.
+            error => println(s"[gatling-test responder] failed to echo onto $replyTopic: $error"),
+          )
+        }
+      }
+    },
+    error => println(s"[gatling-test responder] consumer failed, replies stop here: $error"),
+  )
+
+  private val responderThread = new Thread(responder, "kafka-gatling-test-responder")
+
+  private def awaitResponderReady(timeoutSeconds: Int = 30): Unit = {
+    val probeTopic = echoRoutes.keys.head
+    val probe      = KafkaProtocolMessage(probeMarker.getBytes, probeMarker.getBytes, probeTopic, probeTopic)
+    val deadline   = System.currentTimeMillis() + timeoutSeconds * 1000L
+    while (responderReady.getCount > 0 && System.currentTimeMillis() < deadline) {
+      val sent = new CountDownLatch(1)
+      responderSender.send(probe)(_ => sent.countDown(), _ => sent.countDown())
+      sent.await(2, TimeUnit.SECONDS)
+      responderReady.await(500, TimeUnit.MILLISECONDS)
+    }
+    require(responderReady.getCount == 0, s"Responder not ready within ${timeoutSeconds}s")
+  }
+
+  before {
+    responderThread.setDaemon(true)
+    responderThread.start()
+    // Gatling does not run `after` when `before` throws, and a responder left in the group blocks the
+    // next run until the coordinator times its stale member out.
+    try awaitResponderReady()
+    catch {
+      case error: Throwable =>
+        responder.close()
+        responderSender.close()
+        throw error
+    }
+  }
+
+  after {
+    responder.close()
+    responderSender.close()
+  }
 
   val kafkaConf: KafkaProtocol = kafka
     .properties(
@@ -76,6 +177,11 @@ class KafkaGatlingTest extends Simulation {
     .timeout(5.seconds)
     .matchByValue
 
+  // The reply timeout doubles as the acquisition timeout, so it has to outlast establishing the reply
+  // channel. At the previous 1 second this scenario failed with "Timed out waiting for consumer
+  // assignment to topic 'test.t2'" — a KO for the right count but the wrong reason, and a timing-dependent
+  // one at that. It is supposed to prove that a request nobody answers times out waiting for its reply,
+  // which is what it now does: myTopic4 has no responder, so nothing ever publishes tstBytesWO.
   val kafkaProtocolRRBytes2: KafkaProtocol = kafka
     .producerSettings(
       ProducerConfig.ACKS_CONFIG                   -> "1",
@@ -86,7 +192,7 @@ class KafkaGatlingTest extends Simulation {
     .consumeSettings(
       "bootstrap.servers" -> "localhost:9093",
     )
-    .timeout(1.seconds)
+    .timeout(5.seconds)
     .matchByValue
 
   val kafkaAvro4sConf: KafkaProtocol = kafka
@@ -172,10 +278,14 @@ class KafkaGatlingTest extends Simulation {
         .send[String, Ingredient]("key4s", Ingredient("Cheese", 0d, 70d)),
     )
 
+  // myTopic4 rather than myTopic2: the responder serves myTopic2, so sharing it would answer this
+  // request too and destroy the simulation's only reply-timeout coverage (issue #196). The reply topic
+  // stays test.t2, which the responder does publish to — so this scenario also exercises a held reply
+  // channel receiving traffic that matches none of its pending requests, and discarding it silently.
   val scnRRwo: ScenarioBuilder = scenario("RequestReply w/o answer")
     .exec(
       kafka("Request Reply Bytes wo").requestReply
-        .requestTopic("myTopic2")
+        .requestTopic("myTopic4")
         .replyTopic("test.t2")
         .send[Array[Byte], Array[Byte]]("testWO".getBytes(), "tstBytesWO".getBytes()),
     )
@@ -189,12 +299,15 @@ class KafkaGatlingTest extends Simulation {
     scnRRwo.inject(atOnceUsers(1)).protocols(kafkaProtocolRRBytes2),
     scnwokey.inject(nothingFor(1), atOnceUsers(1)).protocols(kafkaConfwoKey),
   ).assertions(
-    // Exactly one failure is expected, and it is by design: scnRRwo ("RequestReply w/o answer")
-    // sends a request-reply to a reply topic nobody ever answers, so it always KOs on its 1 s reply
-    // timeout. A count says that; the previous `percent.lt(15.0)` over a fixed 9 requests meant the
-    // same thing arithmetically while reading as tolerance for flakiness — and it would have hidden
-    // a second, real failure at 22%.
-    global.failedRequests.count.lte(1),
+    // Exactly one failure is expected, and it is by design: scnRRwo ("RequestReply w/o answer") sends to
+    // myTopic4, which the echo responder does not consume, so it always KOs on its 1 s reply timeout.
+    //
+    // `is(1)` rather than `lte(1)`: the previous bound passed when the by-design timeout silently stopped
+    // failing, so a broken reply-timeout would have dropped the count to 0 and still gone green. Pinning
+    // the count and naming the request that must fail closes the gate in both directions — a second,
+    // real failure fails the run, and so does the expected one starting to pass.
+    global.failedRequests.count.is(1),
+    details("Request Reply Bytes wo").failedRequests.count.is(1),
   ).maxDuration(120.seconds)
 
 }
