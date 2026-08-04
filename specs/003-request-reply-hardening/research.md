@@ -192,10 +192,26 @@ virtual user. Worth saying so on #144 when this lands.
 
 ## R4 — #191: keeping the ack-based response-time clock
 
-**Decision**: Two-phase completion inside the tracker. `MessagePublished` (enqueued before the send)
-creates the pending record. A new `MessageAcked(matchId, sentTimestamp)` (enqueued from the producer
-ack callback) supplies the timestamp the report is measured from. `MessageConsumed` completes the
-request if the ack has landed, and otherwise holds the reply on the record until it does.
+> **Revised during implementation.** The original decision below — hold the reply until its
+> acknowledgement lands — was implemented, and then withdrawn when `TrackerAcquisitionIsolationSpec`
+> failed against it. That suite registers a request and never sends an acknowledgement, so the reply
+> was held forever and the request timed out despite having been answered: the exact failure class
+> #191 exists to remove, reintroduced by the fix for it. Holding makes a reply that already arrived
+> depend on a *later* message to be reported at all.
+>
+> **What shipped**: `MessageAcked` still carries the acknowledgement timestamp and is still what a
+> successful request-reply is measured from, but `MessageConsumed` reports the reply immediately and
+> falls back to the value the caller registered with when no acknowledgement has landed yet. A reply
+> is never withheld. The fallback is at most one produce acknowledgement early, and only for a reply
+> that outran one — a bounded, conservative error, where holding risked losing the reply outright.
+> `MessageAcked` for an already-completed request is ignored rather than re-registering it, which
+> would otherwise leave a record nothing resolves and produce a spurious timeout for a request that
+> succeeded.
+
+**Original decision**: Two-phase completion inside the tracker. `MessagePublished` (enqueued before
+the send) creates the pending record. A new `MessageAcked(matchId, sentTimestamp)` (enqueued from the
+producer ack callback) supplies the timestamp the report is measured from. `MessageConsumed` completes
+the request if the ack has landed, and otherwise holds the reply on the record until it does.
 
 **Why it is needed**: FR-017 keeps the reported clock starting at the producer ack, and after R3 the
 ack timestamp is not known at registration. Both events can therefore arrive in either order — and the
@@ -292,12 +308,35 @@ readiness resolves on assignment, which precedes position resolution, and the pr
 `auto.offset.reset` at `latest`, so a reply produced in that gap is still skipped. But the issue asks
 for an observation and an observation is what it should get.
 
+> **Answered by running, and the prediction above was wrong.** The simulation is green with the value
+> at Kafka's 3000 default — three consecutive runs. Once the reply channel is established *before* the
+> request is sent (#191), the responder cannot answer before the consumer is positioned, because it
+> has not been asked anything yet. The assignment-before-position gap is still real (#193 point 5), but
+> this simulation no longer drives through it. The setting is kept at 0 in both broker definitions to
+> keep the simulations quick, with the finding recorded beside it; removing it touches the same files
+> as #192 and belongs with that issue.
+
 ---
 
 ## R7 — making the initialization wait testable without a signature break
 
-**Decision**: Add an overloaded `DynamicKafkaConsumer.apply` taking the initialization wait, and a
-secondary `KafkaMessageTrackerPool` constructor that passes one through. Both default to today's
+> **Revised during implementation.** The `apply` overload does not work: a second `apply` makes
+> overload resolution run *before* the expected type reaches the callback arguments, so existing call
+> sites that let the lambdas infer — `DynamicKafkaConsumer(settings, topics, _ => (), _ => ())` — stop
+> compiling. `KafkaIntegrationSpec` caught it immediately, and it would have been a source break for
+> any downstream user of the class. What shipped is a distinctly named
+> `private[kafka] withInitializationTimeout`, which leaves the four-argument `apply` byte-identical and
+> inference intact. A default parameter was rejected too: source-compatible, but binary-incompatible,
+> which is worse for a published artifact.
+>
+> The pool half shipped as planned, with one correction: the five-argument constructor has to be the
+> *primary* one, because `consumer` is built in the constructor body and needs the wait, and a
+> secondary constructor cannot introduce a field the primary lacks. Declaring the four-argument form as
+> a secondary constructor preserves its JVM `<init>` signature, which is what binary compatibility
+> actually depends on.
+
+**Original decision**: Add an overloaded `DynamicKafkaConsumer.apply` taking the initialization wait,
+and a secondary `KafkaMessageTrackerPool` constructor that passes one through. Both default to today's
 values; production code calls neither.
 
 **Why not the alternatives**:

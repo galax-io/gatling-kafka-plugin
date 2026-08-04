@@ -54,7 +54,7 @@ topic, let the wait expire, then request one.
   failure appears anywhere in the log. Covers **C1–C4**, **P1–P2**, and SC-003/SC-004.
 
 Do not shorten the wait by mutating the companion constant — it is JVM-wide and would leak into other
-tests. Use the overload.
+tests. Use `DynamicKafkaConsumer.withInitializationTimeout`, or the pool's five-argument constructor.
 
 ---
 
@@ -76,11 +76,11 @@ produce-only scenario (`scn`, `scn2`, `scnAvro4s`, `scnwokey`) from `setUp` and 
 - **Green**: both still pass. Restore `setUp` afterwards; this is a manual check, not a committed
   variant.
 
-**The rebalance-delay question (SC-009)** — run once with
-`KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0` as today, then once with it removed from
-`docker-compose.kafka.yml`. State the outcome in the PR either way. Expect it to still be needed:
-readiness resolves on assignment, position resolution comes later, and `auto.offset.reset` defaults
-to `latest` — that gap is #193 point 3 and is not fixed here.
+**The rebalance-delay question (SC-009)** — **answered: no longer required.** The simulation is green
+with the value at Kafka's 3000 default, three runs in a row. Once #191 establishes the reply channel
+before the request is sent, the responder cannot answer before the consumer is positioned — it has not
+been asked anything yet. The setting stays at 0 in both broker definitions to keep the simulations
+quick; removing it touches the same files as #192 and belongs there.
 
 ---
 
@@ -106,7 +106,7 @@ A useful manual cross-check: run the CI simulation with the tracker logger at DE
 
 ## #191 — no reply is ever dropped
 
-**Unit level** — the two-phase join, deterministic and broker-free:
+**Unit level** — deterministic and broker-free:
 
 ```bash
 sbt "testOnly org.galaxio.gatling.kafka.client.KafkaMessageTrackerSpec"
@@ -116,8 +116,10 @@ Send `MessagePublished`, then `MessageConsumed`, then `MessageAcked` — in that
 
 - **Red**: the reply is discarded (`sentMessages.remove` returns `None`) and the request later times
   out.
-- **Green**: the reply is held and completed when the ack lands, logged with the **ack** timestamp as
-  its start. Covers **T1–T3**.
+- **Green**: the reply is reported as soon as it arrives, and the late `MessageAcked` does not
+  re-register the completed request. Covers **T1–T3**. A reply that outran its ack is measured from
+  the request's start rather than being withheld — see [research.md](research.md) R4 for why holding
+  it was implemented and then withdrawn.
 
 **Integration level** — the real race, forced rather than waited for:
 
@@ -138,12 +140,16 @@ An in-process echo responder answering far faster than the reply timeout, drivin
 sbt "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaConcurrencyLoadTest"
 ```
 
-This is the harness whose `KnownReplyLossBudget` documents the baseline: 0–2 KO of ~6,760 across five
-runs on current code, 14–17 of ~6,500 before #165. Its own comment says **"Tighten to 0 once #191
-lands"** — do that in the #191 commit and confirm five consecutive green runs before claiming SC-001.
+This is the harness whose `KnownReplyLossBudget` documented the baseline: 0–2 KO of ~6,760 across five
+runs before #191, 14–17 of ~6,500 before #165. **Measured after #191: five consecutive runs, 33,889
+requests, 0 KO.** The budget is now 0, so any loss at all fails the run.
 
-**Also part of the #191 commit**: simplify `TrackerLifetimeSpec.send`, which re-publishes the reply in
-a loop specifically to work around #191. Leaving it would mask a regression.
+**A note on `TrackerLifetimeSpec`'s reply loop.** It was planned for removal here, on the grounds that
+it only existed to work around #191. Removing it made the suite fail, and the reason is instructive:
+the loop had two jobs, and only one of them was #191. The other is the harness's own ordering — it has
+no responder, and `send` returns before the request is actually published, since the request now waits
+for its reply channel. A reply produced before that has nothing subscribed to receive it. The loop
+stays, with its comment corrected to name only the reason that still applies.
 
 ---
 
@@ -170,9 +176,9 @@ Each of the four commits is green on its own and carries the milestone plus `Clo
 | Order | Commit | Must be green |
 |---|---|---|
 | 1 | `fix(client): do not poll a consumer with nothing to receive on (#143)` | default gate + `ConsumerStartupSpec` |
-| 2 | `test(examples): answer request-reply with a real echo responder (#196)` | default gate + `KafkaGatlingTest` on Compose |
-| 3 | `fix(client): stop the tracker and its timeout scan on release (#166)` | default gate + `TrackerLifetimeSpec` |
-| 4 | `fix(request-reply): register the pending request before sending (#191)` | default gate + `ReplyRegistrationRaceSpec` + `KafkaConcurrencyLoadTest` at budget 0 |
+| 2 | `fix(client): stop the tracker and its timeout scan on release (#166)` | default gate + `TrackerLifetimeSpec` |
+| 3 | `fix(request-reply): register the pending request before sending (#191)` | default gate + `ReplyRegistrationRaceSpec` + `KafkaConcurrencyLoadTest` at budget 0 |
+| 4 | `test(examples): answer request-reply with a real echo responder (#196)` | default gate + `KafkaGatlingTest` on Compose. Only green once #191 has landed. |
 
 The #191 PR additionally needs maintainer approval for the behaviour change recorded in the plan's
 Complexity Tracking table, and a README Migration Guide note under v1.1.0.

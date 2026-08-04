@@ -178,15 +178,23 @@ configuration on unrelated tests.
 
 ## Implementation Sequence
 
-Four commits, in this order. The ordering is not arbitrary — #193's own sequencing note asks for
-#196 before #191 so the hardest fix has a deterministic CI oracle rather than a coincidence.
+> **Corrected during implementation.** The planned order below put #196 second, following #193's
+> sequencing note. That is not possible: the echo responder answers in milliseconds, and until #191
+> establishes the reply channel *before* the request is sent, the reply lands before the consumer has a
+> fetch position and — with `auto.offset.reset` at its `latest` default — is skipped. Measured: with the
+> responder in place and #191 absent, every request-reply scenario times out. #193's note assumed the
+> responder would work standalone; it cannot. #196 is therefore a *consumer* of #191, not a
+> prerequisite for it.
+>
+> **Order actually shipped: #143 → #166 → #191 → #196.** #196 still serves its purpose as the
+> acceptance oracle — it just verifies #191 after the fact rather than before.
 
 | # | Issue | Scope | Why here |
 |---|-------|-------|----------|
 | 1 | **#143** | `DynamicKafkaConsumer` + one integration spec | Fully self-contained; removes a terminal, run-ending failure; touches nothing the other three touch. |
-| 2 | **#196** | `KafkaGatlingTest` + both broker definitions | Test-only. Lands the echo responder that makes #191's fix verifiable in CI instead of by inference. |
-| 3 | **#166** | `KafkaMessageTrackerPool` + `KafkaMessageTracker` | Small and independent. Lands before #191 so #191 rebases onto a tracker whose lifecycle is already correct. |
-| 4 | **#191** | `KafkaRequestReplyAction` + `KafkaMessageTracker` | Largest, and the only one with an approval gate. Benefits from all three above. |
+| 2 | **#166** | `KafkaMessageTrackerPool` + `KafkaMessageTracker` | Small and independent. Lands before #191 so #191 rebases onto a tracker whose lifecycle is already correct. |
+| 3 | **#191** | `KafkaRequestReplyAction` + `KafkaMessageTracker` | Largest, and the only one with an approval gate. Blocks #196. |
+| 4 | **#196** | `KafkaGatlingTest` + both broker definitions | Test-only, and only green once #191 has landed. Proves #191 with a real round trip: with every produce-only scenario removed, the request-reply scenarios pass (2 OK, 1 by-design KO) where before #191 they gave 0 OK and 3 KO. |
 
 Each PR carries the `v1.1.0 Request-reply reliability` milestone and `Closes #NNN`. Once all four
 merge the milestone is tag-ready; note that its title already starts with `v1.1.0`, so

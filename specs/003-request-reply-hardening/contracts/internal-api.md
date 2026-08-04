@@ -16,19 +16,22 @@ so; nothing here retracts either.
 ## 1. `DynamicKafkaConsumer` — #143
 
 ```scala
-// unchanged
+// unchanged — including the four-argument apply, byte for byte
 def requestTopicSubscription(topic: String): CompletableFuture[Void]
 def removeTopicSubscription(topic: String): Unit
 def close(): Unit
 def run(): Unit
+def apply[K, V](settingsMap, topics, onRecord, onFailure): DynamicKafkaConsumer[K, V]
 
-// additive overload — production callers keep using the existing one
-def apply[K, V](
+// new, additive, plugin-internal. NOT an apply overload: a second apply makes overload resolution
+// run before the expected type reaches the callbacks, so existing `_ => ()` call sites stop
+// compiling. See research.md R7.
+private[kafka] def withInitializationTimeout[K, V](
     settingsMap: Map[String, AnyRef],
     topics: Set[String],
     onRecord: ConsumerRecord[K, V] => Unit,
     onFailure: Exception => Unit,
-    initializationTimeout: FiniteDuration,   // new; defaults to 90.seconds via the existing apply
+    initializationTimeout: FiniteDuration,
 ): DynamicKafkaConsumer[K, V]
 ```
 
@@ -57,8 +60,11 @@ def releaseTracker(consumerTopic: String, messageMatcher: KafkaMatcher): Unit
 private[client] def sweepIdleTrackers(): Unit
 @volatile private[kafka] var idleGraceMillis: Long
 
-// additive secondary constructor — tests only; production uses the primary
-def this(
+// The five-argument form is the PRIMARY constructor — `consumer` is built in the constructor body
+// and needs the wait, and a secondary constructor cannot introduce a field the primary lacks. The
+// four-argument form above is declared as a secondary constructor, which preserves its JVM <init>
+// signature; that is what binary compatibility depends on. See research.md R7.
+class KafkaMessageTrackerPool(
     consumerSettings: Map[String, AnyRef],
     actorSystem: ActorSystem,
     statsEngine: StatsEngine,
@@ -102,8 +108,9 @@ case object Stop extends TrackerMessage                                         
 
 | | Guarantee | Red before | Green after |
 |---|---|---|---|
-| **T1** | A `MessageConsumed` whose record has no ack yet is held on the record, not discarded. | `sentMessages.remove(key)` returns `None`; the reply is dropped and the request times out. | The reply is held and completed when `MessageAcked` arrives. |
-| **T2** | A response is logged with the ack timestamp as its start, never the registration timestamp. | — | Reported latency matches today's semantics exactly (FR-017). |
+| **T1** | A `MessageConsumed` whose record has no ack yet is still reported, never discarded and never withheld. | `sentMessages.remove(key)` returns `None`; the reply is dropped and the request times out. | The reply is reported immediately, measured from the value it was registered with. **Revised**: an earlier draft held it until `MessageAcked` arrived, which loses the reply outright if that never comes — see [research.md](../research.md) R4. |
+| **T1a** | `MessageAcked` for a request that already completed is ignored. | — | It must not re-register the record, or nothing would resolve it and it would report a spurious timeout for a request that succeeded. |
+| **T2** | A response is logged with the ack timestamp as its start whenever the ack has landed. | — | Reported latency matches today's semantics (FR-017). Only a reply that outran its own ack falls back, by at most one produce acknowledgement. |
 | **T3** | `TimeoutScan` measures from registration, not from the ack. | — | A request whose ack never lands still times out at `replyTimeout`. |
 | **T4** | `SendFailed` removes the record, logs KO, and invokes `onComplete` exactly once. | The action logs KO directly; nothing releases the channel, because nothing was acquired. | The channel's in-flight count returns to balance. |
 | **T5** | Exactly one terminal event per record, each invoking `onComplete` once. | — | No double-release, no leaked in-flight count. |
