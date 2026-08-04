@@ -460,6 +460,29 @@ Use this section as release-based upgrade notes. Start from the version you are 
 | `0.21.x` | `1.0.x` | Stay on Gatling `3.13.x`, review request-reply defaults and DSL surface. |
 | `0.20.x` or older | `1.0.x` | Treat as full doc refresh. Older consume-only or per-action matcher APIs are not present. |
 
+### Upgrading to `1.1.0`
+
+No API changes. One behavioural change worth knowing about, in request-reply only.
+
+#### A request whose reply channel cannot be established is no longer published
+
+Request-reply now registers the pending request **before** handing the record to the producer, so that a reply cannot arrive
+before the plugin is watching for it. Previously the request was sent first and the reply channel acquired afterwards, which
+meant a reply from a fast responder could be received and silently discarded, and the request then failed on its reply timeout
+as though nothing had answered.
+
+The consequence: when acquiring the reply channel fails — for example the reply topic is never assigned within the configured
+timeout — the request is now reported as a failure **without** being published. Before, it was published first and then
+reported as a failure.
+
+- Reported results are unchanged: the same KO, the same error message, and the same response-time span.
+- What changes is that your system under test no longer receives a request whose reply the plugin could never have matched.
+- If a simulation depended on that request reaching the broker despite the failure, it will now see one fewer record on that
+  path.
+
+Reported response times are unchanged in both directions: a successful request-reply is still measured from the producer's
+acknowledgement to the reply arriving, and a failed one still spans the request's start to failure detection.
+
 ### Upgrading to `1.0.0` from `0.22.x` / RC
 
 #### Protocol-level topic API removed

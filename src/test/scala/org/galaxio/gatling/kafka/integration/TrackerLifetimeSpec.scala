@@ -228,13 +228,6 @@ class TrackerLifetimeSpec extends munit.FunSuite with TestContainerForAll {
     assert(latch.await(30, TimeUnit.SECONDS), s"producing onto $topic never completed")
   }
 
-  /** Sends one request and drives it to a logged response, returning the wall-clock time it took.
-    *
-    * The reply is re-published while waiting. That is not impatience: a reply which arrives before its own request finishes
-    * registering is dropped silently (issue #191, out of scope here), and on a first use the registration can be a full
-    * assignment stall away. Re-publishing keeps these tests measuring channel lifetime instead of that unrelated race, and it
-    * costs nothing — a reply that matches no pending request is discarded, which is exactly what FR-008 requires.
-    */
   private def send(run: Run, name: String, requestTopic: String, replyTopic: String, key: String): Unit =
     run.action.sendKafkaMessage(name, message(requestTopic, replyTopic, key), session)
 
@@ -257,6 +250,17 @@ class TrackerLifetimeSpec extends munit.FunSuite with TestContainerForAll {
     found
   }
 
+  /** Re-publishes the reply until the request is reported.
+    *
+    * A property of the harness, not a workaround for a product defect. There is no responder here, and `send` returns as soon
+    * as the request is handed off — the request itself is only published once the reply channel has been established, which on
+    * a first use is a full assignment stall away. A reply produced before that has nothing subscribed to receive it and is
+    * simply never delivered, however correct the plugin is.
+    *
+    * It used to cover for issue #191 as well, where a reply arriving before its own request finished registering was dropped
+    * silently. That half is gone: registration now precedes the send, so a reply produced after the channel exists is always
+    * matched.
+    */
   private def driveReply(
       run: Run,
       name: String,

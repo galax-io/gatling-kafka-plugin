@@ -1,17 +1,23 @@
 package org.galaxio.gatling.kafka.client
 
-import io.gatling.commons.stats.KO
+import io.gatling.commons.stats.{KO, OK, Status}
 import io.gatling.commons.util.Clock
 import io.gatling.core.action.Action
 import io.gatling.core.actor.{Actor, ActorSystem}
 import io.gatling.core.session.Session
 import io.gatling.core.stats.RecordingStatsEngine
-import org.galaxio.gatling.kafka.client.KafkaMessageTracker.{ConsumerFailure, MessageConsumed, MessagePublished}
+import org.galaxio.gatling.kafka.client.KafkaMessageTracker.{
+  ConsumerFailure,
+  MessageAcked,
+  MessageConsumed,
+  MessagePublished,
+  SendFailed,
+}
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaKeyMatcher
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 
 import java.nio.charset.StandardCharsets
-import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 
 class KafkaMessageTrackerSpec extends munit.FunSuite {
 
@@ -163,6 +169,129 @@ class KafkaMessageTrackerSpec extends munit.FunSuite {
       assert(!scanIsArmed(tracker), "an unarmed tracker must still be unarmed after Stop")
       assertEquals(statsEngine.responses.get().size, 0, "stopping an unarmed tracker must not report anything")
     }
+  }
+
+  // Issue #191. Registration now happens before the send, so a reply and its own acknowledgement can
+  // arrive in either order. These drive the behaviour directly, which is deterministic — the broker-level
+  // race is covered by ReplyRegistrationRaceSpec.
+  private def replyFor(key: String): MessageConsumed =
+    MessageConsumed(
+      received = 5_000L,
+      message = KafkaProtocolMessage(
+        key = key.getBytes(StandardCharsets.UTF_8),
+        value = "reply".getBytes(StandardCharsets.UTF_8),
+        producerTopic = "reply-topic",
+        consumerTopic = "reply-topic",
+      ),
+    )
+
+  private def published(next: Action, replyTimeout: Long, requestStart: Long): MessagePublished =
+    MessagePublished(
+      matchId = "match-race".getBytes(StandardCharsets.UTF_8),
+      sentTimestamp = requestStart,
+      replyTimeout = replyTimeout,
+      checks = Nil,
+      session = Session("scenario", 1L, null),
+      next = next,
+      requestName = "request-reply",
+    )
+
+  test("a reply arriving before its own acknowledgement is reported at once, not held") {
+    val statsEngine = new RecordingStatsEngine
+    val next        = new RecordingAction("next")
+    val tracker     =
+      new KafkaMessageTracker[Array[Byte], Array[Byte]]("tracker", statsEngine, new StubClock(9_000L), KafkaKeyMatcher, None)
+    val behavior    = tracker.init()
+
+    // The order this feature exists for: registered, answered, and only then acknowledged. Before the
+    // fix the request was not registered until the acknowledgement, so the reply found nothing and was
+    // dropped — the request then failed on its reply timeout with no sign a reply had ever arrived.
+    behavior(published(next, replyTimeout = 0L, requestStart = 1_000L))
+    behavior(replyFor("match-race"))
+
+    val responses = statsEngine.responses.get()
+    assertEquals(responses.size, 1, "a reply that arrived must be reported, never withheld pending another message")
+    assertEquals(responses.head.status, (OK: Status))
+    assertEquals(
+      responses.head.startTimestamp,
+      1_000L,
+      "with no acknowledgement yet, the request's own start is used rather than losing the reply",
+    )
+    assertEquals(responses.head.endTimestamp, 5_000L)
+
+    // The acknowledgement arrives for a request that is already complete. It must not resurrect the
+    // record, or nothing would ever resolve it and it would report a second, spurious timeout.
+    behavior(MessageAcked("match-race".getBytes(StandardCharsets.UTF_8), sentTimestamp = 2_000L))
+    assertEquals(statsEngine.responses.get().size, 1, "a late acknowledgement must not re-register a completed request")
+  }
+
+  test("a reply arriving after its acknowledgement is reported immediately, from the acknowledgement") {
+    val statsEngine = new RecordingStatsEngine
+    val next        = new RecordingAction("next")
+    val tracker     =
+      new KafkaMessageTracker[Array[Byte], Array[Byte]]("tracker", statsEngine, new StubClock(9_000L), KafkaKeyMatcher, None)
+    val behavior    = tracker.init()
+
+    behavior(published(next, replyTimeout = 0L, requestStart = 1_000L))
+    behavior(MessageAcked("match-race".getBytes(StandardCharsets.UTF_8), sentTimestamp = 2_000L))
+    behavior(replyFor("match-race"))
+
+    val responses = statsEngine.responses.get()
+    assertEquals(responses.size, 1)
+    assertEquals(responses.head.status, (OK: Status))
+    assertEquals(responses.head.startTimestamp, 2_000L)
+    assertEquals(responses.head.endTimestamp, 5_000L)
+  }
+
+  test("a request whose acknowledgement never arrives still times out, measured from its start") {
+    // Needs an ActorSystem: a positive reply timeout arms the periodic scan, which touches `scheduler`.
+    withActorSystem { actorSystem =>
+      val statsEngine = new RecordingStatsEngine
+      val next        = new RecordingAction("next")
+      val ref         = actorSystem.actorOf(
+        KafkaMessageTracker
+          .actor[Array[Byte], Array[Byte]]("tracker", statsEngine, new StubClock(9_000L), KafkaKeyMatcher, None),
+      )
+
+      // Registered at 1_000 with a 5 s timeout and never acknowledged; the clock is at 9_000. Measuring
+      // from the acknowledgement would leave this pending forever, because there is none.
+      ref ! published(next, replyTimeout = 5_000L, requestStart = 1_000L)
+      ref ! KafkaMessageTracker.TimeoutScan
+      Thread.sleep(500)
+
+      val responses = statsEngine.responses.get()
+      assertEquals(responses.size, 1, "a request stuck without an acknowledgement must still time out")
+      assertEquals(responses.head.status, (KO: Status))
+      assertEquals(responses.head.startTimestamp, 1_000L)
+      assertEquals(responses.head.message, Some("Reply timeout after 5000 ms"))
+    }
+  }
+
+  test("a delivery failure removes the pending request, reports KO, and releases the channel once") {
+    val statsEngine = new RecordingStatsEngine
+    val next        = new RecordingAction("next")
+    val released    = new AtomicInteger(0)
+    val tracker     =
+      new KafkaMessageTracker[Array[Byte], Array[Byte]]("tracker", statsEngine, new StubClock(4_000L), KafkaKeyMatcher, None)
+    val behavior    = tracker.init()
+
+    behavior(
+      published(next, replyTimeout = 0L, requestStart = 1_000L)
+        .copy(onComplete = () => { released.incrementAndGet(); () }),
+    )
+    behavior(SendFailed("match-race".getBytes(StandardCharsets.UTF_8), "Broker unavailable"))
+
+    val responses = statsEngine.responses.get()
+    assertEquals(responses.size, 1)
+    assertEquals(responses.head.status, (KO: Status))
+    assertEquals(responses.head.startTimestamp, 1_000L, "a failed request spans its start to failure detection")
+    assertEquals(responses.head.endTimestamp, 4_000L)
+    assertEquals(responses.head.message, Some("Broker unavailable"))
+    assertEquals(released.get(), 1, "the channel reference acquisition took must be released exactly once")
+
+    // The record is gone, so a late reply for it matches nothing and stays silent.
+    behavior(replyFor("match-race"))
+    assertEquals(statsEngine.responses.get().size, 1, "a reply for a failed send must not be reported")
   }
 
   private final class StubClock(now: Long) extends Clock {
