@@ -46,12 +46,14 @@ jobs:
           KAFKA_INTER_BROKER_LISTENER_NAME: BROKER
           KAFKA_BROKER_ID: "1"
           KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
-          # Mirrors docker-compose.kafka.yml: Kafka's 3s default delays the first assignment of every
-          # new consumer group past the point where KafkaGatlingTest's scenarios publish each other's
-          # replies, which fails the simulation. This is the only setting the two stacks agree on —
-          # broker and Schema Registry generations still differ; consolidating them is issue #192.
+          # Mirrors docker-compose.kafka.yml. Kept at 0 to keep the simulations quick, but no longer
+          # required: KafkaGatlingTest's replies now come from a real echo responder (#196) and its
+          # reply channel is established before the request is sent (#191), so an immediate reply is
+          # received whatever the delay. Verified green over three runs with Kafka's 3000 default.
+          # This is the only setting the two stacks agree on — broker and Schema Registry generations
+          # still differ; consolidating them is issue #192.
           KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
-          KAFKA_CREATE_TOPICS: "myTopic1:1:1, test.t1:1:1, myTopic2:1:1, test.t2:1:1, myTopic3:1:1, test.t3:1:1"
+          KAFKA_CREATE_TOPICS: "myTopic1:1:1, test.t1:1:1, myTopic2:1:1, test.t2:1:1, myTopic3:1:1, test.t3:1:1, myTopic4:1:1"
         ports:
           - '9092:9092'
           - '9093:9093'
