@@ -56,7 +56,22 @@ final class KafkaMessageTrackerPool(
     actorSystem: ActorSystem,
     statsEngine: StatsEngine,
     clock: Clock,
+    initializationTimeout: FiniteDuration,
 ) extends KafkaLogging with NameGen with KafkaSerdesImplicits {
+
+  /** The published four-argument constructor, preserved exactly.
+    *
+    * The five-argument form has to be the primary one, because `consumer` below is built in the constructor body and needs the
+    * wait; a secondary constructor cannot introduce a field the primary lacks. Declaring the four-argument form here keeps its
+    * JVM `<init>` signature, so anything compiled against the current release still links — which is what matters, since this
+    * is a bug fix and must not force a major version. Only tests pass a wait; production takes the 90 s default (issue #143).
+    */
+  def this(
+      consumerSettings: Map[String, AnyRef],
+      actorSystem: ActorSystem,
+      statsEngine: StatsEngine,
+      clock: Clock,
+  ) = this(consumerSettings, actorSystem, statsEngine, clock, DynamicKafkaConsumer.defaultInitializationTimeout)
 
   /** How long a reply channel may sit with nothing in flight before it is released.
     *
@@ -119,7 +134,7 @@ final class KafkaMessageTrackerPool(
   }
 
   private val consumer: DynamicKafkaConsumer[Array[Byte], Array[Byte]] =
-    DynamicKafkaConsumer(
+    DynamicKafkaConsumer.withInitializationTimeout(
       if (consumerSettings.contains(ConsumerConfig.GROUP_ID_CONFIG))
         consumerSettings
       else
@@ -152,6 +167,7 @@ final class KafkaMessageTrackerPool(
           trackers.clear()
         }
       },
+      initializationTimeout,
     )
 
   // One sweep per pool, not a timer per tracker. Off both the producer callback and the consumer poll

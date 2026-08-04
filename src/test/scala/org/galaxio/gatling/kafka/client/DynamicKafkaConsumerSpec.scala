@@ -1,7 +1,9 @@
 package org.galaxio.gatling.kafka.client
 
 import java.util.concurrent.atomic.AtomicReference
-import java.util.concurrent.{CompletableFuture, ExecutionException, TimeUnit, TimeoutException}
+import java.util.concurrent.{CompletableFuture, CopyOnWriteArrayList, ExecutionException, TimeUnit, TimeoutException}
+import scala.concurrent.duration.{DurationInt, FiniteDuration}
+import scala.jdk.CollectionConverters._
 
 class DynamicKafkaConsumerSpec extends munit.FunSuite {
 
@@ -104,6 +106,74 @@ class DynamicKafkaConsumerSpec extends munit.FunSuite {
       assertEquals(causeOf(readiness).getCause.getMessage, "boom")
     } finally {
       consumer.close()
+    }
+  }
+
+  // Issue #143. The initialization wait starts when the pool is built, before any virtual user runs, so
+  // a simulation that ramps or warms up before its first request-reply reaches its expiry with nothing
+  // requested. The expiry used to fall through into a poll on a consumer that had never subscribed,
+  // which threw and latched a failure that poisoned every tracker for the rest of the run.
+  private def newConsumerWithInitWait(
+      onFailure: Exception => Unit,
+      initializationTimeout: FiniteDuration,
+  ): DynamicKafkaConsumer[Array[Byte], Array[Byte]] =
+    DynamicKafkaConsumer.withInitializationTimeout[Array[Byte], Array[Byte]](
+      Map(
+        "bootstrap.servers"  -> "localhost:0",
+        "key.deserializer"   -> "org.apache.kafka.common.serialization.ByteArrayDeserializer",
+        "value.deserializer" -> "org.apache.kafka.common.serialization.ByteArrayDeserializer",
+      ),
+      Set.empty,
+      _ => (),
+      onFailure,
+      initializationTimeout,
+    )
+
+  private def runningConsumer(
+      consumer: DynamicKafkaConsumer[Array[Byte], Array[Byte]],
+  )(body: => Unit): Unit = {
+    val thread = new Thread(consumer, "init-wait-expiry")
+    thread.setDaemon(true)
+    thread.start()
+    try body
+    finally {
+      consumer.close()
+      thread.join(10_000)
+      assert(!thread.isAlive, "the consumer thread must exit after close")
+    }
+  }
+
+  test("the initialization wait expiring with no topic requested neither throws nor fails the consumer") {
+    val failures = new CopyOnWriteArrayList[Exception]()
+    val consumer = newConsumerWithInitWait(failures.add(_), 100.millis)
+
+    runningConsumer(consumer) {
+      // An order of magnitude past the wait, so the loop has taken many turns with nothing subscribed.
+      Thread.sleep(1_000)
+
+      assertEquals(
+        failures.asScala.map(_.getMessage).toList,
+        Nil,
+        "expiry of the initialization wait must not report a failure",
+      )
+      assertEquals(failureRef(consumer).get(), null, "expiry must not latch a consumer failure")
+    }
+  }
+
+  test("a topic requested after the initialization wait expired is still accepted") {
+    val failures = new CopyOnWriteArrayList[Exception]()
+    val consumer = newConsumerWithInitWait(failures.add(_), 100.millis)
+
+    runningConsumer(consumer) {
+      Thread.sleep(1_000)
+
+      val readiness = consumer.requestTopicSubscription("late-topic")
+
+      assert(
+        !readiness.isCompletedExceptionally,
+        "a topic requested long after the wait expired must not be refused",
+      )
+      assertEquals(failures.size(), 0, "accepting a late topic must not report a failure")
     }
   }
 

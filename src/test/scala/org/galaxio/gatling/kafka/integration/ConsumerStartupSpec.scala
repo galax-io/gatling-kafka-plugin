@@ -1,0 +1,132 @@
+package org.galaxio.gatling.kafka.integration
+
+import com.dimafeng.testcontainers.ConfluentKafkaContainer
+import com.dimafeng.testcontainers.munit.TestContainerForAll
+import io.gatling.commons.util.Clock
+import io.gatling.core.actor.ActorSystem
+import io.gatling.core.stats.RecordingStatsEngine
+import org.apache.kafka.clients.admin.{AdminClient, AdminClientConfig, NewTopic}
+import org.apache.kafka.clients.consumer.ConsumerConfig
+import org.apache.kafka.common.serialization.ByteArrayDeserializer
+import org.galaxio.gatling.kafka.client.KafkaMessageTrackerPool
+import org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaKeyMatcher
+
+import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.{CountDownLatch, TimeUnit}
+import scala.concurrent.duration.{DurationInt, FiniteDuration}
+import scala.jdk.CollectionConverters._
+
+/** Startup coverage for issue #143 — the shared reply-receiving machinery must not fail merely because no reply topic was
+  * requested while its initialization wait ran.
+  *
+  * The wait starts when `KafkaMessageTrackerPool` is built, and the pool is built by `ProtocolKey.newComponents` for any
+  * protocol carrying `bootstrap.servers` in its consume settings — before a single virtual user runs. So the clock runs against
+  * wall time from simulation start, not against first use, and any ramp, warm-up or `nothingFor` longer than the wait used to
+  * reach `poll()` on a consumer that had never subscribed. That threw, `markConsumerFailed` latched it, and every later
+  * `acquireTracker` failed with "Kafka consumer failed; tracker pool can no longer be used" for the rest of the run.
+  *
+  * The wait is shortened here through the pool's five-argument constructor rather than by mutating a shared constant, so these
+  * tests cannot leak a value into any other suite.
+  */
+class ConsumerStartupSpec extends munit.FunSuite with TestContainerForAll {
+
+  override val containerDef: ConfluentKafkaContainer.Def = ConfluentKafkaContainer.Def()
+
+  /** Long enough that the expiry is unambiguous, short enough that the suite stays quick. */
+  private val InitWait: FiniteDuration = 500.millis
+
+  /** How far past the expiry the tests wait before asserting. Many idle loop turns, all of which used to be one throw. */
+  private val WellPastExpiry: FiniteDuration = 3.seconds
+
+  private def consumerSettings(bootstrap: String): Map[String, AnyRef] = Map(
+    ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG        -> bootstrap,
+    ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG   -> classOf[ByteArrayDeserializer].getName,
+    ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG -> classOf[ByteArrayDeserializer].getName,
+    ConsumerConfig.AUTO_OFFSET_RESET_CONFIG        -> "earliest",
+  )
+
+  private def createTopic(bootstrap: String, name: String): Unit = {
+    val admin = AdminClient.create(
+      Map[String, AnyRef](AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG -> bootstrap).asJava,
+    )
+    try admin.createTopics(List(new NewTopic(name, 1, 1.toShort)).asJava).all().get(30, TimeUnit.SECONDS)
+    finally admin.close()
+  }
+
+  private final class SystemClock extends Clock {
+    override def nowMillis: Long = System.currentTimeMillis()
+  }
+
+  private def withPool(bootstrap: String)(body: KafkaMessageTrackerPool => Unit): Unit = {
+    val actorSystem = new ActorSystem()
+    try {
+      val pool = new KafkaMessageTrackerPool(
+        consumerSettings(bootstrap),
+        actorSystem,
+        new RecordingStatsEngine,
+        new SystemClock,
+        InitWait,
+      )
+      body(pool)
+    } finally actorSystem.close()
+  }
+
+  test("a reply topic requested long after the initialization wait expired is still served") {
+    withContainers { kafka =>
+      val bootstrap  = kafka.bootstrapServers
+      val replyTopic = "startup-late-reply"
+      createTopic(bootstrap, replyTopic)
+
+      withPool(bootstrap) { pool =>
+        // Nothing is requested while the wait runs — the shape of a ramp, a warm-up, or a produce-only
+        // phase ahead of the request-reply one.
+        Thread.sleep(WellPastExpiry.toMillis)
+
+        val ready   = new CountDownLatch(1)
+        val failure = new AtomicReference[Throwable]()
+
+        pool.acquireTracker(
+          producerTopic = "startup-late-request",
+          consumerTopic = replyTopic,
+          messageMatcher = KafkaKeyMatcher,
+          responseTransformer = None,
+          timeout = 60.seconds,
+        )(
+          _ => ready.countDown(),
+          error => { failure.set(error); ready.countDown() },
+        )
+
+        assert(
+          ready.await(90, TimeUnit.SECONDS),
+          "acquisition after the initialization wait expired never reported an outcome",
+        )
+        assertEquals(
+          Option(failure.get()).map(_.getMessage),
+          None,
+          "the first reply topic requested after the wait expired must be served, not refused",
+        )
+      }
+    }
+  }
+
+  test("a pool that is built and never used reports no consumer failure") {
+    withContainers { kafka =>
+      // A protocol declaring consumeSettings for scenarios that never perform request-reply builds a
+      // pool anyway. Before the fix it failed at the wait's expiry and logged a consumer failure on a
+      // pool nobody had touched.
+      withPool(kafka.bootstrapServers) { pool =>
+        Thread.sleep(WellPastExpiry.toMillis)
+
+        val failureField    = classOf[KafkaMessageTrackerPool].getDeclaredField("consumerFailure")
+        failureField.setAccessible(true)
+        val consumerFailure = failureField.get(pool).asInstanceOf[AtomicReference[Exception]].get()
+
+        assertEquals(
+          Option(consumerFailure).map(_.getMessage),
+          None,
+          "an unused pool must not latch a consumer failure when its initialization wait expires",
+        )
+      }
+    }
+  }
+}

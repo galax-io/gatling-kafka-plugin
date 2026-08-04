@@ -11,7 +11,7 @@ import java.util.Properties
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 import java.util.concurrent.{CompletableFuture, ConcurrentHashMap, ConcurrentLinkedQueue, CountDownLatch}
 import scala.collection.mutable
-import scala.concurrent.duration.DurationInt
+import scala.concurrent.duration.{DurationInt, FiniteDuration}
 import scala.jdk.CollectionConverters._
 
 object DynamicKafkaConsumer {
@@ -21,12 +21,38 @@ object DynamicKafkaConsumer {
       topics: Set[String],
       onRecord: ConsumerRecord[K, V] => Unit,
       onFailure: Exception => Unit,
-  ): DynamicKafkaConsumer[K, V]     = {
+  ): DynamicKafkaConsumer[K, V] =
+    withInitializationTimeout(settingsMap, topics, onRecord, onFailure, defaultInitializationTimeout)
+
+  /** Same as `apply`, with the initialization wait supplied so a test can drive its expiry without waiting the production
+    * duration (issue #143).
+    *
+    * Deliberately not an overload of `apply`: a second `apply` makes overload resolution run before the expected type reaches
+    * the callback arguments, so existing call sites that let the lambdas infer — `_ => ()` — stop compiling. A distinct name
+    * keeps inference intact and leaves the published four-argument entry point byte-identical. A default parameter would have
+    * been source-compatible but binary-incompatible, which is worse for a published artifact.
+    */
+  private[kafka] def withInitializationTimeout[K, V](
+      settingsMap: Map[String, AnyRef],
+      topics: Set[String],
+      onRecord: ConsumerRecord[K, V] => Unit,
+      onFailure: Exception => Unit,
+      initializationTimeout: FiniteDuration,
+  ): DynamicKafkaConsumer[K, V] = {
     val settings = new Properties()
     settings.putAll(settingsMap.asJava)
-    new DynamicKafkaConsumer[K, V](settings, topics, onRecord, onFailure)
+    new DynamicKafkaConsumer[K, V](settings, topics, onRecord, onFailure, initializationTimeout)
   }
-  private val initializationTimeout = 90.seconds
+
+  private[client] val defaultInitializationTimeout: FiniteDuration = 90.seconds
+
+  /** How long a turn waits when the consumer has nothing to receive on.
+    *
+    * Short rather than the poll interval: `close()` cannot interrupt this the way `wakeup()` interrupts a poll, so it is also
+    * the worst-case shutdown delay and the worst-case delay before a newly requested topic is subscribed. Costing a wakeup
+    * every 50 ms on one thread, only while there is literally nothing to fetch, buys both.
+    */
+  private val idleBackoffMillis: Long = 50L
 
   private[client] val consumerFailedMessage = "Kafka consumer failed; dynamic consumer can no longer be used"
   private[client] val consumerClosedMessage = "Kafka consumer is closed; topic subscription will not complete"
@@ -37,6 +63,7 @@ final class DynamicKafkaConsumer[K, V] private (
     topics: Set[String],
     onRecord: ConsumerRecord[K, V] => Unit,
     onFailure: Exception => Unit,
+    initializationTimeout: FiniteDuration,
 ) extends Runnable with AutoCloseable with StrictLogging {
 
   private val topicsQueue: java.util.Queue[(String, CompletableFuture[Void])] =
@@ -200,20 +227,46 @@ final class DynamicKafkaConsumer[K, V] private (
     completeAssignedReadiness()
   }
 
+  /** True exactly when `poll` would throw "Consumer is not subscribed to any topics or assigned any partitions".
+    *
+    * Reads the consumer's own state, so it is valid only on the consumer thread.
+    */
+  private def hasNothingToReceiveOn: Boolean =
+    consumer.subscription().isEmpty && consumer.assignment().isEmpty
+
   override def run(): Unit = {
     try {
-      val timeout = DynamicKafkaConsumer.initializationTimeout
-      this.initLatch.await(timeout.length, timeout.unit)
+      val topicRequested = this.initLatch.await(initializationTimeout.length, initializationTimeout.unit)
+      if (!topicRequested) {
+        // Neither an error nor a failure. The wait starts when the pool is built — before any virtual user
+        // runs — so any simulation that ramps, warms up, or simply reaches request-reply late arrives here
+        // with nothing requested yet. Logged because the expiry was previously silent and the crash it used
+        // to cause named nothing about it (issue #143).
+        logger.debug(
+          "Initialization wait of {} expired with no reply topic requested; staying idle until one is",
+          initializationTimeout,
+        )
+      }
       updateSubscription()
       while (running.get) {
-        val records = this.consumer.poll(Duration.ofMillis(1000))
-        records.forEach(record =>
-          try this.onRecord(record)
-          catch {
-            case e: Exception =>
-              this.onFailure(e)
-          },
-        )
+        // A consumer holding neither a subscription nor an assignment throws on poll, and that exception
+        // reaches markConsumerFailed, which poisons every tracker in the pool for the rest of the run
+        // (issue #143). Nothing can arrive for a consumer in that state anyway, so the turn is spent
+        // waiting for a subscription request rather than fetching. The complementary guard is in
+        // updateSubscription, which refuses to shrink a subscription to nothing; this one covers the
+        // subscription that was never established, which that guard cannot.
+        if (hasNothingToReceiveOn) {
+          Thread.sleep(DynamicKafkaConsumer.idleBackoffMillis)
+        } else {
+          val records = this.consumer.poll(Duration.ofMillis(1000))
+          records.forEach(record =>
+            try this.onRecord(record)
+            catch {
+              case e: Exception =>
+                this.onFailure(e)
+            },
+          )
+        }
         updateSubscription()
       }
     } catch {
