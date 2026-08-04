@@ -4,7 +4,7 @@ import io.gatling.commons.stats.{KO, OK, Status}
 import io.gatling.commons.util.Clock
 import io.gatling.commons.validation.Failure
 import io.gatling.core.action.Action
-import io.gatling.core.actor.{Actor, Behavior}
+import io.gatling.core.actor.{Actor, Behavior, Cancellable}
 import io.gatling.core.check.Check
 import io.gatling.core.session.Session
 import io.gatling.core.stats.StatsEngine
@@ -79,6 +79,20 @@ object KafkaMessageTracker {
 
   final case class ConsumerFailure(errorMessage: String) extends TrackerMessage
 
+  /** Asks the tracker to cancel its periodic timeout scan and stop accepting work, giving `reason` to anything that arrives
+    * afterwards.
+    *
+    * Sent by [[KafkaMessageTrackerPool]] once the reply channel this tracker belongs to has been released. It exists because
+    * Gatling's `ActorSystem` offers no way to stop an actor from outside — `die` is an `Effect` reachable only from the actor's
+    * own behaviour — so stopping has to be asked for (issue #166).
+    *
+    * The tracker does not simply `die`. A registration can still be in flight from another thread when this arrives — the pool
+    * checks for consumer failure before handing a tracker over, and the consumer can fail in the gap — and `die` drops whatever
+    * follows, so that virtual user would get no success, no failure and no continuation at all. `reason` is what it is failed
+    * with instead.
+    */
+  private[client] final case class Stop(reason: String) extends TrackerMessage
+
   /** Package-visible so a spec can drive one scan deterministically, rather than waiting on the scheduler. */
   private[client] final case object TimeoutScan extends TrackerMessage
 
@@ -113,14 +127,21 @@ class KafkaMessageTracker[K, V](
   private val sentMessages     = mutable.HashMap.empty[MatchKey, MessagePublished]
   private val timedOutMessages = mutable.ArrayBuffer.empty[MessagePublished]
 
-  private var periodicTimeoutScanTriggered = false
+  /** The periodic timeout scan, once something with a reply timeout has been published.
+    *
+    * Retained rather than discarded so [[KafkaMessageTracker.Stop]] can cancel it. The handle held nothing before, which meant
+    * the scan outlived every channel that ever armed one: it captures `self`, so the tracker — and with it the stats engine,
+    * the clock and the matcher closures — stayed reachable from the actor system's scheduler, and that scheduler is a single
+    * thread shared by the whole simulation, so each leaked scan also cost one wakeup per second for the rest of the run (issue
+    * #166).
+    */
+  private var periodicTimeoutScan: Option[Cancellable] = None
 
   private def triggerPeriodicTimeoutScan(): Unit =
-    if (!periodicTimeoutScanTriggered) {
-      periodicTimeoutScanTriggered = true
-      scheduler.scheduleAtFixedRate(1000.millis) {
+    if (periodicTimeoutScan.isEmpty) {
+      periodicTimeoutScan = Some(scheduler.scheduleAtFixedRate(1000.millis) {
         self ! TimeoutScan
-      }
+      })
     }
 
   /** Reports a matched reply, whether or not the acknowledgement has landed yet. The caller has already removed the record. */
@@ -256,6 +277,36 @@ class KafkaMessageTracker[K, V](
           failPending(p, now, None, s"Reply timeout after ${p.replyTimeout} ms")
         }
       finally timedOutMessages.clear()
+      stay
+
+    case Stop(reason) =>
+      // Cancelling matters as much as stopping: the scan captures `self`, and Gatling's scheduler is one
+      // thread shared by the whole simulation, so a scan left running keeps firing at a tracker nobody
+      // holds any more and keeps it reachable — the leak would survive almost intact (issue #166).
+      periodicTimeoutScan.foreach(_.cancel())
+      periodicTimeoutScan = None
+      // Anything still pending belongs to a channel that is going away; fail it here rather than leaving
+      // it for a scan that has just been cancelled.
+      val now     = clock.nowMillis
+      val pending = sentMessages.values.toList
+      sentMessages.clear()
+      pending.foreach(failPending(_, now, None, reason))
+      become(stopped(reason))
+  }
+
+  /** Behaviour after [[Stop]]: the channel is gone, but a registration may still be in flight from another thread.
+    *
+    * Gatling's `die` would drop it, and the virtual user behind it would get no success, no failure and no continuation — it
+    * would simply hang for the rest of the run. Failing it costs one stats entry and keeps the "exactly one outcome per
+    * request" contract that the rest of this actor maintains.
+    */
+  private def stopped(reason: String): Behavior[TrackerMessage] = {
+    case messageSent: MessagePublished =>
+      failPending(messageSent, clock.nowMillis, None, reason)
+      stay
+
+    case other =>
+      logger.debug("Dropping {} on a released tracker", other.getClass.getSimpleName)
       stay
   }
 

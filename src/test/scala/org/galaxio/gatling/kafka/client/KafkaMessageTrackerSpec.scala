@@ -3,7 +3,7 @@ package org.galaxio.gatling.kafka.client
 import io.gatling.commons.stats.{KO, OK, Status}
 import io.gatling.commons.util.Clock
 import io.gatling.core.action.Action
-import io.gatling.core.actor.ActorSystem
+import io.gatling.core.actor.{Actor, ActorSystem}
 import io.gatling.core.session.Session
 import io.gatling.core.stats.RecordingStatsEngine
 import org.galaxio.gatling.kafka.client.KafkaMessageTracker.{ConsumerFailure, MessageConsumed, MessagePublished, SendFailed}
@@ -86,6 +86,113 @@ class KafkaMessageTrackerSpec extends munit.FunSuite {
     val actorSystem = new ActorSystem()
     try body(actorSystem)
     finally actorSystem.close()
+  }
+
+  /** Whether the tracker is still holding an armed timeout scan.
+    *
+    * Read off the actor instance rather than off Gatling's scheduler: the scheduler is an
+    * `Executors.newSingleThreadScheduledExecutor`, whose ScheduledThreadPoolExecutor sits behind a JDK-internal delegate that
+    * JDK 17 will not open to reflection, so its queue cannot be counted from a test.
+    *
+    * Behaviour alone cannot distinguish the two halves of the fix. `die` swaps the behaviour to one that drops messages, so a
+    * scan left running still produces nothing observable — it just keeps firing at a dead actor once a second, on a scheduler
+    * thread shared by the whole simulation, holding the tracker reachable. That is the leak, and this is what shows it.
+    */
+  private def scanIsArmed(tracker: Actor[KafkaMessageTracker.TrackerMessage]): Boolean = {
+    val field = tracker.getClass.getDeclaredField("periodicTimeoutScan")
+    field.setAccessible(true)
+    field.get(tracker).asInstanceOf[Option[_]].isDefined
+  }
+
+  private def publishedWithTimeout(
+      next: Action,
+      session: Session,
+      replyTimeout: Long,
+  ): MessagePublished =
+    MessagePublished(
+      matchId = "match-stop".getBytes(StandardCharsets.UTF_8),
+      sentTimestamp = 0L,
+      replyTimeout = replyTimeout,
+      checks = Nil,
+      session = session,
+      next = next,
+      requestName = "request-reply",
+    )
+
+  test("Stop cancels the periodic timeout scan and stops the tracker") {
+    withActorSystem { actorSystem =>
+      val statsEngine = new RecordingStatsEngine
+      // Far enough ahead that the pending request below is already past its 50 ms reply timeout, so any
+      // scan that still ran would have something to report.
+      val clock       = new StubClock(10_000L)
+      val next        = new RecordingAction("next")
+      val tracker     =
+        KafkaMessageTracker.actor[Array[Byte], Array[Byte]]("tracker", statsEngine, clock, KafkaKeyMatcher, None)
+      val ref         = actorSystem.actorOf(tracker)
+
+      ref ! publishedWithTimeout(next, Session("scenario", 1L, null), replyTimeout = 50L)
+      Thread.sleep(300)
+      assert(scanIsArmed(tracker), "a request with a reply timeout must arm the periodic scan")
+
+      ref ! KafkaMessageTracker.Stop("released by test")
+      Thread.sleep(300)
+
+      assert(
+        !scanIsArmed(tracker),
+        "Stop must cancel the periodic scan: leaving it armed keeps firing at a dead actor once a second " +
+          "for the rest of the run and holds the tracker reachable, which is the leak in issue #166",
+      )
+      // The scan that would otherwise have timed this request out has just been cancelled, so Stop has
+      // to resolve it here. Dropping it would leave the virtual user with no outcome at all.
+      val responses = statsEngine.responses.get()
+      assertEquals(responses.size, 1, "a request pending when the tracker is stopped must still be reported")
+      assertEquals(responses.head.status, (KO: Status))
+      assertEquals(responses.head.message, Some("released by test"))
+      assert(next.lastSession.get() != null, "the virtual user behind it must still be advanced")
+    }
+  }
+
+  test("Stop is safe on a tracker that never armed a timeout scan") {
+    withActorSystem { actorSystem =>
+      val statsEngine = new RecordingStatsEngine
+      val next        = new RecordingAction("next")
+      val tracker     = KafkaMessageTracker
+        .actor[Array[Byte], Array[Byte]]("tracker", statsEngine, new StubClock(1_000L), KafkaKeyMatcher, None)
+      val ref         = actorSystem.actorOf(tracker)
+
+      // replyTimeout 0 never arms a scan, so Stop has nothing to cancel — but the pending request still
+      // has to be resolved, and with no scan there is nothing else that ever could.
+      ref ! publishedWithTimeout(next, Session("scenario", 1L, null), replyTimeout = 0L)
+      ref ! KafkaMessageTracker.Stop("released by test")
+      Thread.sleep(500)
+
+      assert(!scanIsArmed(tracker), "an unarmed tracker must still be unarmed after Stop")
+      assertEquals(statsEngine.responses.get().size, 1, "a request with no timeout must still be resolved by Stop")
+    }
+  }
+
+  test("a registration that races Stop is failed, not dropped") {
+    withActorSystem { actorSystem =>
+      val statsEngine = new RecordingStatsEngine
+      val next        = new RecordingAction("next")
+      val ref         = actorSystem.actorOf(
+        KafkaMessageTracker
+          .actor[Array[Byte], Array[Byte]]("tracker", statsEngine, new StubClock(1_000L), KafkaKeyMatcher, None),
+      )
+
+      // The pool checks for consumer failure before handing a tracker over and the consumer can fail in
+      // the gap, so a registration can legitimately arrive after Stop. Gatling's `die` would drop it and
+      // the virtual user would hang for the rest of the run with no success and no failure.
+      ref ! KafkaMessageTracker.Stop("Consumer failure: boom")
+      ref ! publishedWithTimeout(next, Session("scenario", 1L, null), replyTimeout = 0L)
+      Thread.sleep(500)
+
+      val responses = statsEngine.responses.get()
+      assertEquals(responses.size, 1, "a registration arriving after Stop must still get an outcome")
+      assertEquals(responses.head.status, (KO: Status))
+      assertEquals(responses.head.message, Some("Consumer failure: boom"))
+      assert(next.lastSession.get() != null, "the virtual user must be advanced rather than left hanging")
+    }
   }
 
   test("a delivery failure for a superseded request does not fail the one that replaced it") {
