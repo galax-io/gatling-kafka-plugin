@@ -101,22 +101,34 @@ final class KafkaMessageTrackerPool(
   // Per-instance executor so shutdown of one pool doesn't affect other pools or subsequent simulations.
   private val consumerExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
-  // Subscription assignment can take until the reply timeout. Acquisition waits for it here instead of
-  // on the caller's thread, which is the producer's I/O callback thread and must never block.
+  private def daemonThreads(name: String): ThreadFactory =
+    (runnable: Runnable) => {
+      val thread = new Thread(runnable, name)
+      thread.setDaemon(true)
+      thread
+    }
+
+  /** Owns only scheduled work: the per-acquisition timeouts and the idle sweep. Nothing that can block runs here.
+    *
+    * Single-threaded, so anything long-running on it delays everything else on it — and what it schedules are the deadlines
+    * that bound exactly such waits. A continuation blocking here would stall the timeouts meant to fire on it.
+    */
   private val setupExecutor: ScheduledThreadPoolExecutor = {
-    val executor = new ScheduledThreadPoolExecutor(
-      1,
-      new ThreadFactory {
-        override def newThread(runnable: Runnable): Thread = {
-          val thread = new Thread(runnable, "gatling-kafka-tracker-setup")
-          thread.setDaemon(true)
-          thread
-        }
-      },
-    )
+    val executor = new ScheduledThreadPoolExecutor(1, daemonThreads("gatling-kafka-tracker-setup"))
     executor.setRemoveOnCancelPolicy(true)
     executor
   }
+
+  /** Runs the readiness continuations, which hand the record to the producer.
+    *
+    * `KafkaProducer.send` blocks up to `max.block.ms` resolving metadata or waiting for accumulator space. On the scheduler
+    * above, one such block would stall every other virtual user's acquisition, the idle sweep, and the acquisition timeouts
+    * themselves — so a request that should fail on schedule would report late, which is the tool distorting its own
+    * measurement. Cached rather than fixed: the threads are short-lived and mostly blocked, and a bounded pool would only move
+    * the head-of-line blocking rather than remove it.
+    */
+  private val continuationExecutor: ExecutorService =
+    Executors.newCachedThreadPool(daemonThreads("gatling-kafka-tracker-continuation"))
 
   private val consumer: DynamicKafkaConsumer[Array[Byte], Array[Byte]] =
     DynamicKafkaConsumer(
@@ -177,13 +189,17 @@ final class KafkaMessageTrackerPool(
     }
     idleSweep.cancel(false)
     consumerExecutor.shutdown()
-    // Closing the consumer above failed every pending readiness, and those continuations are queued
-    // here: they still have to report that failure back to the waiting virtual users, so they must
-    // not be discarded. Shutdown drops queued tasks only when their remaining delay is positive, so
-    // this policy keeps the continuations (they are queued with no delay) while dropping the
-    // acquisition timeouts, which are scheduled up to a full reply timeout out and are moot now.
-    // Leaving it at the JDK default of true would instead hold those timeouts and stall termination
-    // until the grace period below expired.
+    // Closing the consumer above failed every pending readiness, and those continuations run on the
+    // continuation executor: they still have to report that failure back to the waiting virtual users,
+    // so they are drained rather than discarded.
+    continuationExecutor.shutdown()
+    if (!continuationExecutor.awaitTermination(KafkaMessageTrackerPool.setupDrainTimeoutMillis, TimeUnit.MILLISECONDS)) {
+      logger.warn("Tracker continuation executor did not drain in time; forcing shutdown")
+      continuationExecutor.shutdownNow()
+    }
+    // The scheduler holds only acquisition timeouts, which are scheduled up to a full reply timeout out
+    // and are moot now, plus the cancelled sweep. Dropping delayed tasks stops them stalling termination
+    // until the grace period below expires; at the JDK default of true they would be held instead.
     setupExecutor.setExecuteExistingDelayedTasksAfterShutdownPolicy(false)
     setupExecutor.shutdown()
     if (!setupExecutor.awaitTermination(KafkaMessageTrackerPool.setupDrainTimeoutMillis, TimeUnit.MILLISECONDS)) {
@@ -254,10 +270,10 @@ final class KafkaMessageTrackerPool(
       return
     }
 
-    // Slow path needs the setup executor. Check it up front: once it is shut down a rejected
-    // continuation would be absorbed by the CompletableFuture that schedules it and never surface,
-    // leaving the caller with no outcome at all.
-    if (setupExecutor.isShutdown) {
+    // Slow path needs both executors. Check up front: once either is shut down a rejected continuation
+    // would be absorbed by the CompletableFuture that schedules it and never surface, leaving the
+    // caller with no outcome at all.
+    if (setupExecutor.isShutdown || continuationExecutor.isShutdown) {
       onFailure(
         new IllegalStateException(
           s"Tracker pool is shutting down; cannot start tracking topic '$consumerTopic'",
@@ -306,7 +322,7 @@ final class KafkaMessageTrackerPool(
             }
           }
         },
-        setupExecutor,
+        continuationExecutor,
       )
     } catch {
       // The pool is being torn down: the setup executor rejects new work once it is shut down.

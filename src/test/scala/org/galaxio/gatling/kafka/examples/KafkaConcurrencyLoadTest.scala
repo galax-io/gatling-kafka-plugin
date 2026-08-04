@@ -1,5 +1,6 @@
 package org.galaxio.gatling.kafka.examples
 
+import com.typesafe.scalalogging.StrictLogging
 import io.gatling.core.Predef._
 import io.gatling.core.feeder.Feeder
 import io.gatling.core.structure.ScenarioBuilder
@@ -23,7 +24,7 @@ import scala.concurrent.duration.DurationInt
   * Not wired into CI; run manually against the docker-compose.kafka.yml stack: sbt "Gatling / testOnly
   * org.galaxio.gatling.kafka.examples.KafkaConcurrencyLoadTest"
   */
-class KafkaConcurrencyLoadTest extends Simulation {
+class KafkaConcurrencyLoadTest extends Simulation with StrictLogging {
 
   private val bootstrap     = "localhost:9093"
   private val requestTopic  = "load.request"
@@ -34,28 +35,21 @@ class KafkaConcurrencyLoadTest extends Simulation {
   private val scenarioLoops = rampDuration + sustainFor + 15.seconds // outlasts the injection window
   private val probeMarker   = "_probe"
 
-  /** Known-loss budget: deliberately not zero, and now a **count** rather than a percentage.
+  /** Reply-loss budget: **zero**, now that every known source of loss is closed.
     *
-    * A reply can still be dropped while its own request is being registered: `MessagePublished` and `MessageConsumed` reach the
-    * tracker's mailbox from two different threads with no ordering between them, so a round-trip of a few milliseconds can be
-    * processed before the request it answers — see [[https://github.com/galax-io/gatling-kafka-plugin/issues/191 #191]]. That
-    * race is now the only source of loss here.
+    * The last one was [[https://github.com/galax-io/gatling-kafka-plugin/issues/191 #191]]: the pending record was created from
+    * the producer's acknowledgement callback, i.e. after the request was already answerable, so a fast responder's reply could
+    * be delivered before the request it answers had registered and be discarded silently. Registering before the send removed
+    * it structurally — a reply cannot exist before the send, and the mailbox preserves enqueue order across threads.
     *
-    * Measured against a local broker on this code, five runs: **0, 1, 1, 0 and 1 KO of ~6,760** (0–0.0148%). Before
-    * [[https://github.com/galax-io/gatling-kafka-plugin/issues/165 #165]] the same simulation lost 14–16 KO of ~6,500
-    * (0.2135–0.2470%): the tracker entry was dropped at refcount zero after every reply, and each re-registration re-armed the
-    * next loss. Holding the registration for the whole run removed that amplifier, leaving #191 on its own. Before #163 it lost
-    * ~1.4% (38 KO of 2,724, of which 7 were assignment timeouts that #163 removed outright).
-    *
-    * A count rather than a percentage because the losses are time-driven, not rate-driven — roughly one per reply-timeout
-    * cycle, so a run loses a near-fixed count whatever its throughput, and a slower machine would report a *higher* percentage
-    * for the same defect. This is the count-based ceiling the previous percentage budget recommended switching to.
-    *
-    * Headroom is one loss above the worst measured run — thin on purpose, so a regression surfaces instead of being absorbed.
-    * At the rate above that is roughly a 2% chance of a spurious red, which is the deliberate trade: this harness is run
-    * manually, not in CI, and a red run is meant to prompt a look. Tighten to 0 once #191 lands.
+    * The history this budget tracked, for context. Before [[https://github.com/galax-io/gatling-kafka-plugin/issues/163 #163]]:
+    * ~1.4% (38 KO of 2,724, of which 7 were assignment timeouts #163 removed outright). Before
+    * [[https://github.com/galax-io/gatling-kafka-plugin/issues/165 #165]]: 14–16 KO of ~6,500, because the tracker entry was
+    * dropped at refcount zero after every reply and each re-registration re-armed the next loss. After #165 and before #191:
+    * 0–2 KO of ~6,760 across five runs. After #191: zero, and anything above it is a regression rather than a known defect
+    * being absorbed.
     */
-  private val KnownReplyLossBudget: Long = 2
+  private val KnownReplyLossBudget: Long = 0
 
   // Stand-in for the external service under test: echoes every request straight back on the reply
   // topic with the same key and value, so the default key-based matcher (KafkaKeyMatcher) pairs each
@@ -89,11 +83,11 @@ class KafkaConcurrencyLoadTest extends Simulation {
           _ => (),
           // Never silent: a responder that stops echoing looks exactly like the plugin losing
           // replies, and the run would fail its budget with nothing pointing at the real cause.
-          error => println(s"[load-test responder] failed to echo ${new String(record.key())}: $error"),
+          error => logger.error(s"[load-test responder] failed to echo ${new String(record.key())}", error),
         )
       }
     },
-    error => println(s"[load-test responder] consumer failed, replies stop here: $error"),
+    error => logger.error("[load-test responder] consumer failed, replies stop here", error),
   )
   private val responderThread = new Thread(responder, "load-test-responder")
 
