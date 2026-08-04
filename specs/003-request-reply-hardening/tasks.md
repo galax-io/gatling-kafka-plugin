@@ -200,10 +200,10 @@ the reply timeout — zero requests reported as reply timeouts.
 - [X] T051 [P] Run the API-compatibility gate: `sbt "Test / runMain org.galaxio.gatling.kafka.examples.ExampleSmokeValidation"` (Principle I; SC-010)
 - [X] T052 Run the full CI gate against the Compose stack: `sbt coverage "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaGatlingTest" "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaJavaapiMethodsGatlingTest" test coverageOff coverageReport`
 - [X] T053 Walk `specs/003-request-reply-hardening/quickstart.md` end to end and correct anything that has drifted from the delivered code
-- [ ] T054 [P] Gate each PR with `scripts/check-linkage.sh --pr <N>` — milestone assigned, `Closes #NNN` present, issue in the same milestone (Principle V)
-- [ ] T055 Confirm milestone readiness with `scripts/check-linkage.sh --for-tag v1.1.0`; the milestone title `v1.1.0 Request-reply reliability` resolves for `--for-tag`
-- [ ] T056 [P] Comment on `https://github.com/galax-io/gatling-kafka-plugin/pull/144` noting that its register-before-send idea landed via #191 rather than #143, and close it if superseded (research R3 historical note)
-- [ ] T057 [P] Update `https://github.com/galax-io/gatling-kafka-plugin/issues/193`'s map: #143 and #166 are done, and point 3 (pool-owned correlation table) was **not** required for #191 — the ordering fix removed the need (research R3)
+- [X] T054 [P] Gate each PR with `scripts/check-linkage.sh --pr <N>` — milestone assigned, `Closes #NNN` present, issue in the same milestone (Principle V)
+- [X] T055 Confirm milestone readiness with `scripts/check-linkage.sh --for-tag v1.1.0`; the milestone title `v1.1.0 Request-reply reliability` resolves for `--for-tag`
+- [X] T056 [P] Comment on `https://github.com/galax-io/gatling-kafka-plugin/pull/144` noting that its register-before-send idea landed via #191 rather than #143, and close it if superseded (research R3 historical note)
+- [X] T057 [P] Update `https://github.com/galax-io/gatling-kafka-plugin/issues/193`'s map: #143 and #166 are done, and point 3 (pool-owned correlation table) was **not** required for #191 — the ordering fix removed the need (research R3)
 
 ---
 
