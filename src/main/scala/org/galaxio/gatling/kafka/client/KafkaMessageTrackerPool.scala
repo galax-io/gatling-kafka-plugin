@@ -163,7 +163,16 @@ final class KafkaMessageTrackerPool(
         logger.debug("Consumer failure stacktrace", exception)
         if (consumerFailure.compareAndSet(null, exception)) {
           val failure = KafkaMessageTracker.ConsumerFailure(exception.getMessage)
-          trackers.values().forEach(_.values().forEach(entry => entry.actor ! failure))
+          trackers
+            .values()
+            .forEach(_.values().forEach { entry =>
+              entry.actor ! failure
+              // Then stop it. Nothing will ever release these entries — the pool is finished — so their
+              // timeout scans would otherwise keep firing for the rest of the run against bookkeeping the
+              // failure broadcast has just cleared. The mailbox is FIFO, so the failure above is processed
+              // first and every pending request still gets its KO.
+              entry.actor ! KafkaMessageTracker.Stop
+            })
           trackers.clear()
         }
       },
@@ -183,6 +192,11 @@ final class KafkaMessageTrackerPool(
 
   private val consumerFuture = consumerExecutor.submit(consumer)
   actorSystem.registerOnTermination {
+    // Anything still held at the end of the run is released here rather than left to the actor system's
+    // scheduler shutting down underneath it. Runs before ActorSystem.close() shuts its executor, so the
+    // messages are still dispatched.
+    trackers.values().forEach(_.values().forEach(_.actor ! KafkaMessageTracker.Stop))
+    trackers.clear()
     logger.debug("Closing consumer {}", consumer)
     consumer.close()
     try {
@@ -436,14 +450,22 @@ final class KafkaMessageTrackerPool(
     trackers.forEach { (consumerTopic, innerMap) =>
       innerMap.forEach { (mRef, entry) =>
         if (entry.refCount.get() <= 0 && now - entry.idleSince.get() >= idleGraceMillis) {
+          var released: ActorRef[KafkaMessageTracker.TrackerMessage] = null
           innerMap.computeIfPresent(
             mRef,
             (_, current) =>
               if (current.refCount.get() <= 0 && now - current.idleSince.get() >= idleGraceMillis) {
                 logger.debug("Releasing idle tracker for topic {} matcher {}", consumerTopic, mRef)
+                released = current.actor
                 null
               } else current,
           )
+          // Outside the compute lambda, following removeTopicSubscription below: the bin lock is held
+          // inside it, and telling an actor is a side effect on another object. Sent only once the entry
+          // is gone, so no acquisition can be handed a tracker that is about to die. Dropping the entry
+          // without this is the whole of issue #166 — the registration went, everything hanging off it
+          // stayed.
+          if (released != null) released ! KafkaMessageTracker.Stop
         }
       }
       if (innerMap.isEmpty) {

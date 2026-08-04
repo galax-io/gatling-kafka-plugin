@@ -4,7 +4,7 @@ import io.gatling.commons.stats.{KO, OK, Status}
 import io.gatling.commons.util.Clock
 import io.gatling.commons.validation.Failure
 import io.gatling.core.action.Action
-import io.gatling.core.actor.{Actor, Behavior}
+import io.gatling.core.actor.{Actor, Behavior, Cancellable}
 import io.gatling.core.check.Check
 import io.gatling.core.session.Session
 import io.gatling.core.stats.StatsEngine
@@ -47,6 +47,14 @@ object KafkaMessageTracker {
 
   final case class ConsumerFailure(errorMessage: String) extends TrackerMessage
 
+  /** Asks the tracker to cancel its periodic timeout scan and stop.
+    *
+    * Sent by [[KafkaMessageTrackerPool]] once the reply channel this tracker belongs to has been released. It exists because
+    * Gatling's `ActorSystem` offers no way to stop an actor from outside — `die` is an `Effect` reachable only from the actor's
+    * own behaviour — so stopping has to be asked for (issue #166).
+    */
+  private[client] final case object Stop extends TrackerMessage
+
   private final case object TimeoutScan extends TrackerMessage
 
   private def makeKeyForSentMessages(m: Array[Byte]): String =
@@ -63,16 +71,24 @@ class KafkaMessageTracker[K, V](
     responseTransformer: Option[KafkaProtocolMessage => KafkaProtocolMessage],
 ) extends Actor[TrackerMessage](name) with KafkaLogging {
 
-  private val sentMessages                 = mutable.HashMap.empty[String, MessagePublished]
-  private val timedOutMessages             = mutable.ArrayBuffer.empty[MessagePublished]
-  private var periodicTimeoutScanTriggered = false
+  private val sentMessages     = mutable.HashMap.empty[String, MessagePublished]
+  private val timedOutMessages = mutable.ArrayBuffer.empty[MessagePublished]
+
+  /** The periodic timeout scan, once something with a reply timeout has been published.
+    *
+    * Retained rather than discarded so [[KafkaMessageTracker.Stop]] can cancel it. The handle held nothing before, which meant
+    * the scan outlived every channel that ever armed one: it captures `self`, so the tracker — and with it the stats engine,
+    * the clock and the matcher closures — stayed reachable from the actor system's scheduler, and that scheduler is a single
+    * thread shared by the whole simulation, so each leaked scan also cost one wakeup per second for the rest of the run (issue
+    * #166).
+    */
+  private var periodicTimeoutScan: Option[Cancellable] = None
 
   private def triggerPeriodicTimeoutScan(): Unit =
-    if (!periodicTimeoutScanTriggered) {
-      periodicTimeoutScanTriggered = true
-      scheduler.scheduleAtFixedRate(1000.millis) {
+    if (periodicTimeoutScan.isEmpty) {
+      periodicTimeoutScan = Some(scheduler.scheduleAtFixedRate(1000.millis) {
         self ! TimeoutScan
-      }
+      })
     }
 
   override def init(): Behavior[TrackerMessage] = {
@@ -165,6 +181,15 @@ class KafkaMessageTracker[K, V](
       }
       timedOutMessages.clear()
       stay
+
+    case Stop =>
+      // Cancelling matters as much as dying: `die` only swaps the behaviour, so a scan left running would
+      // keep firing TimeoutScan at a dead actor and keep it reachable — the leak would survive almost
+      // intact. The pool only sends this once the channel has had nothing in flight for a full idle grace,
+      // so there is no pending request left for the scan to time out.
+      periodicTimeoutScan.foreach(_.cancel())
+      periodicTimeoutScan = None
+      die
   }
 
   private def executeNext(

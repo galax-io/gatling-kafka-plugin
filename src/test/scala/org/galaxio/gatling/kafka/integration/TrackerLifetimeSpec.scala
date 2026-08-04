@@ -526,6 +526,80 @@ class TrackerLifetimeSpec extends munit.FunSuite with TestContainerForAll {
     }
   }
 
+  /** The tracker actor instance behind a pool registration.
+    *
+    * Two reflection hops, both into classpath classes: `TrackerEntry.actor` gives Gatling's `ActorRef`, whose implementation
+    * holds the `Actor` instance. Needed because the pool creates its trackers internally, so a test never sees the instance —
+    * and the instance is where the evidence for issue #166 lives.
+    */
+  private def trackerBehind(registration: AnyRef): AnyRef = {
+    val entryField = registration.getClass.getDeclaredField("actor")
+    entryField.setAccessible(true)
+    val ref        = entryField.get(registration)
+    val instField  = ref.getClass.getDeclaredField("actor")
+    instField.setAccessible(true)
+    instField.get(ref)
+  }
+
+  /** Whether a tracker is still holding an armed periodic timeout scan.
+    *
+    * The scan is the leak: it captures `self`, and Gatling's scheduler is a single thread shared by the whole simulation, so
+    * one left armed after its channel is released keeps the tracker — with its stats engine, clock and matcher closures —
+    * reachable, and costs a wakeup per second for the rest of the run. Read here rather than off the scheduler, whose
+    * ScheduledThreadPoolExecutor sits behind a JDK-internal delegate that JDK 17 will not open to reflection.
+    */
+  private def scanIsArmed(tracker: AnyRef): Boolean = {
+    val field = tracker.getClass.getDeclaredField("periodicTimeoutScan")
+    field.setAccessible(true)
+    field.get(tracker).asInstanceOf[Option[_]].isDefined
+  }
+
+  test("(7) a released channel takes its timeout scan with it, so scans track channels held not channels created") {
+    withContainers { kafka =>
+      val bootstrap = kafka.bootstrapServers
+      // Enough distinct reply topics that "one scan per channel ever created" and "one scan per channel
+      // currently held" are unmistakably different numbers. This is the shape issue #78 requires to stay
+      // bounded — a reply topic derived per virtual user — and the shape #166 made unbounded again by
+      // releasing the registration while leaving everything hanging off it running.
+      val channels  = 20
+      val grace     = 3.seconds
+      val topics    = (1 to channels).flatMap(i => List(s"lifetime-scan-request-$i", s"lifetime-scan-reply-$i"))
+      createTopics(bootstrap, topics: _*)
+
+      val run = new Run(bootstrap, KafkaKeyMatcher, idleGrace = grace)
+      try {
+        // Captured as each channel is created: after release the registration is gone and the tracker
+        // with it, so there would be nothing left to inspect.
+        val trackers = (1 to channels).map { i =>
+          val replyTopic   = s"lifetime-scan-reply-$i"
+          requestReply(run, s"scan-$i", s"lifetime-scan-request-$i", replyTopic, s"scan-key-$i")
+          val registration = registrationFor(run.pool, replyTopic, run.matcher)
+          assert(registration != null, s"channel $i was released while its request was still completing")
+          val tracker      = trackerBehind(registration)
+          assert(scanIsArmed(tracker), s"channel $i never armed a timeout scan, so this proves nothing")
+          tracker
+        }
+
+        val deadline = System.currentTimeMillis() + grace.toMillis + 30000
+        while (
+          (1 to channels).exists(i => registrationFor(run.pool, s"lifetime-scan-reply-$i", run.matcher) != null) &&
+          System.currentTimeMillis() < deadline
+        ) Thread.sleep(100)
+
+        val stillHeld = (1 to channels).count(i => registrationFor(run.pool, s"lifetime-scan-reply-$i", run.matcher) != null)
+        assertEquals(stillHeld, 0, "every channel should have gone idle and been released by now")
+
+        val stillArmed = trackers.count(scanIsArmed)
+        assertEquals(
+          stillArmed,
+          0,
+          s"$stillArmed of $channels released channels left their timeout scan running; scans must be bounded by " +
+            "the channels currently held, not by the number ever created",
+        )
+      } finally run.close()
+    }
+  }
+
   test("(4) a second scenario looping on its own topic pair does not disturb the first") {
     withContainers { kafka =>
       val bootstrap = kafka.bootstrapServers
