@@ -22,16 +22,16 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-      # Kafka's 3s default delays the first assignment of every new consumer group. Kept at 0 to keep
-      # the simulations quick; Testcontainers' Kafka module does the same.
+      # group.initial.rebalance.delay.ms is deliberately left at Kafka's 3000 default.
       #
-      # KafkaGatlingTest no longer *depends* on it. It used to: its request-reply scenarios were
-      # answered by sibling scenarios publishing at a fixed delay, and with the default the first
-      # assignment landed after those publishes, so the replies were skipped. Since #196 gave the
-      # simulation a real echo responder and #191 made the reply channel exist before the request is
-      # sent, an immediate reply is always received. Verified by running the simulation three times
-      # against this broker with the value at Kafka's 3000 default: green each time.
-      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      # It used to be pinned to 0 here and in ci.yml. That started as a speed tweak, but it also sat on
+      # top of issue #193: a reply channel reported ready on assignment alone, before its fetch position
+      # was resolved, so a reply produced in that window was skipped under auto.offset.reset=latest. The
+      # setting changes when assignment happens, not the width of that window, so it never fixed the gap
+      # — it just made the simulations quick enough to rarely notice.
+      #
+      # Now that readiness resolves the fetch position first, nothing depends on the delay, and running
+      # at the broker default is what a real target system will do.
     ports:
       - "9092:9092"
       - "9093:9093"
@@ -64,6 +64,14 @@ services:
       kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic myTopic3 --partitions 1 --replication-factor 1 &&
       kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic test.t3 --partitions 1 --replication-factor 1 &&
       kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic test.t --partitions 1 --replication-factor 1 &&
-      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic myTopic4 --partitions 1 --replication-factor 1
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic myTopic4 --partitions 1 --replication-factor 1 &&
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic myTopic5 --partitions 1 --replication-factor 1 &&
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic test.t5 --partitions 1 --replication-factor 1 &&
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic myTopic6 --partitions 1 --replication-factor 1 &&
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic test.t6 --partitions 1 --replication-factor 1 &&
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic load.request --partitions 1 --replication-factor 1 &&
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic load.reply --partitions 1 --replication-factor 1
       "
+    # Keep this list in step with KAFKA_CREATE_TOPICS in .github/workflows/ci.yml — CI builds its broker
+    # from its own service definition, not from this file, so a topic added here is not created there.
     restart: "no"

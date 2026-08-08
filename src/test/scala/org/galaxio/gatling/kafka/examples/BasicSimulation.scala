@@ -27,7 +27,7 @@ class BasicSimulation extends Simulation {
   def getHeader(headerKey: String): KafkaProtocolMessage => Array[Byte] =
     _.headers
       .flatMap(hs => Option(hs.lastHeader(headerKey)).map(_.value()))
-      .getOrElse(Array.emptyByteArray)
+      .orNull
 
   def kafkaProtocolC: KafkaProtocol = kafka
     .producerSettings(
