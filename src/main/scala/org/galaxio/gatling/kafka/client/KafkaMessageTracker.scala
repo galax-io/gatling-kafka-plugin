@@ -40,9 +40,11 @@ object KafkaMessageTracker {
     * every reported time, understating what the virtual user actually waits for.
     *
     * The match id is not an identity. With the default key matcher it *is* the message key, so a feeder cycling a fixed key set
-    * — or any request that sets no key at all, which serialises to the same empty id — reuses it constantly. Without a token, a
-    * [[SendFailed]] for one request lands on whichever record happens to hold the key at the time and fails it with an
-    * unrelated error.
+    * reuses it constantly — as does any extractor that falls back to a constant. Without a token, a [[SendFailed]] for one
+    * request lands on whichever record happens to hold the key at the time and fails it with an unrelated error.
+    *
+    * A request that supplies *no* id never gets here: [[org.galaxio.gatling.kafka.actions.KafkaRequestReplyAction]] fails it
+    * before registration, because there is nothing to correlate a reply on (issue #167).
     */
   final case class MessagePublished(
       matchId: Array[Byte],
@@ -101,6 +103,10 @@ object KafkaMessageTracker {
     * The alternative was Base64-encoding the id to get a `String` key, which allocated an encoder result on every publish,
     * every acknowledgement, every delivery failure and every reply — three or four times per request on the tracker's single
     * thread — purely to obtain something with value equality. `Array[Byte]` has reference equality, hence the wrapper.
+    *
+    * An absent id and an empty one are different keys. `java.util.Arrays` gives that for free — `hashCode(null)` is 0 against 1
+    * for an empty array, and `equals(null, Array.emptyByteArray)` is false — so no branch is needed here, and none is on the
+    * per-reply path.
     */
   private final class MatchKey(val bytes: Array[Byte]) {
     override val hashCode: Int               = java.util.Arrays.hashCode(bytes)
@@ -110,8 +116,16 @@ object KafkaMessageTracker {
     }
   }
 
-  private def matchKeyFor(m: Array[Byte]): MatchKey =
-    new MatchKey(if (m == null) Array.emptyByteArray else m)
+  /** No substitution. This used to fold `null` into `Array.emptyByteArray`, which made "this request has no id" and "this
+    * request's id is empty" the same map key: every keyless request-reply shared one slot, and a reply carrying an empty key
+    * resolved whichever request currently held it (issue #167).
+    *
+    * What removing it buys is exactly one thing — an absent id and an empty one no longer collide. It does **not** make the
+    * table injective: `java.util.Arrays.equals(null, null)` is `true`, so two null ids would still alias each other. Nothing
+    * here prevents that, which is why a null id is refused at both edges instead — `MessagePublished` will not register one and
+    * `MessageConsumed` will not look one up. Those two guards are the invariant; this function only stops widening it.
+    */
+  private def matchKeyFor(m: Array[Byte]): MatchKey = new MatchKey(m)
 }
 
 /** Actor to record request and response Kafka Events, publishing data to the Gatling core DataWriter
@@ -165,6 +179,20 @@ class KafkaMessageTracker[K, V](
   override def init(): Behavior[TrackerMessage] = {
     // The request is registered here, before it is handed to the producer, so a reply cannot be looked
     // up before the record for it exists (issue #191). The acknowledgement timestamp is not known yet
+    case messageSent: MessagePublished if messageSent.matchId == null =>
+      // The table cannot hold this safely: `Arrays.equals(null, null)` is true, so two of these would
+      // alias each other and re-create issue #167 one key over. The sending side rejects such a request
+      // before it gets here, so this is the symmetric guard to the one `MessageConsumed` already has —
+      // reject at both edges rather than trusting a caller a layer away.
+      logger.error("Refusing to register a request with no match id; it could not be correlated to any reply")
+      failPending(
+        messageSent,
+        clock.nowMillis,
+        None,
+        "Cannot correlate a reply: this request was registered with no match id",
+      )
+      stay
+
     case messageSent: MessagePublished =>
       val key = matchKeyFor(messageSent.matchId)
       if (logger.underlying.isDebugEnabled) {
@@ -220,10 +248,17 @@ class KafkaMessageTracker[K, V](
       val message = responseTransformer.map(_(forTransformMessage)).getOrElse(forTransformMessage)
       val replyId = messageMatcher.responseMatch(message)
       if (replyId == null) {
-        logger.error("no messageMatcher key for read message {}", message.key)
+        // describeBytes, not the raw array: this is the one branch a keyless reply reaches, and `{}` on an
+        // Array[Byte] renders as `[B@1f2e3d`, which tells the reader nothing about why it failed to match.
+        logger.error("no messageMatcher key for read message {}", describeBytes(message.key))
       } else {
-        if (message.key == null || message.value == null) {
-          logger.warn(" --- received message with null key or value")
+        // Only the value. An absent key stopped being suspicious when the plugin started publishing one —
+        // a keyless request-reply correlating on the value or a header is a supported shape and the
+        // migration guide recommends it, so warning per reply would put a line on the thread that gates
+        // reply throughput for every message of a normal run (issue #167). A null value still deserves a
+        // mention: it is what breaks body checks (issue #168).
+        if (message.value == null && logger.underlying.isDebugEnabled) {
+          logger.debug(" --- received message with null value (tombstone)")
         }
         // Every one of these renders the whole payload, one String per character, and SLF4J's
         // placeholder form defers formatting but not argument evaluation. Guarded so a reply costs

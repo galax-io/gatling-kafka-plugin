@@ -156,10 +156,19 @@ class DynamicKafkaConsumerSpec extends munit.FunSuite {
   }
 
   test("a topic requested long after startup is still accepted") {
-    val failures = new CopyOnWriteArrayList[Exception]()
-    val consumer = newConsumerReporting(failures.add(_))
+    val consumer = newConsumer()
 
-    runningConsumer(consumer) {
+    try {
+      // What #143 broke was a *timed* initialization window: it expired, and every reply topic requested
+      // afterwards was refused for the rest of the run. So the property is "elapsed time alone never
+      // refuses a request", and elapsed time is all this needs to reproduce it.
+      //
+      // Deliberately without a running poll loop. This used to start one against `localhost:0` and then
+      // assert on `readiness` right after requesting — but by then the loop is awake and driving a
+      // subscribe against an unreachable broker, so it can fail that subscription asynchronously and
+      // legitimately. The assertion was racing it, and under the CPU contention of a full `sbt test` the
+      // loop won: the test failed for a reason that has nothing to do with lateness. The idle loop's own
+      // behaviour is covered by "a consumer running with nothing requested never fails" above.
       Thread.sleep(1_000)
 
       val readiness = consumer.requestTopicSubscription("late-topic")
@@ -168,8 +177,13 @@ class DynamicKafkaConsumerSpec extends munit.FunSuite {
         !readiness.isCompletedExceptionally,
         "a topic requested long after startup must not be refused",
       )
-      assertEquals(failures.size(), 0, "accepting a late topic must not report a failure")
-    }
+      assertEquals(failureRef(consumer).get(), null, "and must not latch a consumer failure")
+      assertEquals(
+        subscriptionQueue(consumer).size,
+        1,
+        "the late topic must be queued for the consumer to pick up, not dropped",
+      )
+    } finally consumer.close()
   }
 
   test("a blank reply topic fails only that request, not the consumer") {

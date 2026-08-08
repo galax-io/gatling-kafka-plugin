@@ -268,6 +268,70 @@ class KafkaMessageTrackerSpec extends munit.FunSuite {
       requestName = "request-reply",
     )
 
+  // Issue #167. `matchKeyFor` used to fold a null match id into `Array.emptyByteArray`, so "this request
+  // has no identity" and "this request's identity is empty" became the same map key. Every keyless
+  // request-reply therefore shared one slot, and a reply carrying an empty key resolved whichever request
+  // happened to be occupying it.
+  test("an absent match id and an empty one are different requests") {
+    val statsEngine = new RecordingStatsEngine
+    val next        = new RecordingAction("next")
+    val tracker     =
+      new KafkaMessageTracker[Array[Byte], Array[Byte]]("tracker", statsEngine, new StubClock(9_000L), KafkaKeyMatcher, None)
+    val behavior    = tracker.init()
+
+    behavior(published(next, replyTimeout = 0L, requestStart = 1_000L).copy(matchId = null))
+    // A real reply from a keyless round trip: Kafka distinguishes an absent key from an empty one, and so
+    // must the correlation table. This reply belongs to some other request, not to the one above.
+    behavior(
+      MessageConsumed(
+        received = 5_000L,
+        message = KafkaProtocolMessage(
+          key = Array.emptyByteArray,
+          value = "reply".getBytes(StandardCharsets.UTF_8),
+          producerTopic = "reply-topic",
+          consumerTopic = "reply-topic",
+        ),
+      ),
+    )
+
+    // Exactly one outcome, and it is the refusal — not a match. Before the fix `matchKeyFor` folded null
+    // onto the empty array, so this reply resolved the registration and reported it a second time.
+    val responses = statsEngine.responses.get()
+    assertEquals(responses.size, 1, "a reply whose match id is empty must not resolve a request registered with none")
+    assert(
+      responses.head.message.exists(_.contains("no match id")),
+      s"the single outcome must be the refusal, not a match: ${responses.head.message}",
+    )
+  }
+
+  test("a registration with no match id is refused rather than stored") {
+    val statsEngine = new RecordingStatsEngine
+    val next        = new RecordingAction("next")
+    val tracker     =
+      new KafkaMessageTracker[Array[Byte], Array[Byte]]("tracker", statsEngine, new StubClock(9_000L), KafkaKeyMatcher, None)
+    val behavior    = tracker.init()
+
+    // The sending side rejects these before they get here, so this is the symmetric guard to the one
+    // MessageConsumed already has. It matters because the table cannot hold a null safely:
+    // `Arrays.equals(null, null)` is true, so two of them would alias each other and re-create issue #167
+    // one key over — with a displacement message telling a user who supplied no key to make their key
+    // distinct.
+    behavior(published(next, replyTimeout = 0L, requestStart = 1_000L).copy(matchId = null))
+    behavior(published(next, replyTimeout = 0L, requestStart = 2_000L).copy(matchId = null, token = 2L))
+
+    val responses = statsEngine.responses.get()
+    assertEquals(responses.size, 2, "each refused registration must still be reported, not dropped")
+    assert(
+      responses.forall(_.message.exists(_.contains("no match id"))),
+      s"unexpected messages: ${responses.flatMap(_.message)}",
+    )
+    assert(
+      responses.forall(!_.message.exists(_.contains("reused"))),
+      "a request that supplied no id must not be told it reused one",
+    )
+    assert(next.lastSession.get() != null, "the virtual user must be advanced rather than left hanging")
+  }
+
   test("a reply is reported as soon as it arrives") {
     val statsEngine = new RecordingStatsEngine
     val next        = new RecordingAction("next")
