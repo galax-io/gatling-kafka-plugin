@@ -21,7 +21,12 @@ import scala.concurrent.duration.DurationInt
   * responder, so — unlike KafkaGatlingTest's `scnRRwo` — no scenario here is designed to fail; the residual failures the
   * assertion still tolerates are tracked defects, see `KnownReplyLossBudgetPercent`.
   *
-  * Not wired into CI; run manually against the docker-compose.kafka.yml stack: sbt "Gatling / testOnly
+  * Runs in CI alongside the other simulations (see the "Test (Gatling targeted)" step in ci.yml). It is the only *sustained*
+  * concurrent request-reply coverage: 30 virtual users held for 100 s with a zero reply-loss budget. `KafkaGatlingTest`'s
+  * keyless scenarios (issue #167) inject a handful of concurrent users, which is enough to observe cross-attribution but not to
+  * hold load.
+  *
+  * To run it alone against the docker-compose.kafka.yml stack: sbt "Gatling / testOnly
   * org.galaxio.gatling.kafka.examples.KafkaConcurrencyLoadTest"
   */
 class KafkaConcurrencyLoadTest extends Simulation with StrictLogging {
@@ -161,6 +166,12 @@ class KafkaConcurrencyLoadTest extends Simulation with StrictLogging {
   ).protocols(protocol)
     .assertions(
       global.failedRequests.count.lte(KnownReplyLossBudget),
+      // A zero-failure budget alone cannot establish sustained zero-loss load: a regression that strands every virtual
+      // user logs no responses at all, so `failedRequests.count` is 0, `0 <= 0` holds, maxDuration ends the run and the
+      // gate goes green having proved nothing. Now that this simulation is mandatory CI coverage it has to assert that
+      // work actually completed. The floor is deliberately far below the ~7,500 requests the profile produces — it is a
+      // did-anything-run check, not a throughput assertion, so runner speed cannot make it flap.
+      global.successfulRequests.count.gte(concurrency * 10),
     )
     .maxDuration(3.minutes)
 }

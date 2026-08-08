@@ -84,7 +84,22 @@ abstract class KafkaAction[K: ClassTag, V: ClassTag](
       value         <- serializeValue(producerTopic, s)
       headers       <- traverse(attributes.headers.map(_(s)))
     } yield KafkaProtocolMessage(
-      key.getOrElse(Array.emptyByteArray),
+      // `orNull`, not an empty array. Substituting one collapsed two distinct states into one and cost
+      // both correctness and realism (issue #167):
+      //
+      //   - Correlation: an empty key is a value, and every keyless request produced the same one, so
+      //     they all shared a single slot in the tracker's correlation table. A reply resolved whichever
+      //     request happened to occupy it, crediting one virtual user with another's answer.
+      //   - The wire: an empty array is a *present* key. Kafka hashes it, and murmur2 of an empty input is
+      //     constant, so keyless records could never be placed as keyless records — and a log-compacted
+      //     topic, which requires a key, accepted records it should have rejected. How the broker places a
+      //     genuinely keyless record is its own decision and has changed across versions, so the plugin
+      //     asserts the key is absent and asserts nothing about placement.
+      //
+      // `KafkaProtocolMessage.key` has always been nullable on the consume side — `from` copies
+      // `consumerRecord.key()` verbatim, which is null for a keyless record. This makes the produce side
+      // agree with it, so no signature changes.
+      key.orNull,
       value,
       producerTopic,
       consumerTopic.getOrElse(producerTopic),
