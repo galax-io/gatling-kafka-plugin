@@ -24,8 +24,9 @@ are small, local changes with disproportionate blast radius, and the bulk of the
    `auto.offset.reset` to `latest`. Fix: resolve `consumer.position(tp)` on the poll thread for each
    assigned partition of the awaited topic before completing its readiness futures.
 
-The partition-distribution half of #167 falls out of change 1 for free: a `null` key restores Kafka's
-round-robin partitioner, which `murmur2` of an empty array had been defeating.
+The wire-level half of #167 falls out of change 1 for free: the key becomes genuinely absent rather
+than present-and-empty. What the broker then does with it is its own decision — current clients batch
+keyless records stickily rather than round-robin — so the plugin asserts key absence and stops there.
 
 **No published signature changes.** `KafkaProtocolMessage.key` is already `Array[Byte]` and already
 nullable on the consume side (`KafkaProtocolMessage.from` copies `consumerRecord.key()` verbatim); the
@@ -167,7 +168,7 @@ src/test/scala/org/galaxio/gatling/kafka/
     ├── KafkaGatlingTest.scala             # [US1/US2/US4] new scenarios + pinned assertions
     └── KafkaConcurrencyLoadTest.scala     # [US1] wire into CI (30 concurrent users already)
 
-docker-compose.kafka.yml                   # [US3] drop rebalance tuning; [US4] multi-partition topic
+docker-compose.kafka.yml                   # [US3] drop rebalance tuning
 .github/workflows/ci.yml                   # [US3] drop rebalance tuning; [US1] run concurrency test
 README.md                                  # [FR-017] Migration Guide entry
 ```
@@ -249,7 +250,7 @@ it and an assertion that reads back where they landed.
 | US1 | Keyless request-reply under key matching KOs at issue time | Gatling simulation | `KafkaGatlingTest` (new scenario) |
 | US2 | Tombstone reply → clean KO, not a stalled user | Unit + Gatling simulation | `KafkaMessagePreparerSpec` (new), `KafkaGatlingTest` |
 | US3 | Reply published immediately after readiness is received | Integration (Testcontainers) | `PositionedReadinessSpec` (new) |
-| US4 | Keyless messages reach every partition | Gatling simulation | `KafkaGatlingTest` (new scenario) |
+| US4 | Keyless records reach the broker with no key | Integration (Testcontainers) | `KeylessCorrelationSpec` |
 
 **Assertion convention** (FR-024): pin exact counts with `is(...)`, never `lte(...)`. `KafkaGatlingTest`
 already does this — `global.failedRequests.count.is(1)` plus a named

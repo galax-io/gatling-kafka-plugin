@@ -162,15 +162,16 @@ they describe a single-partition workload the engineer did not ask for. It is ra
 misleads about *what was tested* rather than about *what happened*, and because it shares a root cause
 with User Story 1 and will follow from it.
 
-**Independent Test**: As a load simulation in CI against a real broker — publish a large number of
-keyless messages to a topic created with several partitions, then read back where they landed and
-assert that every partition received messages rather than all of them arriving on one. The assertion
-has to observe placement directly; no error is raised by the defective behaviour.
+**Independent Test**: As an integration test against a real broker — publish keyless messages through
+the DSL, read them back, and assert every record carries no key. The assertion has to read the records
+themselves; the defective behaviour raises no error. Placement is deliberately not asserted: it is the
+broker's decision and changed in Kafka 3.3, so pinning it would test the broker rather than the plugin.
 
 **Acceptance Scenarios**:
 
-1. **Given** a topic with more than one partition, **When** a scenario publishes many messages that
-   carry no key, **Then** every partition of that topic receives at least one message.
+1. **Given** a scenario publishes messages that carry no key, **When** those records are read back
+   from the broker, **Then** every one of them carries an absent key rather than an empty one — which
+   is what lets the broker apply its keyless placement at all.
 2. **Given** a scenario that publishes messages which do carry a key, **When** it runs, **Then** the
    existing per-key partition placement is unchanged, so keyed ordering guarantees still hold.
 

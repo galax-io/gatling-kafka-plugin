@@ -151,19 +151,19 @@ of its scenario.
 
 ### Tests for User Story 2 (MANDATORY — write first, confirm they FAIL) ⚠️
 
-- [ ] T016 [P] [US2] New unit spec `KafkaMessagePreparerSpec` covering all five preparers against absent, empty and present payloads — absent yields a `Validation` failure naming the cause, empty keeps today's behaviour (`""` / empty bytes, success), present parses — in `src/test/scala/org/galaxio/gatling/kafka/checks/KafkaMessagePreparerSpec.scala` (VR-5 – VR-7)
-- [ ] T017 [P] [US2] Unit test that a check which throws still produces a terminal KO and still continues the virtual user, in `src/test/scala/org/galaxio/gatling/kafka/client/KafkaMessageTrackerSpec.scala` (VR-8)
-- [ ] T018 [US2] Run `sbt "testOnly org.galaxio.gatling.kafka.checks.KafkaMessagePreparerSpec org.galaxio.gatling.kafka.client.KafkaMessageTrackerSpec"` against unmodified code and record that T016 fails with an NPE and T017 fails with no continuation
+- [X] T016 [P] [US2] New unit spec `KafkaMessagePreparerSpec` covering all five preparers against absent, empty and present payloads — absent yields a `Validation` failure naming the cause, empty keeps today's behaviour (`""` / empty bytes, success), present parses — in `src/test/scala/org/galaxio/gatling/kafka/checks/KafkaMessagePreparerSpec.scala` (VR-5 – VR-7)
+- [X] T017 [P] [US2] Unit test that a check which throws still produces a terminal KO and still continues the virtual user, in `src/test/scala/org/galaxio/gatling/kafka/client/KafkaMessageTrackerSpec.scala` (VR-8)
+- [X] T018 [US2] Red-before demonstrated: three NPEs, `Cannot read the array length because ... KafkaProtocolMessage.value() is null`, from stringBodyPreparer/bytesBodyPreparer/jsonPathPreparer. xmlPreparer passed — it was already wrapped in `safely`, which is the evidence the other three were an oversight. After the fix: 19/19 across both specs.
 
 ### Implementation for User Story 2
 
-- [ ] T019 [US2] Null-guard `stringBodyPreparer`, `bytesBodyPreparer` and `jsonPathPreparer` behind `safely(...)`, matching the existing shape of `xmlPreparer`/`avroPreparer` in the same file, in `src/main/scala/org/galaxio/gatling/kafka/checks/KafkaMessagePreparer.scala` (research §R6)
-- [ ] T020 [US2] Add a `catch` to the `try`/`finally` in `completeMatched` that reports KO and continues the virtual user, in `src/main/scala/org/galaxio/gatling/kafka/client/KafkaMessageTracker.scala` (VR-8; **same file as T009 — sequence after Phase 3**)
+- [X] T019 [US2] Null-guard `stringBodyPreparer`, `bytesBodyPreparer` and `jsonPathPreparer` behind `safely(...)`, matching the existing shape of `xmlPreparer`/`avroPreparer` in the same file, in `src/main/scala/org/galaxio/gatling/kafka/checks/KafkaMessagePreparer.scala` (research §R6)
+- [X] T020 [US2] Add a `catch` to the `try`/`finally` in `completeMatched` that reports KO and continues the virtual user, in `src/main/scala/org/galaxio/gatling/kafka/client/KafkaMessageTracker.scala` (VR-8; **same file as T009 — sequence after Phase 3**)
 
 ### Simulation-level verification for User Story 2 (FR-021)
 
-- [ ] T021 [US2] Add a request-reply scenario answered with an absent payload and carrying a reply-content check, asserting **both** the exact KO count and that a request executed after it in the same scenario also ran — a stalled user produces no failure, so a failure count alone goes green on a hung run — in `src/test/scala/org/galaxio/gatling/kafka/examples/KafkaGatlingTest.scala`
-- [ ] T022 [US2] Add a Migration Guide entry for contract C3 — an absent reply payload now KOs instead of stalling the user, and `bodyString.is("")` does not pass on a tombstone — in `README.md`
+- [X] T021 [US2] Add a request-reply scenario answered with an absent payload and carrying a reply-content check, asserting **both** the exact KO count and that a request executed after it in the same scenario also ran — a stalled user produces no failure, so a failure count alone goes green on a hung run — in `src/test/scala/org/galaxio/gatling/kafka/examples/KafkaGatlingTest.scala`
+- [X] T022 [US2] Add a Migration Guide entry for contract C3 — an absent reply payload now KOs instead of stalling the user, and `bodyString.is("")` does not pass on a tombstone — in `README.md`
 
 **Checkpoint**: US1 and US2 both independently functional.
 
@@ -180,14 +180,14 @@ first record delivered. One run, decisive in both directions.
 
 ### Tests for User Story 3 (MANDATORY — write first, confirm they FAIL) ⚠️
 
-- [ ] T023 [US3] New Testcontainers spec `PositionedReadinessSpec` — fresh topic and consumer group with `auto.offset.reset=latest`, a continuous numbered producer stream started **before** the subscription request, capture `S` when readiness completes and `F` from the first delivered record, assert `F <= S` and report `F - S` on failure — in `src/test/scala/org/galaxio/gatling/kafka/integration/PositionedReadinessSpec.scala` (research §R5)
-- [ ] T024 [US3] Run `sbt "testOnly org.galaxio.gatling.kafka.integration.PositionedReadinessSpec"` against unmodified code and record `F > S` with the observed gap size; if it passes pre-change the stream was idle at readiness, so fix `src/test/scala/org/galaxio/gatling/kafka/integration/PositionedReadinessSpec.scala` before concluding the defect is absent
+- [X] T023 [US3] New Testcontainers spec `PositionedReadinessSpec` — fresh topic and consumer group with `auto.offset.reset=latest`, a continuous numbered producer stream started **before** the subscription request, capture `S` when readiness completes and `F` from the first delivered record, assert `F <= S` and report `F - S` on failure — in `src/test/scala/org/galaxio/gatling/kafka/integration/PositionedReadinessSpec.scala` (research §R5)
+- [X] T024 [US3] Red-before demonstrated, and it is the first direct reproduction of #193: "the channel reported ready at record 107 but the first record it delivered was 110: 3 records published after readiness were skipped". Research §R4 had established that removing the broker workaround could not demonstrate the defect, and §R9 recorded only one unexplained observation; this measures it.
 
 ### Implementation for User Story 3
 
-- [ ] T025 [US3] In `completeAssignedReadiness`, resolve `consumer.position(tp, timeout)` for every assigned partition of a topic awaiting readiness **before** completing that topic's futures, in `src/main/scala/org/galaxio/gatling/kafka/client/DynamicKafkaConsumer.scala` (research §R3, VR-9)
-- [ ] T026 [US3] On position timeout or failure, complete **only that topic's** readiness futures exceptionally and do not call `markConsumerFailed`, which would poison the pool for the rest of the run — the #143 terminal state — in `src/main/scala/org/galaxio/gatling/kafka/client/DynamicKafkaConsumer.scala` (VR-10)
-- [ ] T027 [US3] Confirm both call sites remain poll-thread-only (`onPartitionsAssigned` and the tail of `updateSubscription()`) and update `completeAssignedReadiness`'s scaladoc to state that readiness now means positioned rather than merely assigned, in `src/main/scala/org/galaxio/gatling/kafka/client/DynamicKafkaConsumer.scala` (VR-11)
+- [X] T025 [US3] In `completeAssignedReadiness`, resolve `consumer.position(tp, timeout)` for every assigned partition of a topic awaiting readiness **before** completing that topic's futures, in `src/main/scala/org/galaxio/gatling/kafka/client/DynamicKafkaConsumer.scala` (research §R3, VR-9)
+- [X] T026 [US3] On position timeout or failure, complete **only that topic's** readiness futures exceptionally and do not call `markConsumerFailed`, which would poison the pool for the rest of the run — the #143 terminal state — in `src/main/scala/org/galaxio/gatling/kafka/client/DynamicKafkaConsumer.scala` (VR-10)
+- [X] T027 [US3] Confirm both call sites remain poll-thread-only (`onPartitionsAssigned` and the tail of `updateSubscription()`) and update `completeAssignedReadiness`'s scaladoc to state that readiness now means positioned rather than merely assigned, in `src/main/scala/org/galaxio/gatling/kafka/client/DynamicKafkaConsumer.scala` (VR-11)
 
 ### Broker-definition cleanup for User Story 3 (FR-022)
 
@@ -195,9 +195,9 @@ first record delivered. One run, decisive in both directions.
 > `docker-compose.kafka.yml:25-33` records that the simulations were already verified green at Kafka's
 > 3000 default. It is hygiene, not the gate. The gate is T023.
 
-- [ ] T028 [US3] Remove `KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS` and its explanatory comment from `docker-compose.kafka.yml`
-- [ ] T029 [US3] Remove `KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS` from `.github/workflows/ci.yml`
-- [ ] T030 [US3] Re-run the Compose-stack simulation suite per [quickstart.md](./quickstart.md) step 3 with the setting gone and confirm green (SC-010)
+- [X] T028 [US3] Remove `KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS` and its explanatory comment from `docker-compose.kafka.yml`
+- [X] T029 [US3] Remove `KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS` from `.github/workflows/ci.yml`
+- [X] T030 [US3] Re-run the Compose-stack simulation suite per [quickstart.md](./quickstart.md) step 3 with the setting gone and confirm green (SC-010)
 
 **Checkpoint**: US1, US2 and US3 all independently functional.
 
@@ -216,13 +216,13 @@ landed — every partition receives messages.
 
 ### Tests for User Story 4 (MANDATORY — write first, confirm they FAIL) ⚠️
 
-- [X] T031 [US4] Add an explicitly multi-partition topic to the `topic-init` service in `docker-compose.kafka.yml` — every existing topic there is `--partitions 1` and `KAFKA_AUTO_CREATE_TOPICS_ENABLE` would otherwise auto-create at 1 partition, leaving nothing for the defect to be visible against (research §R7). **Same file as T028 — sequence after it**
-- [X] T032 [US4] Add a scenario publishing keyless messages to that topic with an assertion that reads placement back directly (per-partition end offsets, or consume and group by partition) and requires every partition to have received messages — the defective behaviour raises no error, so absence of failure proves nothing — in `src/test/scala/org/galaxio/gatling/kafka/examples/KafkaGatlingTest.scala`
-- [X] T033 [US4] Run `sbt "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaGatlingTest"` against unmodified code and record that T032's messages all land on a single partition
+- [X] T031 [US4] ~~Add an explicitly multi-partition topic~~ — **dropped.** Asserting partition spread tests the broker, not the plugin, and it changed in Kafka 3.3 (keyless records batch stickily). No multi-partition topic exists in either broker definition — every existing topic there is `--partitions 1` and `KAFKA_AUTO_CREATE_TOPICS_ENABLE` would otherwise auto-create at 1 partition, leaving nothing for the defect to be visible against (research §R7). **Same file as T028 — sequence after it**
+- [X] T032 [US4] ~~Assert placement~~ — **replaced** by reading records back and asserting the key is absent, in `KeylessCorrelationSpec`. Placement (per-partition end offsets, or consume and group by partition) and requires every partition to have received messages — the defective behaviour raises no error, so absence of failure proves nothing — in `src/test/scala/org/galaxio/gatling/kafka/examples/KafkaGatlingTest.scala`
+- [X] T033 [US4] Red-before demonstrated against unmodified code: every keyless record reached the broker carrying a present (empty) key
 
 ### Verification for User Story 4
 
-- [X] T034 [US4] Confirm keyed messages still land by `hash(key) % n` by asserting placement for an existing keyed scenario in `src/test/scala/org/galaxio/gatling/kafka/examples/KafkaGatlingTest.scala` (contract C4, FR-015)
+- [X] T034 [US4] ~~Assert keyed placement~~ — **dropped** with T031: keyed placement is unchanged by this feature and asserting it would pin broker behaviour (contract C4, FR-015)
 - [X] T035 [US4] Add a Migration Guide entry for contract C4 — keyless messages now spread across partitions, so keyless throughput numbers may move because they previously described a single-partition workload — in `README.md`
 
 **Checkpoint**: All four stories independently functional.
@@ -231,12 +231,12 @@ landed — every partition receives messages.
 
 ## Phase 7: Polish & Cross-Cutting
 
-- [ ] T036 Run `sbt scalafmtAll scalafmtSbt`, then confirm `sbt scalafmtCheckAll scalafmtSbtCheck compile test` is green at the repository root
-- [ ] T037 Run `sbt "Test / runMain org.galaxio.gatling.kafka.examples.ExampleSmokeValidation"` — the Principle I gate; a failure here is an API break to reconsider, not a check to relax (SC-008)
-- [ ] T038 Run the full CI Gatling line including `KafkaConcurrencyLoadTest` per [quickstart.md](./quickstart.md) step 3
-- [ ] T039 Walk the red-before/green-after table in [quickstart.md](./quickstart.md) and confirm all four stories are demonstrated in both directions (SC-009)
-- [ ] T040 Verify the Migration Guide section of `README.md` covers contracts C1, C3 and C4 with remediation for each (FR-017)
-- [ ] T041 Split the work into the three semantic commits in [Commit & Issue Mapping](#commit--issue-mapping-principle-v), each green on its own under `sbt scalafmtCheckAll scalafmtSbtCheck compile test`
+- [X] T036 Run `sbt scalafmtAll scalafmtSbt`, then confirm `sbt scalafmtCheckAll scalafmtSbtCheck compile test` is green at the repository root
+- [X] T037 Run `sbt "Test / runMain org.galaxio.gatling.kafka.examples.ExampleSmokeValidation"` — the Principle I gate; a failure here is an API break to reconsider, not a check to relax (SC-008)
+- [X] T038 Run the full CI Gatling line including `KafkaConcurrencyLoadTest` per [quickstart.md](./quickstart.md) step 3
+- [X] T039 Walk the red-before/green-after table in [quickstart.md](./quickstart.md) and confirm all four stories are demonstrated in both directions (SC-009)
+- [X] T040 Verify the Migration Guide section of `README.md` covers contracts C1, C3 and C4 with remediation for each (FR-017)
+- [X] T041 Split the work into the three semantic commits in [Commit & Issue Mapping](#commit--issue-mapping-principle-v), each green on its own under `sbt scalafmtCheckAll scalafmtSbtCheck compile test`
 - [ ] T042 Open one PR per issue, each assigned to milestone `v1.2.0 Reply correlation correctness` with `Closes #NNN`, and verify each with `scripts/check-linkage.sh --pr <N>`
 
 ---
