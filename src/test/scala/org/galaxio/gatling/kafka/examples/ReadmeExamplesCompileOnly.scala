@@ -38,7 +38,7 @@ object ReadmeExamplesCompileOnly {
   def correlationIdFromHeader(headerName: String): KafkaProtocolMessage => Array[Byte] =
     _.headers
       .flatMap(headers => Option(headers.lastHeader(headerName)).map(_.value()))
-      .getOrElse(Array.emptyByteArray)
+      .orNull
 
   val matchByMessageProtocol: KafkaProtocol =
     requestReplyProtocolBuilder.matchByMessage(correlationIdFromHeader("correlation-id"))

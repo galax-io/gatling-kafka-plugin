@@ -315,7 +315,12 @@ import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 def correlationIdFromHeader(headerName: String): KafkaProtocolMessage => Array[Byte] =
   _.headers
     .flatMap(headers => Option(headers.lastHeader(headerName)).map(_.value()))
-    .getOrElse(Array.emptyByteArray)
+    .orNull
+```
+
+> **Return `null`, not `Array.emptyByteArray`, when the field is missing.** An empty array is a *value*: every request missing
+> the header would produce the same correlation id, they would all share one slot, and replies would be matched to the wrong
+> virtual user. Returning `null` makes the plugin fail those requests immediately with a message naming the cause.
 
 ## Runtime Semantics & Troubleshooting
 
@@ -459,6 +464,78 @@ Use this section as release-based upgrade notes. Start from the version you are 
 | `0.20.3` | `1.0.x` | Move from Gatling `3.11.5` to `3.13.x`, update request-reply consumer settings, re-check examples against current README. |
 | `0.21.x` | `1.0.x` | Stay on Gatling `3.13.x`, review request-reply defaults and DSL surface. |
 | `0.20.x` or older | `1.0.x` | Treat as full doc refresh. Older consume-only or per-action matcher APIs are not present. |
+
+### Upgrading to `1.2.0`
+
+No changes to the DSL, the `javaapi` facade or protocol settings — nothing you have written stops compiling. There is one
+change at the record level, and two behavioural changes follow from it: a message with no key is now published with **no key**
+rather than with an empty one. Read both sections below before upgrading; the second can turn a passing scenario red.
+
+#### A request-reply with no key is now failed instead of mismatched
+
+A request with no key produced an empty correlation id — and so did every other keyless request. They shared a single slot in
+the correlation table, so a reply resolved whichever request happened to occupy it: one virtual user was credited with another
+user's answer while the real owner timed out. Nothing in the report distinguished that from a genuine result.
+
+Under the default `matchByKey` there is nothing to correlate a keyless reply on, so such a request is now **reported as a
+failure at issue time and is not published**. The failure names the matcher and the remedy.
+
+**If a request-reply scenario of yours has no key, it will now go red.** Those runs were reporting incorrect results before;
+the change surfaces that rather than causing it. Two ways forward, depending on what the request actually correlates on:
+
+```scala
+// Give each request a key to correlate on
+kafka("req").requestReply
+  .requestTopic("in").replyTopic("out")
+  .send[String, String]("#{correlationId}", "payload")
+```
+
+```scala
+// Or correlate on something the request already carries
+val protocol = kafka
+  .producerSettings(...)
+  .consumeSettings(...)
+  .matchByValue                       // the payload itself
+// .matchByMessage(msg => ...)        // or a header / any extracted field
+```
+
+Request-reply that already sets a key, or that uses `matchByValue` / `matchByMessage`, is unaffected.
+
+#### A message with no key is now published with no key
+
+The plugin was substituting an empty byte array for an absent key, which is not the same thing: an empty key is a *present*
+key. Kafka hashes it, and `murmur2` of an empty input is a constant — so **every keyless message landed on the same partition
+for the whole run**, no matter how long the run was or how many partitions the topic had. This applied to fire-and-forget
+sends as well as request-reply.
+
+Keyless messages now reach the broker with a genuinely absent key, so Kafka applies its normal keyless partitioning instead of
+hashing a constant.
+
+- **Expect throughput, partition-lag and consumer-group numbers for keyless scenarios to move**, in either direction. The
+  earlier figures described a single-partition workload, which is not what those scenarios were written to measure.
+- Exactly how records are spread is Kafka's decision and depends on your broker and client version — current clients batch
+  keyless records stickily rather than round-robin, so a short run may still concentrate them. What changed here is that
+  spreading becomes possible at all.
+- Messages that carry a key are unaffected: placement is still `hash(key) % partitions`, so per-key ordering guarantees hold.
+- Immediate rejections (the section above) are reported with a near-zero response time, because that is how long they take.
+  If you assert on `global.responseTime` percentiles, note that a run rejecting every request will *lower* them; assert on
+  `failedRequests`/`successfulRequests` to catch that case.
+
+> ### ⚠️ Keyless sends to a log-compacted topic now fail
+>
+> A compacted topic (`cleanup.policy=compact`) requires every record to have a key, and Kafka treats an **empty** key as
+> present but a **null** key as absent. The old empty-array substitution therefore slipped past that check; a genuinely absent
+> key does not.
+>
+> A scenario that publishes keyless records — request-reply or fire-and-forget — to a compacted topic goes from passing to
+> **every request failing**, with `InvalidRecordException: Compacted topic cannot accept message without key`.
+>
+> This is the broker enforcing a rule the plugin was previously hiding: those records were never valid on that topic. Give the
+> send a key:
+>
+> ```scala
+> kafka("req").topic("compacted-topic").send[String, String]("#{entityId}", "payload")
+> ```
 
 ### Upgrading to `1.1.0`
 
