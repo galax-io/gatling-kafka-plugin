@@ -55,9 +55,10 @@ jobs:
           KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
           # Must stay in step with docker-compose.kafka.yml's topic-init: this is a separate broker
           # definition, so a topic added there is NOT created here. myTopic5/test.t5 serve the keyless
-          # request-reply scenarios (#167); load.request/load.reply are KafkaConcurrencyLoadTest's, which
-          # previously relied on broker auto-create.
-          KAFKA_CREATE_TOPICS: "myTopic1:1:1, test.t1:1:1, myTopic2:1:1, test.t2:1:1, myTopic3:1:1, test.t3:1:1, myTopic4:1:1, myTopic5:1:1, test.t5:1:1, load.request:1:1, load.reply:1:1"
+          # request-reply scenarios (#167), myTopic6/test.t6 the tombstone one (#168), and
+          # load.request/load.reply are KafkaConcurrencyLoadTest's, which previously relied on
+          # broker auto-create.
+          KAFKA_CREATE_TOPICS: "myTopic1:1:1, test.t1:1:1, myTopic2:1:1, test.t2:1:1, myTopic3:1:1, test.t3:1:1, myTopic4:1:1, myTopic5:1:1, test.t5:1:1, myTopic6:1:1, test.t6:1:1, load.request:1:1, load.reply:1:1"
         ports:
           - '9092:9092'
           - '9093:9093'

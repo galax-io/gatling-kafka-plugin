@@ -40,7 +40,16 @@ class KafkaGatlingTest extends Simulation with StrictLogging {
     // it runs several virtual users at once, and sharing a reply topic with a single-user scenario would
     // make a cross-attribution failure look like that scenario's problem instead.
     "myTopic5" -> "test.t5",
+    // Answered with a *tombstone* rather than an echo — see the responder below (issue #168).
+    "myTopic6" -> "test.t6",
   )
+
+  /** Request topics the responder answers with a null value instead of echoing.
+    *
+    * A tombstone is ordinary traffic on a compacted topic, and it used to take the virtual user down with it: the body check
+    * NPE'd inside the tracker, which had no catch, so the user was never continued — no success, no failure, no next request.
+    */
+  private val tombstoneRoutes: Set[String] = Set("myTopic6")
 
   /** Header carrying when the responder answered. Round-trip metadata has to ride here rather than in the key or the value:
     * `scnRR` matches by key and checks `jsonPath` on the value, `scnRR2` matches by value and checks `bodyBytes`. Any rewrite
@@ -56,6 +65,9 @@ class KafkaGatlingTest extends Simulation with StrictLogging {
     */
   private val KeylessValueUsers = 5
   private val KeylessKeyUsers   = 3
+
+  /** Virtual users answered with a tombstone (issue #168). Each contributes one expected KO and one follow-up success. */
+  private val TombstoneUsers = 2
 
   // Stands in for the service under test. Before this existed the request-reply scenarios were "answered"
   // by sibling fire-and-forget scenarios that happened to publish a matching key or value at a fixed
@@ -96,8 +108,12 @@ class KafkaGatlingTest extends Simulation with StrictLogging {
       echoRoutes.get(record.topic()).foreach { replyTopic =>
         val headers = new RecordHeaders()
         headers.add(RespondedAtHeader, System.currentTimeMillis().toString.getBytes)
+        // The probe has to be echoed intact or `awaitResponderReady` never completes for this route, so
+        // only non-probe records get the tombstone treatment.
+        val isProbe = record.value() != null && new String(record.value()) == probeMarker
+        val value   = if (tombstoneRoutes.contains(record.topic()) && !isProbe) null else record.value()
         responderSender.send(
-          KafkaProtocolMessage(record.key(), record.value(), replyTopic, replyTopic, Some(headers)),
+          KafkaProtocolMessage(record.key(), value, replyTopic, replyTopic, Some(headers)),
         )(
           _ => { echoedRoutes.add(record.topic()); () },
           // Never silent: a responder that stops echoing looks exactly like the plugin losing replies,
@@ -382,6 +398,34 @@ class KafkaGatlingTest extends Simulation with StrictLogging {
     * the same count via displacement plus one timeout. That the requests never reach the broker is asserted in
     * `KeylessCorrelationSpec`, which can observe the request topic directly.
     */
+  /** Issue #168. The reply is a tombstone, so the body check has nothing to check against.
+    *
+    * Two requests, and the second is the point. A stranded virtual user produces *no* KO at all, so a failure-count assertion
+    * on its own goes green on exactly the run this scenario exists to catch. "Tombstone Follow Up" only executes if the user
+    * survived the first request, which is what turns a hang into a visible, countable difference.
+    */
+  val scnRRTombstone: ScenarioBuilder = scenario("RequestReply tombstone reply")
+    // A distinct key per user, from a feeder rather than an EL reference to `userId`: `userId` is not a
+    // session attribute, so `#{userId}` fails to resolve and the request dies at build time — reported
+    // as a crash with no request stats at all, which makes the scenario silently assert nothing. The
+    // keys must differ because matchByKey would otherwise displace one request with the other.
+    .feed(Iterator.from(1).map(i => Map("tombKey" -> s"tomb-$i")): Feeder[String])
+    .exec(
+      kafka("Request Reply Tombstone").requestReply
+        .requestTopic("myTopic6")
+        .replyTopic("test.t6")
+        .send[String, String]("#{tombKey}", "body")
+        // `is("body")`, not a value that never matches: a check failing on *every* reply cannot tell a tombstone from a
+        // normal echo, so the scenario would stay green with tombstoneRoutes empty or the route lookup broken. This one
+        // succeeds on an echo and can only KO when the payload is absent.
+        .check(bodyString.is("body")),
+    )
+    .exec(
+      kafka("Tombstone Follow Up")
+        .topic("myTopic3")
+        .send[String]("survived"),
+    )
+
   val scnRRKeylessKey: ScenarioBuilder = scenario("RequestReply keyless by key")
     .exec(
       kafka("Request Reply Keyless Key").requestReply
@@ -400,6 +444,7 @@ class KafkaGatlingTest extends Simulation with StrictLogging {
     scnwokey.inject(nothingFor(1), atOnceUsers(1)).protocols(kafkaConfwoKey),
     scnRRKeylessValue.inject(atOnceUsers(KeylessValueUsers)).protocols(kafkaProtocolRRKeylessValue),
     scnRRKeylessKey.inject(atOnceUsers(KeylessKeyUsers)).protocols(kafkaProtocolRRString),
+    scnRRTombstone.inject(atOnceUsers(TombstoneUsers)).protocols(kafkaProtocolRRString),
   ).assertions(
     // Two sources of expected failure, and they are expected for opposite reasons:
     //
@@ -412,13 +457,18 @@ class KafkaGatlingTest extends Simulation with StrictLogging {
     // failing, so a broken reply-timeout would have dropped the count to 0 and still gone green. Pinning
     // the count and naming each request that must fail closes the gate in both directions — a new, real
     // failure fails the run, and so does an expected one starting to pass.
-    global.failedRequests.count.is(1 + KeylessKeyUsers),
+    global.failedRequests.count.is(1 + KeylessKeyUsers + TombstoneUsers),
     details("Request Reply Bytes wo").failedRequests.count.is(1),
     details("Request Reply Keyless Key").failedRequests.count.is(KeylessKeyUsers),
     // The other half of #167: keyless requests that *can* be correlated must all succeed, concurrently.
     // Pinned as a success count rather than a failure count of zero, so a scenario that silently stops
     // running at all fails the run instead of passing it.
     details("Request Reply Keyless Value").successfulRequests.count.is(KeylessValueUsers),
+    // Issue #168, and the pair is the assertion. The KO count alone would be satisfied by a run in which
+    // the users hung — a stranded user reports nothing — so the follow-up success count is what proves
+    // they were continued rather than lost.
+    details("Request Reply Tombstone").failedRequests.count.is(TombstoneUsers),
+    details("Tombstone Follow Up").successfulRequests.count.is(TombstoneUsers),
   ).maxDuration(120.seconds)
 
 }
