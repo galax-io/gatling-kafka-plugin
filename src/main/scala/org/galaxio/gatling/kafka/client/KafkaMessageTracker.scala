@@ -14,6 +14,7 @@ import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 import org.galaxio.gatling.kafka.{KafkaCheck, KafkaLogging}
 
 import scala.collection.mutable
+import scala.util.control.NonFatal
 import scala.concurrent.duration.DurationInt
 
 object KafkaMessageTracker {
@@ -158,7 +159,17 @@ class KafkaMessageTracker[K, V](
       })
     }
 
-  /** Reports a matched reply, whether or not the acknowledgement has landed yet. The caller has already removed the record. */
+  /** Reports a matched reply, whether or not the acknowledgement has landed yet. The caller has already removed the record.
+    *
+    * The `catch` is the backstop for issue #168, and it is deliberately broad. A check that throws used to escape here into a
+    * `try`/`finally` with nothing to catch it: the record had already been removed from `sentMessages`, so no timeout scan
+    * could ever fail it either, and `next ! session` was never reached. The virtual user simply stopped — no success, no
+    * failure, no continuation, and nothing in the report to say a user had gone missing.
+    *
+    * The preparers no longer throw on a tombstone, which is what actually triggered it. This stays because the guarantee worth
+    * having is not "these five checks are safe" but "no check can strand a virtual user", and that has to hold for check types
+    * this plugin does not own.
+    */
   private def completeMatched(
       published: MessagePublished,
       receivedTimestamp: Long,
@@ -174,7 +185,20 @@ class KafkaMessageTracker[K, V](
         published.next,
         published.requestName,
       )
-    finally published.onComplete()
+    catch {
+      case NonFatal(e) =>
+        logger.error(s"Check execution failed for ${published.requestName}; reporting it as a failure", e)
+        executeNext(
+          published.session.markAsFailed,
+          published.sentTimestamp,
+          receivedTimestamp,
+          KO,
+          published.next,
+          published.requestName,
+          message.responseCode,
+          Some(s"Check execution failed: ${Option(e.getMessage).getOrElse(e.getClass.getSimpleName)}"),
+        )
+    } finally published.onComplete()
 
   override def init(): Behavior[TrackerMessage] = {
     // The request is registered here, before it is handed to the producer, so a reply cannot be looked
