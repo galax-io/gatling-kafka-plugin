@@ -3,7 +3,7 @@ package org.galaxio.gatling.kafka.client
 import com.typesafe.scalalogging.StrictLogging
 import org.apache.kafka.clients.consumer.{ConsumerRebalanceListener, ConsumerRecord, KafkaConsumer}
 import org.apache.kafka.common.TopicPartition
-import org.apache.kafka.common.errors.WakeupException
+import org.apache.kafka.common.errors.{InterruptException, WakeupException}
 
 import java.time.Duration
 import java.util
@@ -13,6 +13,7 @@ import java.util.concurrent.{CompletableFuture, ConcurrentHashMap, ConcurrentLin
 import scala.collection.mutable
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
 import scala.jdk.CollectionConverters._
+import scala.util.control.NonFatal
 
 object DynamicKafkaConsumer {
 
@@ -34,6 +35,15 @@ object DynamicKafkaConsumer {
     * nothing depends on it — an idle consumer should cost nothing.
     */
   private val idleBackoffMillis: Long = 1000L
+
+  /** How long the poll thread will wait for one partition's fetch position before giving up on that topic.
+    *
+    * Bounded because this runs on the single thread that timestamps every reply for every topic on this consumer: an unbounded
+    * `position` against an unreachable coordinator would stall the whole run, not just the topic being resolved. Generous
+    * enough for a `ListOffsets` round trip on a loaded broker, short enough that a genuinely stuck one surfaces as a failed
+    * reply channel rather than a hung simulation.
+    */
+  private val positionTimeout: Duration = Duration.ofSeconds(10)
 
   private[client] val consumerFailedMessage = "Kafka consumer failed; dynamic consumer can no longer be used"
   private[client] val consumerClosedMessage = "Kafka consumer is closed; topic subscription will not complete"
@@ -126,17 +136,61 @@ final class DynamicKafkaConsumer[K, V] private (
     awaitingAssignment.clear()
   }
 
-  /** Completes readiness for every topic the consumer currently holds partitions for. Runs on the consumer thread only, since
-    * it reads the consumer's assignment.
+  /** Completes readiness for every topic the consumer holds partitions for *and* has a fetch position on. Runs on the consumer
+    * thread only, since it reads the consumer's assignment and resolves positions.
+    *
+    * Assignment alone is not enough. It precedes fetch-position resolution, and the plugin defaults `auto.offset.reset` to
+    * `latest`, so a reply produced between the two is skipped: the position resolves to the log end *after* that record, the
+    * request never sees its answer, and it fails on the reply timeout — indistinguishable from a system under test that never
+    * replied (issue #193).
+    *
+    * Resolving the position here closes that window. `consumer.position` performs the `ListOffsets` round trip that would
+    * otherwise have happened on the next poll, so once a topic's futures complete, everything published from that moment on is
+    * at or after the position the consumer will fetch from.
     */
   private def completeAssignedReadiness(): Unit =
     if (!awaitingAssignment.isEmpty) {
-      consumer.assignment().asScala.map(_.topic()).toSet.foreach { (topic: String) =>
-        val pending = awaitingAssignment.remove(topic)
-        if (pending != null) {
-          pending.forEach(_.complete(null))
+      val assigned = consumer.assignment().asScala.toSet
+      assigned.map(_.topic()).foreach { (topic: String) =>
+        if (awaitingAssignment.containsKey(topic)) {
+          val failure = resolvePositions(assigned.filter(_.topic() == topic))
+          val pending = awaitingAssignment.remove(topic)
+          if (pending != null) {
+            failure match {
+              case None        => pending.forEach(_.complete(null))
+              case Some(cause) => pending.forEach(_.completeExceptionally(cause))
+            }
+          }
         }
       }
+    }
+
+  /** Resolves the fetch position for every partition of one awaited topic, returning the failure rather than throwing.
+    *
+    * Failure is scoped to the topic on purpose. Routing it through `markConsumerFailed` would latch `consumerFailure` and
+    * refuse every present and future subscription for the rest of the run — the terminal state issue #143 exists to prevent —
+    * over what may be one slow `ListOffsets` for one reply topic. The virtual users waiting on *this* topic fail; everything
+    * else on the consumer carries on.
+    *
+    * `WakeupException` and `InterruptException` are shutdown signals, not position failures, so they are left to propagate to
+    * the run loop that knows how to interpret them.
+    */
+  private def resolvePositions(partitions: Set[TopicPartition]): Option[Throwable] =
+    try {
+      partitions.foreach(tp => consumer.position(tp, DynamicKafkaConsumer.positionTimeout))
+      None
+    } catch {
+      case e: WakeupException    => throw e
+      case e: InterruptException => throw e
+      case NonFatal(e)           =>
+        logger.error(s"Could not resolve a fetch position for $partitions; failing readiness for that topic only", e)
+        Some(
+          new IllegalStateException(
+            s"Reply channel is subscribed to $partitions but its fetch position could not be resolved, " +
+              "so a reply published now could be skipped; failing this topic rather than reporting it ready",
+            e,
+          ),
+        )
     }
 
   private def markConsumerFailed(exception: Exception): Unit = {
