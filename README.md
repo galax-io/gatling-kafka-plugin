@@ -467,9 +467,8 @@ Use this section as release-based upgrade notes. Start from the version you are 
 
 ### Upgrading to `1.2.0`
 
-No changes to the DSL, the `javaapi` facade or protocol settings — nothing you have written stops compiling. There is one
-change at the record level, and two behavioural changes follow from it: a message with no key is now published with **no key**
-rather than with an empty one. Read both sections below before upgrading; the second can turn a passing scenario red.
+No changes to the DSL, the `javaapi` facade or protocol settings — nothing you have written stops compiling. Three
+behavioural changes, and two of them can turn a passing scenario red, so read the sections below before upgrading.
 
 #### A request-reply with no key is now failed instead of mismatched
 
@@ -500,6 +499,25 @@ val protocol = kafka
 ```
 
 Request-reply that already sets a key, or that uses `matchByValue` / `matchByMessage`, is unaffected.
+
+#### A reply with no payload now fails the request instead of losing the virtual user
+
+A reply can arrive with no payload at all — a tombstone on a compacted topic, or an acknowledgement carrying no body. Applying
+a content check to one (`bodyString`, `substring`, `bodyBytes`, `jsonPath`, `jmesPath`) used to throw inside the reply-handling
+path, which had nothing to catch it. The virtual user was **never continued**: no success, no failure, no next request. It
+simply stopped, and the run's user count silently diverged from the load the profile was applying.
+
+Such a check now reports the request as a failure naming the absent payload, and the virtual user carries on.
+
+- **Expect new KOs on any target that answers with tombstones.** Those requests were previously unreported — the run looked
+  cleaner than it was, while quietly shedding load.
+- **Expect the run to finish with the number of users it started with.** If your achieved throughput used to drift below the
+  configured rate for no visible reason, this is a candidate cause.
+- An **empty** payload is unchanged: it is a value, not an absence. `bodyString.is("")` still passes on an empty reply and now
+  fails on a tombstone — "the service sent nothing" and "the service sent an empty string" are different findings.
+
+Independently of the checks above, **no check can strand a virtual user any more**: one that throws for any reason is reported
+as a failure and the user continues.
 
 #### A message with no key is now published with no key
 

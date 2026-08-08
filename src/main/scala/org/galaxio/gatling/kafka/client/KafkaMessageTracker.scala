@@ -14,6 +14,7 @@ import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 import org.galaxio.gatling.kafka.{KafkaCheck, KafkaLogging}
 
 import scala.collection.mutable
+import scala.util.control.NonFatal
 import scala.concurrent.duration.DurationInt
 
 object KafkaMessageTracker {
@@ -158,23 +159,69 @@ class KafkaMessageTracker[K, V](
       })
     }
 
-  /** Reports a matched reply, whether or not the acknowledgement has landed yet. The caller has already removed the record. */
+  /** Reports a matched reply, whether or not the acknowledgement has landed yet. The caller has already removed the record.
+    *
+    * The `try` covers **only** check evaluation, not the reporting that follows it. That distinction is the whole safety of
+    * this method: `executeNext` logs the response *and* advances the virtual user, so wrapping it as well meant a throw after
+    * the response had already been dispatched would run it a second time — two stats entries for one request and the same user
+    * pushed down the chain twice, in an actor built around exactly one terminal outcome.
+    *
+    * Catching around the check is what issue #168 needs. A check that throws used to escape into a `try`/`finally` with nothing
+    * to catch it: the record had already been removed from `sentMessages`, so no timeout scan could fail it either, and
+    * `next ! session` was never reached — the virtual user simply stopped, with nothing in the report. The preparers no longer
+    * throw on a tombstone, but the guarantee worth having is "no check can strand a virtual user", and that has to hold for
+    * check types this plugin does not own.
+    */
   private def completeMatched(
       published: MessagePublished,
       receivedTimestamp: Long,
       message: KafkaProtocolMessage,
   ): Unit =
-    try
-      processMessage(
-        published.session,
-        published.sentTimestamp,
-        receivedTimestamp,
-        published.checks,
-        message,
-        published.next,
-        published.requestName,
-      )
-    finally published.onComplete()
+    try {
+      val outcome =
+        try Right(Check.check(message, published.session, published.checks))
+        catch {
+          case NonFatal(e) =>
+            logger.error(s"Check execution failed for ${published.requestName}; reporting it as a failure", e)
+            Left(s"Check execution failed: ${Option(e.getMessage).getOrElse(e.getClass.getSimpleName)}")
+        }
+
+      outcome match {
+        case Left(errorMessage)                    =>
+          executeNext(
+            published.session.markAsFailed,
+            published.sentTimestamp,
+            receivedTimestamp,
+            KO,
+            published.next,
+            published.requestName,
+            message.responseCode,
+            Some(errorMessage),
+          )
+        case Right((newSession, Some(Failure(m)))) =>
+          executeNext(
+            newSession.markAsFailed,
+            published.sentTimestamp,
+            receivedTimestamp,
+            KO,
+            published.next,
+            published.requestName,
+            message.responseCode,
+            Some(m),
+          )
+        case Right((newSession, _))                =>
+          executeNext(
+            newSession,
+            published.sentTimestamp,
+            receivedTimestamp,
+            OK,
+            published.next,
+            published.requestName,
+            None,
+            None,
+          )
+      }
+    } finally published.onComplete()
 
   override def init(): Behavior[TrackerMessage] = {
     // The request is registered here, before it is handed to the producer, so a reply cannot be looked
@@ -390,34 +437,5 @@ class KafkaMessageTracker[K, V](
       message,
     )
     next ! session.logGroupRequestTimings(sentTimestamp, receivedTimestamp)
-  }
-
-  /** Processes a matched message
-    */
-  private def processMessage(
-      session: Session,
-      sentTimestamp: Long,
-      receivedTimestamp: Long,
-      checks: List[KafkaCheck],
-      message: KafkaProtocolMessage,
-      next: Action,
-      requestName: String,
-  ): Unit = {
-    val (newSession, error) = Check.check(message, session, checks)
-    error match {
-      case Some(Failure(errorMessage)) =>
-        executeNext(
-          newSession.markAsFailed,
-          sentTimestamp,
-          receivedTimestamp,
-          KO,
-          next,
-          requestName,
-          message.responseCode,
-          Some(errorMessage),
-        )
-      case _                           =>
-        executeNext(newSession, sentTimestamp, receivedTimestamp, OK, next, requestName, None, None)
-    }
   }
 }
