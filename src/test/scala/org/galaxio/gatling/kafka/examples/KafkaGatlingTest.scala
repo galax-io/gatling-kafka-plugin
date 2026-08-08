@@ -221,7 +221,7 @@ class KafkaGatlingTest extends Simulation with StrictLogging {
     .consumeSettings(
       "bootstrap.servers" -> "localhost:9093",
     )
-    .timeout(5.seconds)
+    .timeout(15.seconds)
     .matchByValue
 
   /** String serializers plus value matching, for the keyless scenario (issue #167). String rather than bytes so the payload can
@@ -255,7 +255,7 @@ class KafkaGatlingTest extends Simulation with StrictLogging {
     .consumeSettings(
       "bootstrap.servers" -> "localhost:9093",
     )
-    .timeout(5.seconds)
+    .timeout(15.seconds)
     .matchByValue
 
   val kafkaAvro4sConf: KafkaProtocol = kafka

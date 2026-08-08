@@ -13,6 +13,7 @@ import java.util.concurrent.{CompletableFuture, ConcurrentHashMap, ConcurrentLin
 import scala.collection.mutable
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
 import scala.jdk.CollectionConverters._
+import scala.util.control.NonFatal
 
 object DynamicKafkaConsumer {
 
@@ -34,6 +35,14 @@ object DynamicKafkaConsumer {
     * nothing depends on it — an idle consumer should cost nothing.
     */
   private val idleBackoffMillis: Long = 1000L
+
+  /** Total budget for resolving fetch positions in one pass, across **all** assigned partitions.
+    *
+    * Bounded because the pass runs on the single thread that timestamps every reply for every topic on this consumer, and it
+    * can run inside `poll()` via the rebalance listener: an unbounded wait there stalls the whole run, and a per-partition
+    * budget would multiply by the assignment width and blow `max.poll.interval.ms` on a wide topic.
+    */
+  private val positionTimeoutMillis: Long = 10000L
 
   private[client] val consumerFailedMessage = "Kafka consumer failed; dynamic consumer can no longer be used"
   private[client] val consumerClosedMessage = "Kafka consumer is closed; topic subscription will not complete"
@@ -126,17 +135,75 @@ final class DynamicKafkaConsumer[K, V] private (
     awaitingAssignment.clear()
   }
 
-  /** Completes readiness for every topic the consumer currently holds partitions for. Runs on the consumer thread only, since
-    * it reads the consumer's assignment.
+  /** Resolves the fetch position for **every** assigned partition, then completes readiness for the topics awaiting it.
+    *
+    * Assignment alone is not enough. It precedes fetch-position resolution, and the plugin defaults `auto.offset.reset` to
+    * `latest`, so a reply produced between the two is skipped: the position resolves to the log end *after* that record, the
+    * request never sees its answer, and it fails on the reply timeout — indistinguishable from a system under test that never
+    * replied (issue #193).
+    *
+    * Positions are resolved for the whole assignment rather than only for awaited topics, because readiness is not a one-shot
+    * property. The plugin calls `subscribe` on every reply-topic acquisition and every idle removal, and the default eager
+    * assignor revokes and re-assigns *all* partitions each time — so a topic that completed readiness earlier gets fresh,
+    * unpositioned partitions and would silently reopen the same window. Scoping this to `awaitingAssignment` made the fix hold
+    * only until the second acquisition of a run, and leaned entirely on `enable.auto.commit` defaulting to true to restore the
+    * position from the pre-revoke commit.
     */
-  private def completeAssignedReadiness(): Unit =
-    if (!awaitingAssignment.isEmpty) {
-      consumer.assignment().asScala.map(_.topic()).toSet.foreach { (topic: String) =>
-        val pending = awaitingAssignment.remove(topic)
-        if (pending != null) {
-          pending.forEach(_.complete(null))
+  private def completeAssignedReadiness(): Unit = {
+    val assigned = consumer.assignment()
+    if (!assigned.isEmpty) {
+      val failure = resolvePositions(assigned)
+      if (!awaitingAssignment.isEmpty) {
+        assigned.asScala.map(_.topic()).toSet.foreach { (topic: String) =>
+          val pending = awaitingAssignment.remove(topic)
+          if (pending != null) {
+            failure match {
+              case None        => pending.forEach(_.complete(null))
+              case Some(cause) => pending.forEach(_.completeExceptionally(cause))
+            }
+          }
         }
       }
+    }
+  }
+
+  /** Resolves the fetch position for the whole assignment under **one** deadline, returning the failure rather than throwing.
+    *
+    * One budget for the pass, not one per partition. `position` takes a per-call timeout, so looping it handed each partition a
+    * fresh 10 s and made the real bound `10 s × partitions` on the single thread that timestamps every reply for every topic —
+    * long enough on a wide topic to blow `max.poll.interval.ms` and get the consumer evicted, which is the opposite of what the
+    * bound was for. In practice the first call resolves every partition that needs it, so the rest are cache hits.
+    *
+    * Failure is scoped to the awaiting topics on purpose. Routing it through `markConsumerFailed` would latch `consumerFailure`
+    * and refuse every present and future subscription for the rest of the run — the terminal state issue #143 exists to prevent
+    * — over what may be one slow `ListOffsets`.
+    *
+    * `WakeupException` propagates: it is how `close()` interrupts a blocked call, and swallowing it would break shutdown.
+    * `InterruptException` deliberately does **not** propagate. It is a `KafkaException`, not a
+    * `java.lang.InterruptedException`, so the run loop's interrupt arm never matches it and it would reach the catch-all that
+    * latches a permanent consumer failure — again #143, reached by the one exception a rethrow was meant to protect. Treated as
+    * a position failure instead; `running` still governs shutdown.
+    */
+  private def resolvePositions(partitions: util.Collection[TopicPartition]): Option[Throwable] =
+    try {
+      val deadline = System.currentTimeMillis() + DynamicKafkaConsumer.positionTimeoutMillis
+      partitions.forEach { tp =>
+        val remaining = math.max(1L, deadline - System.currentTimeMillis())
+        consumer.position(tp, Duration.ofMillis(remaining))
+      }
+      None
+    } catch {
+      case e: WakeupException =>
+        throw e
+      case NonFatal(e)        =>
+        logger.error(s"Could not resolve a fetch position for $partitions; failing readiness for those topics only", e)
+        Some(
+          new IllegalStateException(
+            s"Reply channel is subscribed to $partitions but its fetch position could not be resolved, " +
+              "so a reply published now could be skipped; failing this topic rather than reporting it ready",
+            e,
+          ),
+        )
     }
 
   private def markConsumerFailed(exception: Exception): Unit = {
