@@ -46,13 +46,11 @@ jobs:
           KAFKA_INTER_BROKER_LISTENER_NAME: BROKER
           KAFKA_BROKER_ID: "1"
           KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
-          # Mirrors docker-compose.kafka.yml. Kept at 0 to keep the simulations quick, but no longer
-          # required: KafkaGatlingTest's replies now come from a real echo responder (#196) and its
-          # reply channel is established before the request is sent (#191), so an immediate reply is
-          # received whatever the delay. Verified green over three runs with Kafka's 3000 default.
-          # This is the only setting the two stacks agree on — broker and Schema Registry generations
-          # still differ; consolidating them is issue #192.
-          KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+          # group.initial.rebalance.delay.ms is deliberately left at Kafka's default, matching
+          # docker-compose.kafka.yml. It was pinned to 0 while reply-channel readiness completed on
+          # assignment alone (issue #193); with the fetch position now resolved before readiness
+          # completes, CI runs on the same setting a real target system would.
+          #
           # Must stay in step with docker-compose.kafka.yml's topic-init: this is a separate broker
           # definition, so a topic added there is NOT created here. myTopic5/test.t5 serve the keyless
           # request-reply scenarios (#167), myTopic6/test.t6 the tombstone one (#168), and
