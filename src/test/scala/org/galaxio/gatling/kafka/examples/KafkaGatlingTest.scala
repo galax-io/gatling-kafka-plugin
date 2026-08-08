@@ -20,6 +20,7 @@ import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 
 import java.util.concurrent.{ConcurrentHashMap, CountDownLatch, TimeUnit}
 import scala.concurrent.duration.DurationInt
+import scala.jdk.CollectionConverters._
 
 class KafkaGatlingTest extends Simulation with StrictLogging {
 
@@ -35,6 +36,10 @@ class KafkaGatlingTest extends Simulation with StrictLogging {
   private val echoRoutes: Map[String, String] = Map(
     "myTopic1" -> "test.t1",
     "myTopic2" -> "test.t2",
+    // Serves the keyless request-reply scenario (issue #167). Its own route rather than a shared one:
+    // it runs several virtual users at once, and sharing a reply topic with a single-user scenario would
+    // make a cross-attribution failure look like that scenario's problem instead.
+    "myTopic5" -> "test.t5",
   )
 
   /** Header carrying when the responder answered. Round-trip metadata has to ride here rather than in the key or the value:
@@ -44,6 +49,13 @@ class KafkaGatlingTest extends Simulation with StrictLogging {
   private val RespondedAtHeader = "x-responded-at"
 
   private val probeMarker = "_probe"
+
+  /** Concurrent users for the keyless scenarios (issue #167). More than one is the whole point on the value side — a reply
+    * reaching the wrong virtual user is unobservable with a single user in flight — and it keeps the key-side expected failure
+    * count from being satisfiable by one lucky request.
+    */
+  private val KeylessValueUsers = 5
+  private val KeylessKeyUsers   = 3
 
   // Stands in for the service under test. Before this existed the request-reply scenarios were "answered"
   // by sibling fire-and-forget scenarios that happened to publish a matching key or value at a fixed
@@ -196,6 +208,22 @@ class KafkaGatlingTest extends Simulation with StrictLogging {
     .timeout(5.seconds)
     .matchByValue
 
+  /** String serializers plus value matching, for the keyless scenario (issue #167). String rather than bytes so the payload can
+    * come from a feeder through EL, which `KafkaAction.serializeValue` only applies to `String` values.
+    */
+  val kafkaProtocolRRKeylessValue: KafkaProtocol = kafka
+    .producerSettings(
+      ProducerConfig.ACKS_CONFIG                   -> "1",
+      ProducerConfig.BOOTSTRAP_SERVERS_CONFIG      -> "localhost:9093",
+      ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG   -> "org.apache.kafka.common.serialization.StringSerializer",
+      ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG -> "org.apache.kafka.common.serialization.StringSerializer",
+    )
+    .consumeSettings(
+      "bootstrap.servers" -> "localhost:9093",
+    )
+    .timeout(10.seconds)
+    .matchByValue
+
   // The reply timeout doubles as the acquisition timeout, so it has to outlast establishing the reply
   // channel. At the previous 1 second this scenario failed with "Timed out waiting for consumer
   // assignment to topic 'test.t2'" — a KO for the right count but the wrong reason, and a timing-dependent
@@ -318,6 +346,50 @@ class KafkaGatlingTest extends Simulation with StrictLogging {
         .send[Array[Byte], Array[Byte]]("testWO".getBytes(), "tstBytesWO".getBytes()),
     )
 
+  // Issue #167. `Option(null)` is `None`, so a null key expression is how the DSL expresses "this request
+  // carries no key" — the same idiom `scnwokey` already uses for produce-only.
+  //
+  // These two are the only scenarios here that exercise `KafkaAction`'s key handling itself, which is
+  // where the empty-array substitution lived. KeylessCorrelationSpec builds its KafkaProtocolMessage
+  // directly and so bypasses exactly the code under test.
+
+  /** Distinct payload per virtual user. A feeder rather than an EL expression on the value: EL is only applied when the value
+    * type is `String` (see `KafkaAction.serializeValue`), so a templated `Array[Byte]` would be sent with its placeholder
+    * unresolved — identical for every user, which would make value correlation collide for a reason that has nothing to do with
+    * what is under test.
+    */
+  private val keylessPayloads: Feeder[String] =
+    Iterator.from(1).map(i => Map("payload" -> s"keyless-$i"))
+
+  /** Keyless, correlating on the value each request carries. Several users at once, each with a distinct payload: correlation
+    * has something real to work with, so every one must be answered. `atOnceUsers(1)` — which every other request-reply
+    * scenario here uses — could not show a reply reaching the wrong user even if one did.
+    */
+  val scnRRKeylessValue: ScenarioBuilder = scenario("RequestReply keyless by value")
+    .feed(keylessPayloads)
+    .exec(
+      kafka("Request Reply Keyless Value").requestReply
+        .requestTopic("myTopic5")
+        .replyTopic("test.t5")
+        .send[String, String](null, "#{payload}"),
+    )
+
+  /** Keyless under the default key matching: there is nothing to correlate a reply on, so each request must be failed at issue
+    * time rather than sent. Before the fix these all registered under one shared empty id, and a reply resolved whichever
+    * request happened to hold it.
+    *
+    * The failure *count* here is a smoke check, not the gate: a half-reverted fix that published these requests would produce
+    * the same count via displacement plus one timeout. That the requests never reach the broker is asserted in
+    * `KeylessCorrelationSpec`, which can observe the request topic directly.
+    */
+  val scnRRKeylessKey: ScenarioBuilder = scenario("RequestReply keyless by key")
+    .exec(
+      kafka("Request Reply Keyless Key").requestReply
+        .requestTopic("myTopic5")
+        .replyTopic("test.t5")
+        .send[String, String](null, "no-key-to-match-on"),
+    )
+
   setUp(
     scnRR.inject(atOnceUsers(1)).protocols(kafkaProtocolRRString),
     scn.inject(nothingFor(1), atOnceUsers(1)).protocols(kafkaConf),
@@ -326,16 +398,27 @@ class KafkaGatlingTest extends Simulation with StrictLogging {
     scnAvro4s.inject(atOnceUsers(1)).protocols(kafkaAvro4sConf),
     scnRRwo.inject(atOnceUsers(1)).protocols(kafkaProtocolRRBytes2),
     scnwokey.inject(nothingFor(1), atOnceUsers(1)).protocols(kafkaConfwoKey),
+    scnRRKeylessValue.inject(atOnceUsers(KeylessValueUsers)).protocols(kafkaProtocolRRKeylessValue),
+    scnRRKeylessKey.inject(atOnceUsers(KeylessKeyUsers)).protocols(kafkaProtocolRRString),
   ).assertions(
-    // Exactly one failure is expected, and it is by design: scnRRwo ("RequestReply w/o answer") sends to
-    // myTopic4, which the echo responder does not consume, so it always KOs on its reply timeout.
+    // Two sources of expected failure, and they are expected for opposite reasons:
     //
-    // `is(1)` rather than `lte(1)`: the previous bound passed when the by-design timeout silently stopped
+    //   - scnRRwo ("RequestReply w/o answer") sends to myTopic4, which the echo responder does not
+    //     consume, so it always KOs on its reply timeout. That is the reply-timeout coverage.
+    //   - scnRRKeylessKey supplies no key under key matching, so there is nothing to correlate a reply
+    //     on and every one of its requests is failed at issue time without being sent (issue #167).
+    //
+    // `is(n)` rather than `lte(n)`: the previous bound passed when the by-design timeout silently stopped
     // failing, so a broken reply-timeout would have dropped the count to 0 and still gone green. Pinning
-    // the count and naming the request that must fail closes the gate in both directions — a second,
-    // real failure fails the run, and so does the expected one starting to pass.
-    global.failedRequests.count.is(1),
+    // the count and naming each request that must fail closes the gate in both directions — a new, real
+    // failure fails the run, and so does an expected one starting to pass.
+    global.failedRequests.count.is(1 + KeylessKeyUsers),
     details("Request Reply Bytes wo").failedRequests.count.is(1),
+    details("Request Reply Keyless Key").failedRequests.count.is(KeylessKeyUsers),
+    // The other half of #167: keyless requests that *can* be correlated must all succeed, concurrently.
+    // Pinned as a success count rather than a failure count of zero, so a scenario that silently stops
+    // running at all fails the run instead of passing it.
+    details("Request Reply Keyless Value").successfulRequests.count.is(KeylessValueUsers),
   ).maxDuration(120.seconds)
 
 }
