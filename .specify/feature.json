@@ -1,3 +1,3 @@
 {
-  "feature_directory": "specs/003-request-reply-hardening"
+  "feature_directory": "specs/004-reply-correlation-correctness"
 }

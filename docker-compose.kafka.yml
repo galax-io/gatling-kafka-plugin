@@ -64,6 +64,14 @@ services:
       kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic myTopic3 --partitions 1 --replication-factor 1 &&
       kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic test.t3 --partitions 1 --replication-factor 1 &&
       kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic test.t --partitions 1 --replication-factor 1 &&
-      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic myTopic4 --partitions 1 --replication-factor 1
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic myTopic4 --partitions 1 --replication-factor 1 &&
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic myTopic5 --partitions 1 --replication-factor 1 &&
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic test.t5 --partitions 1 --replication-factor 1 &&
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic myTopic6 --partitions 1 --replication-factor 1 &&
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic test.t6 --partitions 1 --replication-factor 1 &&
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic load.request --partitions 1 --replication-factor 1 &&
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic load.reply --partitions 1 --replication-factor 1
       "
+    # Keep this list in step with KAFKA_CREATE_TOPICS in .github/workflows/ci.yml — CI builds its broker
+    # from its own service definition, not from this file, so a topic added here is not created there.
     restart: "no"

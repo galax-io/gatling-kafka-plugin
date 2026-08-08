@@ -2,13 +2,16 @@ package org.galaxio.gatling.kafka.client
 
 import io.gatling.commons.stats.{KO, OK, Status}
 import io.gatling.commons.util.Clock
+import io.gatling.commons.validation.Validation
+import io.gatling.core.check.{Check, CheckResult}
 import io.gatling.core.action.Action
 import io.gatling.core.actor.{Actor, ActorSystem}
-import io.gatling.core.session.Session
+import io.gatling.core.session.{Expression, Session}
 import io.gatling.core.stats.RecordingStatsEngine
 import org.galaxio.gatling.kafka.client.KafkaMessageTracker.{ConsumerFailure, MessageConsumed, MessagePublished, SendFailed}
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaKeyMatcher
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
+import org.galaxio.gatling.kafka.KafkaCheck
 
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
@@ -267,6 +270,112 @@ class KafkaMessageTrackerSpec extends munit.FunSuite {
       next = next,
       requestName = "request-reply",
     )
+
+  // Issue #167. `matchKeyFor` used to fold a null match id into `Array.emptyByteArray`, so "this request
+  // has no identity" and "this request's identity is empty" became the same map key. Every keyless
+  // request-reply therefore shared one slot, and a reply carrying an empty key resolved whichever request
+  // happened to be occupying it.
+  test("an absent match id and an empty one are different requests") {
+    val statsEngine = new RecordingStatsEngine
+    val next        = new RecordingAction("next")
+    val tracker     =
+      new KafkaMessageTracker[Array[Byte], Array[Byte]]("tracker", statsEngine, new StubClock(9_000L), KafkaKeyMatcher, None)
+    val behavior    = tracker.init()
+
+    behavior(published(next, replyTimeout = 0L, requestStart = 1_000L).copy(matchId = null))
+    // A real reply from a keyless round trip: Kafka distinguishes an absent key from an empty one, and so
+    // must the correlation table. This reply belongs to some other request, not to the one above.
+    behavior(
+      MessageConsumed(
+        received = 5_000L,
+        message = KafkaProtocolMessage(
+          key = Array.emptyByteArray,
+          value = "reply".getBytes(StandardCharsets.UTF_8),
+          producerTopic = "reply-topic",
+          consumerTopic = "reply-topic",
+        ),
+      ),
+    )
+
+    // Exactly one outcome, and it is the refusal — not a match. Before the fix `matchKeyFor` folded null
+    // onto the empty array, so this reply resolved the registration and reported it a second time.
+    val responses = statsEngine.responses.get()
+    assertEquals(responses.size, 1, "a reply whose match id is empty must not resolve a request registered with none")
+    assert(
+      responses.head.message.exists(_.contains("no match id")),
+      s"the single outcome must be the refusal, not a match: ${responses.head.message}",
+    )
+  }
+
+  // Issue #168, second layer. Fixing the preparers stops the tombstone NPE, but the guarantee worth
+  // having is "no check can strand a virtual user" — which has to hold for check types this plugin does
+  // not own. Before the catch, an exception out of Check.check left the record already removed from
+  // sentMessages (so no timeout scan could fail it) and `next ! session` unreached: the user stopped
+  // with nothing in the report.
+  test("a check that throws is reported as a failure instead of stranding the virtual user") {
+    val statsEngine = new RecordingStatsEngine
+    val next        = new RecordingAction("next")
+    val released    = new AtomicInteger(0)
+    val tracker     =
+      new KafkaMessageTracker[Array[Byte], Array[Byte]]("tracker", statsEngine, new StubClock(9_000L), KafkaKeyMatcher, None)
+    val behavior    = tracker.init()
+
+    val exploding: KafkaCheck = new KafkaCheck {
+      override def check(
+          response: KafkaProtocolMessage,
+          session: Session,
+          preparedCache: java.util.Map[Any, Any],
+      ): Validation[CheckResult] = throw new RuntimeException("check blew up")
+
+      override def checkIf(condition: Expression[Boolean]): Check[KafkaProtocolMessage]                                    = this
+      override def checkIf(condition: (KafkaProtocolMessage, Session) => Validation[Boolean]): Check[KafkaProtocolMessage] =
+        this
+    }
+
+    behavior(
+      published(next, replyTimeout = 0L, requestStart = 1_000L)
+        .copy(checks = List(exploding), onComplete = () => { released.incrementAndGet(); () }),
+    )
+    behavior(replyFor("match-race"))
+
+    val responses = statsEngine.responses.get()
+    assertEquals(responses.size, 1, "a throwing check must still produce an outcome")
+    assertEquals(responses.head.status, (KO: Status))
+    assert(
+      responses.head.message.exists(_.contains("check blew up")),
+      s"the failure must carry the cause: ${responses.head.message}",
+    )
+    assert(next.lastSession.get() != null, "and the virtual user must be advanced, not left hanging")
+    assertEquals(released.get(), 1, "the channel reference must still be released exactly once")
+  }
+
+  test("a registration with no match id is refused rather than stored") {
+    val statsEngine = new RecordingStatsEngine
+    val next        = new RecordingAction("next")
+    val tracker     =
+      new KafkaMessageTracker[Array[Byte], Array[Byte]]("tracker", statsEngine, new StubClock(9_000L), KafkaKeyMatcher, None)
+    val behavior    = tracker.init()
+
+    // The sending side rejects these before they get here, so this is the symmetric guard to the one
+    // MessageConsumed already has. It matters because the table cannot hold a null safely:
+    // `Arrays.equals(null, null)` is true, so two of them would alias each other and re-create issue #167
+    // one key over — with a displacement message telling a user who supplied no key to make their key
+    // distinct.
+    behavior(published(next, replyTimeout = 0L, requestStart = 1_000L).copy(matchId = null))
+    behavior(published(next, replyTimeout = 0L, requestStart = 2_000L).copy(matchId = null, token = 2L))
+
+    val responses = statsEngine.responses.get()
+    assertEquals(responses.size, 2, "each refused registration must still be reported, not dropped")
+    assert(
+      responses.forall(_.message.exists(_.contains("no match id"))),
+      s"unexpected messages: ${responses.flatMap(_.message)}",
+    )
+    assert(
+      responses.forall(!_.message.exists(_.contains("reused"))),
+      "a request that supplied no id must not be told it reused one",
+    )
+    assert(next.lastSession.get() != null, "the virtual user must be advanced rather than left hanging")
+  }
 
   test("a reply is reported as soon as it arrives") {
     val statsEngine = new RecordingStatsEngine

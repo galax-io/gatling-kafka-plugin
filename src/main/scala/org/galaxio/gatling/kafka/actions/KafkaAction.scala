@@ -84,7 +84,20 @@ abstract class KafkaAction[K: ClassTag, V: ClassTag](
       value         <- serializeValue(producerTopic, s)
       headers       <- traverse(attributes.headers.map(_(s)))
     } yield KafkaProtocolMessage(
-      key.getOrElse(Array.emptyByteArray),
+      // `orNull`, not an empty array. Substituting one collapsed two distinct states into one and cost
+      // both correctness and realism (issue #167):
+      //
+      //   - Correlation: an empty key is a value, and every keyless request produced the same one, so
+      //     they all shared a single slot in the tracker's correlation table. A reply resolved whichever
+      //     request happened to occupy it, crediting one virtual user with another's answer.
+      //   - Partitioning: Kafka's partitioner special-cases a null key to spread records round-robin. A
+      //     non-null empty array is hashed instead, and murmur2 of an empty input is constant, so every
+      //     keyless record landed on one partition.
+      //
+      // `KafkaProtocolMessage.key` has always been nullable on the consume side — `from` copies
+      // `consumerRecord.key()` verbatim, which is null for a keyless record. This makes the produce side
+      // agree with it, so no signature changes.
+      key.orNull,
       value,
       producerTopic,
       consumerTopic.getOrElse(producerTopic),
