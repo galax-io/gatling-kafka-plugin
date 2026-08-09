@@ -8,8 +8,6 @@ import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.common.header.Headers
 import org.apache.kafka.common.header.internals.RecordHeaders
-import org.apache.kafka.streams.{KafkaStreams, KeyValue, StreamsBuilder, StreamsConfig}
-import org.apache.kafka.streams.kstream.KeyValueMapper
 import org.galaxio.gatling.kafka.Predef._
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
