@@ -2,7 +2,7 @@ import sbt.*
 
 object Dependencies {
   private object Versions {
-    val kafka          = "7.9.5-ce"
+    val kafka          = "7.9.9-ce"
     val gatling        = "3.13.5"
     val avro4s         = "4.1.2"
     val avro           = "1.12.1"
