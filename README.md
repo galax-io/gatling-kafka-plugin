@@ -600,6 +600,11 @@ delegate on first use, so the first Avro send or check fails with
 run. If your suite uses Schema Registry Avro, add the dependencies before you upgrade rather than
 finding out from a load test.
 
+**Also in this release**, `sessionWindowedSerde` and `consumedFromSerde` are deprecated. They are Kafka
+Streams helpers that this plugin never used; they will be removed in `2.0.0` along with the
+`kafka-streams-scala` dependency. If you genuinely build Streams topologies in your harness, depend on
+`org.apache.kafka:kafka-streams-scala_2.13` directly.
+
 ### Upgrading to `1.2.0`
 
 No changes to the DSL, the `javaapi` facade or protocol settings — nothing you have written stops compiling. Three

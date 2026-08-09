@@ -46,16 +46,17 @@ object Dependencies {
 
   lazy val avro4s: ModuleID = "com.sksamuel.avro4s" %% "avro4s-core" % Versions.avro4s % "provided"
 
-  lazy val avroCompiler: ModuleID = "org.apache.avro" % "avro-compiler" % Versions.avro
-  lazy val avroCore: ModuleID     = "org.apache.avro" % "avro"          % Versions.avro
+  lazy val avroCore: ModuleID        = "org.apache.avro" % "avro"                     % Versions.avro
   // `provided`, matching avro4s above: neither artifact is published to Maven Central, and the released
   // POM carries no resolver, so inheriting them makes the plugin unresolvable for anyone building
   // against Maven Central alone. Consumers who want Schema-Registry-backed Avro declare them together
   // with the Confluent resolver — see the Avro Support section of README.md.
-  lazy val avroSerdes: ModuleID   =
-    ("io.confluent"                                       % "kafka-streams-avro-serde" % Versions.kafkaAvroSerde)
-      .exclude("org.apache.kafka", "kafka-streams-scala") % "provided"
-  lazy val avroSerializers: ModuleID = "io.confluent" % "kafka-avro-serializer" % Versions.kafkaAvroSerde % "provided"
+  // The hand-managed `.exclude("org.apache.kafka", "kafka-streams-scala")` that used to sit here existed
+  // only to stop Confluent's rebuild of kafka-streams-scala colliding with the one declared above.
+  // `dependencyOverrides` now pins that coordinate for the whole build, so the exclusion had nothing
+  // left to prevent — verified with `sbt evicted`.
+  lazy val avroSerdes: ModuleID      = "io.confluent"    % "kafka-streams-avro-serde" % Versions.kafkaAvroSerde % "provided"
+  lazy val avroSerializers: ModuleID = "io.confluent"    % "kafka-avro-serializer"    % Versions.kafkaAvroSerde % "provided"
 
   lazy val testcontainers: Seq[ModuleID] = Seq(
     "com.dimafeng" %% "testcontainers-scala-munit" % Versions.testcontainers % Test,
