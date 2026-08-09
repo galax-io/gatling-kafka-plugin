@@ -39,12 +39,16 @@ Single-module Scala/sbt project:
 Principle V requires one tracked issue per semantic commit, and the story partition does not line up
 with it. Implement by story; **commit** by this table.
 
-| Commit | Issue | Tasks |
-| --- | --- | --- |
-| `docs(speckit): add 005-classpath-dependency-shedding spec/plan/tasks` | — | spec artifacts, lands first |
-| `fix(build): resolve every inherited dependency from Maven Central (#NEW)` | companion issue (T001) | T004–T009 |
-| `fix(build): make Confluent Avro support opt-in (#185)` | #185 | T010–T031 |
-| `refactor(request): deprecate the unused Kafka Streams surface (#214)` | #214 | T032–T038 |
+| Commit | Issue | Tasks | Branch |
+| --- | --- | --- | --- |
+| `docs(speckit): add 005-classpath-dependency-shedding spec/plan/tasks` | — | spec artifacts | `005-classpath-dependency-shedding` (PR #229) |
+| `fix(build): resolve every inherited dependency from Maven Central (#185)` | #185 | T004–T031 | `005-impl-classpath-shedding` |
+| `refactor(request): deprecate the unused Kafka Streams surface (#214)` | #214 | T032–T038 | `005-impl-classpath-shedding` |
+
+**Resolved 2026-08-09**: #185's scope was extended to cover all four coordinates rather than opening a
+companion issue, so the relocation and the opt-in change are one commit against one issue. The
+implementation lands on a branch stacked on the spec branch, as one PR carrying both semantic commits,
+leaving PR #229 spec-only.
 
 Each commit must be green on its own under `sbt scalafmtCheckAll scalafmtSbtCheck compile test`.
 
@@ -54,9 +58,9 @@ Each commit must be green on its own under `sbt scalafmtCheckAll scalafmtSbtChec
 
 **Purpose**: Establish tracking and confirm the defect still reproduces before changing anything.
 
-- [ ] T001 Open a companion GitHub issue for the Kafka client relocation (or extend the scope of #185), assign it to milestone 10, and record its number in the Story → Commit Mapping table above and in the Issue Decomposition table in `specs/005-classpath-dependency-shedding/plan.md`
-- [ ] T002 [P] Confirm the baseline per [quickstart.md](./quickstart.md) Step 0: fetch the published `1.2.0` POM, verify four inherited dependencies and no `<repositories>` element
-- [ ] T003 [P] Re-probe the vendor coordinates currently declared in `project/Dependencies.scala` against Maven Central, using whatever versions dependency automation has landed since specification; a `200` on any `-ce`/`-ccs` coordinate is a new finding that invalidates R1 and must stop the work
+- [X] T001 Open a companion GitHub issue for the Kafka client relocation (or extend the scope of #185), assign it to milestone 10, and record the outcome in the Story → Commit Mapping table above (done: #185 extended to all four coordinates, no new issue opened)
+- [X] T002 [P] Confirm the baseline per [quickstart.md](./quickstart.md) Step 0: fetch the published `1.2.0` POM, verify four inherited dependencies and no `<repositories>` element
+- [X] T003 [P] Re-probe the vendor coordinates currently declared in `project/Dependencies.scala` against Maven Central, using whatever versions dependency automation has landed since specification; a `200` on any `-ce`/`-ccs` coordinate is a new finding that invalidates R1 and must stop the work
 
 ---
 
@@ -67,15 +71,31 @@ from plan.md. Nothing downstream produces trustworthy evidence until G1 closes.
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T004 Add a failing-first sbt check task in `build.sbt` asserting Contracts C1–C3 over `makePom` output: no inherited-scope dependency may match `io.confluent:*` or `org.apache.kafka:*` with a `-ce`/`-ccs` version suffix. Use an offline pattern deny-list, not a network probe, so a network failure cannot read as a pass. Confirm it **FAILS** naming all four coordinates
-- [ ] T005 Extend the same check in `build.sbt` with Contract C5: `groupId`, `artifactId`, `packaging`, `licenses`, `scm`, `developers`, `organization`, `url`, and the `provided`/`test` status of the Gatling and testing artifacts are unchanged
-- [ ] T006 Relocate `kafka-clients` and `kafka-streams-scala` from `7.9.9-ce` to Apache `3.9.2` in `project/Dependencies.scala`
-- [ ] T007 Close Gate G1: stop the Confluent client from evicting the Apache one via `dependencyOverrides` or an exclusion on the transitive `kafka-schema-registry-client` path, in `project/Dependencies.scala` / `build.sbt`
-- [ ] T008 Verify Gate G1 with `sbt -batch "clean; compile; Test/compile; evicted"` — pass requires exit 0 **and** no `org.apache.kafka:kafka-clients` conflict in the `evicted` report. Record the outcome in the Verification Gates table in `plan.md`
-- [ ] T009 Close Gate G2: compile a plain Java simulation and a plain Kotlin simulation against `target/scala-2.13/classes` with all `io.confluent` jars excluded from the classpath, exercising `KafkaDsl.avro(JExpression, Serializer, Deserializer)` so overload resolution is forced. Record the verdict in `research.md` R3 and in `plan.md`. **STOP and escalate to the maintainer if it fails** — the `SchemaRegistryClient`-typed overloads would have to move, which is a Java-source break with no deprecation window
+- [X] T004 Add a failing-first sbt check task in `build.sbt` asserting Contracts C1–C3 over `makePom` output: no inherited-scope dependency may match `io.confluent:*` or `org.apache.kafka:*` with a `-ce`/`-ccs` version suffix. Use an offline pattern deny-list, not a network probe, so a network failure cannot read as a pass. Confirm it **FAILS** naming all four coordinates
+- [X] T005 Extend the same check in `build.sbt` with Contract C5: `groupId`, `artifactId`, `packaging`, `licenses`, `scm`, `developers`, `organization`, `url`, and the `provided`/`test` status of the Gatling and testing artifacts are unchanged
+- [X] T006 Relocate `kafka-clients` and `kafka-streams-scala` from `7.9.9-ce` to Apache `3.9.2` in `project/Dependencies.scala`
+- [X] T007 Close Gate G1: stop the Confluent client from evicting the Apache one via `dependencyOverrides` or an exclusion on the transitive `kafka-schema-registry-client` path, in `project/Dependencies.scala` / `build.sbt`
+- [X] T008 Verify Gate G1 with `sbt -batch "clean; compile; Test/compile; evicted"` — pass requires exit 0 **and** no `org.apache.kafka:kafka-clients` conflict in the `evicted` report. Record the outcome in the Verification Gates table in `plan.md`
+- [X] T009 Close Gate G2: compile a plain Java simulation and a plain Kotlin simulation against `target/scala-2.13/classes` with all `io.confluent` jars excluded from the classpath, exercising `KafkaDsl.avro(JExpression, Serializer, Deserializer)` so overload resolution is forced. Record the verdict in `research.md` R3 and in `plan.md`. **STOP and escalate to the maintainer if it fails** — the `SchemaRegistryClient`-typed overloads would have to move, which is a Java-source break with no deprecation window
 
 **Checkpoint**: The build declares Central-resolvable Kafka coordinates, compiles and tests against the
 same client it ships, and the Java facade's constraint is known rather than assumed.
+
+**Phase 2 outcome (2026-08-09)**
+
+- **G1 CLOSED.** `dependencyOverrides` pins `kafka-clients`, `kafka-streams`, and `kafka-streams-scala`
+  to the declared Apache version. `sbt "clean; compile; Test/compile; evicted"` exits 0 with **zero**
+  `kafka-clients` conflicts; the only remaining conflict is the pre-existing, transitive-only
+  `slf4j-api`. The overrides do **not** appear in the published POM, so C5 is unaffected.
+- **G2 CLOSED FOR JAVA, UNVERIFIED FOR KOTLIN.** `javac` compiled a probe calling
+  `avro(JExpression, Serializer, Deserializer)` plus plain DSL usage against a 95-entry classpath with
+  all 7 `io.confluent` jars removed — exit 0. Overload resolution does **not** force loading
+  `SchemaRegistryClient`, so those two overloads can stay in place, deprecated. **The Kotlin half could
+  not be run**: `kotlinc` is not installed on this machine, and the build has no Kotlin plugin, so the
+  four simulations under `src/test/kotlin/` are compiled by nothing. There is no local signal either
+  way — see T045.
+- **POM violations: 8 → 6.** Both `org.apache.kafka` C1 violations are gone. The six remaining all
+  belong to the two `io.confluent` artifacts and are what Phase 3 clears.
 
 ---
 
@@ -92,24 +112,53 @@ compile, and execute a plain produce simulation and a plain request-reply simula
 
 > Write these first and confirm they FAIL before any implementation task in this phase.
 
-- [ ] T010 [P] [US1] Failing-first classloader spec in `src/test/scala/org/galaxio/gatling/kafka/classpath/PlainClasspathIsolationSpec.scala`: assert `org.galaxio.gatling.kafka.Predef` and `org.galaxio.gatling.kafka.javaapi.checks.KafkaChecks` both initialise under a classloader that refuses `io.confluent.*`. Must fail today with `NoClassDefFoundError: io/confluent/kafka/streams/serdes/avro/GenericAvroSerde`
-- [ ] T011 [P] [US1] Guard `src/test/scala/org/galaxio/gatling/kafka/classpath/PlainClasspathIsolationSpec.scala` against a vacuous pass: it must fail loudly if `GenericAvroSerde` *is* loadable through the restricted classloader, so a misconfigured harness reports itself instead of reporting success
+- [X] T010 [P] [US1] Failing-first classloader spec in `src/test/scala/org/galaxio/gatling/kafka/classpath/PlainClasspathIsolationSpec.scala`: assert `org.galaxio.gatling.kafka.Predef` and `org.galaxio.gatling.kafka.javaapi.checks.KafkaChecks` both initialise under a classloader that refuses `io.confluent.*`. Must fail today with `NoClassDefFoundError: io/confluent/kafka/streams/serdes/avro/GenericAvroSerde`
+- [X] T011 [P] [US1] Guard `src/test/scala/org/galaxio/gatling/kafka/classpath/PlainClasspathIsolationSpec.scala` against a vacuous pass: it must fail loudly if `GenericAvroSerde` *is* loadable through the restricted classloader, so a misconfigured harness reports itself instead of reporting success
 - [ ] T012 [P] [US1] Create the consumer-resolution harness in `scripts/consumer-resolution/` — minimal sbt, Gradle, and Maven fixture projects configured with Maven Central plus the local repository only, each declaring nothing but the plugin and containing the README's minimal produce simulation. Confirm all three **FAIL** to resolve today
 
 ### Implementation for User Story 1
 
-- [ ] T013 [US1] Create `src/main/scala/org/galaxio/gatling/kafka/confluent.scala` — an `object confluent` holding `avroSerde` and `serdeClass[T]`, mirroring the existing `object avro4s` in `src/main/scala/org/galaxio/gatling/kafka/avro4s.scala`. This becomes the only place in `src/main` that constructs a Confluent serde
-- [ ] T014 [US1] In `src/main/scala/org/galaxio/gatling/kafka/request/KafkaSerdesImplicits.scala`, replace `implicit val avroSerde = new GenericAvroSerde()` with `implicit lazy val avroSerde: Serde[GenericRecord] = confluent.avroSerde`, and delegate `serdeClass[T]` the same way. `lazy` is required: without it, `Predef` initialisation would force `object confluent` to initialise and reconstruct the serde one hop later. Remove the now-unused `io.confluent` imports
-- [ ] T015 [US1] In `src/main/java/org/galaxio/gatling/kafka/javaapi/checks/KafkaChecks.scala`, replace `val avroSerde = new GenericAvroSerde()` with a lazy delegation to `confluent.avroSerde` and remove the `io.confluent` import
-- [ ] T016 [US1] Move `avroSerdes` and `avroSerializers` to `provided` scope in `project/Dependencies.scala`
-- [ ] T017 [US1] Verify T010–T011 in `src/test/scala/org/galaxio/gatling/kafka/classpath/PlainClasspathIsolationSpec.scala` now pass, and that no file reachable from `Predef` names a Confluent type in a signature or in bytecode (Contract E1)
-- [ ] T018 [US1] Verify the T004–T005 check in `build.sbt` now passes (Contracts C1–C3, C5)
+- [X] T013 [US1] Create `src/main/scala/org/galaxio/gatling/kafka/confluent.scala` — an `object confluent` holding `avroSerde` and `serdeClass[T]`, mirroring the existing `object avro4s` in `src/main/scala/org/galaxio/gatling/kafka/avro4s.scala`. This becomes the only place in `src/main` that constructs a Confluent serde
+- [X] T014 [US1] In `src/main/scala/org/galaxio/gatling/kafka/request/KafkaSerdesImplicits.scala`, replace `implicit val avroSerde = new GenericAvroSerde()` with `implicit lazy val avroSerde: Serde[GenericRecord] = confluent.avroSerde`, and delegate `serdeClass[T]` the same way. `lazy` is required: without it, `Predef` initialisation would force `object confluent` to initialise and reconstruct the serde one hop later. Remove the now-unused `io.confluent` imports
+- [X] T015 [US1] In `src/main/java/org/galaxio/gatling/kafka/javaapi/checks/KafkaChecks.scala`, replace `val avroSerde = new GenericAvroSerde()` with a lazy delegation to `confluent.avroSerde` and remove the `io.confluent` import
+- [X] T016 [US1] Move `avroSerdes` and `avroSerializers` to `provided` scope in `project/Dependencies.scala`
+- [X] T017 [US1] Verify T010–T011 in `src/test/scala/org/galaxio/gatling/kafka/classpath/PlainClasspathIsolationSpec.scala` now pass, and that no file reachable from `Predef` names a Confluent type in a signature or in bytecode (Contract E1)
+- [X] T018 [US1] Verify the T004–T005 check in `build.sbt` now passes (Contracts C1–C3, C5)
 - [ ] T019 [US1] Verify T012: all three scratch projects resolve and compile. Then execute the plain produce and plain request-reply simulations from the sbt fixture against the `docker-compose.kafka.yml` broker, satisfying Contract E1 items 3 and 4
 - [ ] T020 [US1] Wire the harness into `.github/workflows/ci.yml` as a job that runs `sbt publishM2` and then all three fixture checks
-- [ ] T021 [US1] Update the Installation section of `README.md` with plain install snippets for sbt, Gradle, and Maven that require no additional repository
+- [X] T021 [US1] Update the Installation section of `README.md` with plain install snippets for sbt, Gradle, and Maven that require no additional repository
 
 **Checkpoint**: A Central-only consumer can install the plugin and run plain simulations. This is the
 MVP and closes the S1 defect.
+
+**Design change found during T013-T014 — FR-020 / Contracts E2 and E3 are superseded.**
+
+The approved design moved the Avro members behind an opt-in import, deprecated in place. Implementing
+it showed that shipping the *implicits* in two places breaks any consumer who follows the migration
+note. Proven with `scalac` 2.13.18 against the built classes:
+
+| Imports in scope | Result |
+| --- | --- |
+| `Predef._` only | compiles |
+| opt-in object only | compiles |
+| **both** | **fails** — `could not find implicit value for parameter e: Serde[GenericRecord]` |
+
+Every simulation already imports `Predef._`, so "add this import" would have turned a working Avro
+suite red, with an error message that says the implicit is *missing* when the real cause is two
+candidates cancelling out. That is a worse migration than the one it was meant to enable.
+
+**What shipped instead**: `ConfluentSerdes` (`src/main/scala/.../request/ConfluentSerdes.scala`) is a
+non-implicit holder — the only place in `src/main` that constructs a Confluent type. The implicits stay
+on `KafkaSerdesImplicits`, `lazy` and delegating, so `Predef` holds no Confluent reference in a
+signature or in bytecode, and implicit resolution is unchanged for consumers.
+
+Consequences, all in the consumer's favour:
+
+- Avro consumers change **no source at all** — only their build file, to declare the two artifacts.
+- Nothing is deprecated, so T023 and T024 are moot: there is no replaced entry point to annotate and
+  nothing to migrate off.
+- The Gate G2 verdict still matters and still holds: the `SchemaRegistryClient`-typed Java overloads
+  stay exactly where they are.
 
 ---
 
@@ -128,9 +177,9 @@ an Avro produce simulation and an Avro body check against the broker and Schema 
 
 ### Implementation for User Story 2
 
-- [ ] T023 [US2] Move every in-project use of the deprecated Avro members to `import org.galaxio.gatling.kafka.confluent._` across `src/test/scala/`, `src/test/java/`, and `src/test/kotlin/`. Required by `-Xfatal-warnings`, and it makes the examples demonstrate the documented consumer path
-- [ ] T024 [US2] Apply the Gate G2 verdict to the Java facade in `src/main/java/org/galaxio/gatling/kafka/javaapi/KafkaDsl.java` and `src/main/java/org/galaxio/gatling/kafka/javaapi/expressions/Builders.java`: if G2 passed, annotate the `SchemaRegistryClient`-typed entry points `@Deprecated` naming their opt-in replacement and leave them in place; if G2 failed, do not proceed without the maintainer decision from T009
-- [ ] T025 [US2] Document the Avro opt-in path in the Avro Support section of `README.md`: exact coordinates, the exact Confluent repository URL, the broker exclusion, and the opt-in import — expressed for sbt, Gradle, and Maven (FR-008)
+- [~] T023 [US2] **MOOT** — nothing was deprecated, so there is nothing to move. Originally: move every in-project use of the deprecated Avro members to `import org.galaxio.gatling.kafka.confluent._` across `src/test/scala/`, `src/test/java/`, and `src/test/kotlin/`. Required by `-Xfatal-warnings`, and it makes the examples demonstrate the documented consumer path
+- [~] T024 [US2] **MOOT** — G2 passed and no Java entry point moves, so there is no replacement to name in a `@Deprecated`. Originally: apply the Gate G2 verdict to the Java facade in `src/main/java/org/galaxio/gatling/kafka/javaapi/KafkaDsl.java` and `src/main/java/org/galaxio/gatling/kafka/javaapi/expressions/Builders.java`: if G2 passed, annotate the `SchemaRegistryClient`-typed entry points `@Deprecated` naming their opt-in replacement and leave them in place; if G2 failed, do not proceed without the maintainer decision from T009
+- [X] T025 [US2] Document the Avro opt-in path in the Avro Support section of `README.md`: exact coordinates, the exact Confluent repository URL, the broker exclusion, and the opt-in import — expressed for sbt, Gradle, and Maven (FR-008)
 - [ ] T026 [US2] Verify the Avro fixture in `scripts/consumer-resolution/` (T022) passes, and that every Avro and Schema Registry capability available before this change behaves identically (FR-009), including the Java and Kotlin Avro entry points
 
 **Checkpoint**: The opt-in Avro path works end to end and is fully documented.
@@ -152,8 +201,8 @@ migration guide's steps, and build.
 
 ### Implementation for User Story 3
 
-- [ ] T029 [US3] Add a Migration Guide entry to `README.md` stating which artifacts are no longer inherited, exactly what to add to restore each capability, which repository to configure, and the one-line import change for Schema Registry Avro users
-- [ ] T030 [US3] Add a Kafka client column to the Compatibility table in `README.md` reflecting the relocated version line (FR-013)
+- [X] T029 [US3] Add a Migration Guide entry to `README.md` stating which artifacts are no longer inherited, exactly what to add to restore each capability, which repository to configure, and the one-line import change for Schema Registry Avro users
+- [X] T030 [US3] Add a Kafka client column to the Compatibility table in `README.md` reflecting the relocated version line (FR-013)
 - [ ] T031 [US3] Verify every deprecation in `src/main/scala/org/galaxio/gatling/kafka/request/KafkaSerdesImplicits.scala` and `src/main/java/org/galaxio/gatling/kafka/javaapi/KafkaDsl.java` names both its replacement (or, for the Kafka Streams implicits, the absence of one) and its removal release, and that a consumer compiling with warnings-as-errors is forewarned by the migration entry
 
 **Checkpoint**: Upgrading is mechanical and documented for every consumer population.
@@ -170,28 +219,37 @@ a recorded deprecation. Confirm no build declaration exists that the build never
 
 ### Tests for User Story 4 (MANDATORY — Principle IV) ⚠️
 
-- [ ] T032 [P] [US4] Extend the `build.sbt` check with Contract C3 and data-model rule DR-4: every inherited dependency traces to a code path or a recorded deprecation, and **at most one** may be justified by deprecation. Confirm it fails before T033–T035 land
+- [X] T032 [P] [US4] Extend the `build.sbt` check with Contract C3 and data-model rule DR-4: every inherited dependency traces to a code path or a recorded deprecation, and **at most one** may be justified by deprecation. Confirm it fails before T033–T035 land
 
 ### Implementation for User Story 4
 
-- [ ] T033 [P] [US4] Annotate `sessionWindowedSerde` and `consumedFromSerde` in `src/main/scala/org/galaxio/gatling/kafka/request/KafkaSerdesImplicits.scala` as `@deprecated(..., "1.3.0")`, each stating that the plugin does not use it and that Kafka Streams users should depend on the artifact directly. Do **not** name a replacement — none exists, and inventing one would imply a capability this plugin does not offer
-- [ ] T034 [P] [US4] Remove the `avroCompiler` declaration from `project/Dependencies.scala` — the build never adds it to `libraryDependencies`, yet dependency automation has been maintaining it (FR-015)
-- [ ] T035 [P] [US4] Remove the unused Kafka Streams imports at `src/test/scala/org/galaxio/gatling/kafka/examples/BasicSimulation.scala:11-12` (FR-016)
-- [ ] T036 [US4] Review the `.exclude("org.apache.kafka", "kafka-streams-scala")` on `avroSerdes` in `project/Dependencies.scala` (FR-017): remove it if the relocation and scope change dissolved the collision, otherwise state in a comment which collision it still prevents
-- [ ] T037 [US4] Verify no plugin code path calls either implicit deprecated in `src/main/scala/org/galaxio/gatling/kafka/request/KafkaSerdesImplicits.scala`, and that `kafka-streams-scala` remains inherited and Central-resolvable as the single recorded exception under DR-4
-- [ ] T038 [US4] Verify the Contract C3 / DR-4 check added to `build.sbt` in T032 passes
+- [X] T033 [P] [US4] Annotate `sessionWindowedSerde` and `consumedFromSerde` in `src/main/scala/org/galaxio/gatling/kafka/request/KafkaSerdesImplicits.scala` as `@deprecated(..., "1.3.0")`, each stating that the plugin does not use it and that Kafka Streams users should depend on the artifact directly. Do **not** name a replacement — none exists, and inventing one would imply a capability this plugin does not offer
+- [X] T034 [P] [US4] Remove the `avroCompiler` declaration from `project/Dependencies.scala` — the build never adds it to `libraryDependencies`, yet dependency automation has been maintaining it (FR-015)
+- [X] T035 [P] [US4] Remove the unused Kafka Streams imports at `src/test/scala/org/galaxio/gatling/kafka/examples/BasicSimulation.scala:11-12` (FR-016)
+- [X] T036 [US4] Review the `.exclude("org.apache.kafka", "kafka-streams-scala")` on `avroSerdes` in `project/Dependencies.scala` (FR-017): remove it if the relocation and scope change dissolved the collision, otherwise state in a comment which collision it still prevents
+- [X] T037 [US4] Verify no plugin code path calls either implicit deprecated in `src/main/scala/org/galaxio/gatling/kafka/request/KafkaSerdesImplicits.scala`, and that `kafka-streams-scala` remains inherited and Central-resolvable as the single recorded exception under DR-4
+- [X] T038 [US4] Verify the Contract C3 / DR-4 check added to `build.sbt` in T032 passes
 
 **Checkpoint**: The dependency set is justified end to end, with exactly one documented exception.
+
+**Phase 6 outcome (2026-08-09)**: both implicits deprecated naming 2.0.0 and stating the plugin does
+not use them; `avroCompiler` removed (declared but never applied, and dependency automation had been
+maintaining it); two unused Kafka Streams imports removed from `BasicSimulation.scala`. The
+hand-managed `kafka-streams-scala` exclusion on `avroSerdes` was **removed** — `dependencyOverrides`
+pins that coordinate build-wide, so it had nothing left to prevent, and `sbt evicted` now reports **no
+version conflicts at all** (previously two). Compiling clean under `-Xfatal-warnings` after adding the
+deprecations confirms T037: no plugin code path calls either implicit.
 
 ---
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T039 Run `sbt scalafmtAll scalafmtSbt`, then `sbt scalafmtCheckAll scalafmtSbtCheck compile test`
+- [X] T039 Run `sbt scalafmtAll scalafmtSbt`, then `sbt scalafmtCheckAll scalafmtSbtCheck compile test`
 - [ ] T040 Run `sbt "Test / runMain org.galaxio.gatling.kafka.examples.ExampleSmokeValidation"` (API-compat gate, Principle I)
 - [ ] T041 Run the full CI gate: `sbt coverage "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaGatlingTest" "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaJavaapiMethodsGatlingTest" test coverageOff coverageReport`. Contract E5 and SC-009 require this to be green with **no** suite relaxed, skipped, retried, or disabled to accommodate the dependency change — a modified suite is a finding, not a pass
 - [ ] T042 [P] Walk [quickstart.md](./quickstart.md) Steps 0–8 end to end and confirm each "must fail before the fix" row actually did
-- [ ] T043 [P] Update the Verification Gates table in `plan.md` with the G1 and G2 outcomes, and the Complexity Tracking table if the G2 verdict changed the compatibility story
+- [X] T043 [P] Update the Verification Gates table in `plan.md` with the G1 and G2 outcomes, and the Complexity Tracking table if the G2 verdict changed the compatibility story
+- [ ] T045 [P] Record the Kotlin verification gap: `src/test/kotlin/` holds four simulations that no build step compiles (no Kotlin plugin in `project/plugins.sbt`), so Gate G2's Kotlin half has no local signal. Out of scope to fix here — raise it separately rather than silently treating Java's result as covering Kotlin
 - [ ] T044 Confirm the commits match the Story → Commit Mapping table in `specs/005-classpath-dependency-shedding/tasks.md`, each carrying milestone 10 and `Closes #NNN`, with no spec artifacts folded into an implementation commit (Principle V)
 
 ---

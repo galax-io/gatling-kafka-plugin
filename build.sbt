@@ -21,6 +21,7 @@ lazy val root = (project in file("."))
     libraryDependencies ++= Seq(avro4s, avroCore, avroSerdes, avroSerializers),
     libraryDependencies += "org.scalatest" %% "scalatest" % "3.2.20" % Test,
     libraryDependencies ++= testcontainers,
+    dependencyOverrides ++= kafkaOverrides,
     schemaRegistrySubjects ++= avroSchemas,
 //    schemaRegistryUrl := "http://test-schema-registry:8081",
     resolvers ++= Seq(
@@ -42,6 +43,170 @@ lazy val root = (project in file("."))
       "-language:postfixOps",
     ),
   )
+
+// ---------------------------------------------------------------------------------------------
+// Published-POM contract.
+//
+// A dependency a consumer inherits MUST be fetchable from Maven Central, because the published POM
+// deliberately carries no repository list (publish.sbt sets `pomIncludeRepository := { _ => false }`,
+// which is correct Sonatype hygiene). A coordinate a consumer can neither fetch nor be told where to
+// fetch from is unusable, and that is exactly what shipped: four inherited dependencies resolvable
+// only from packages.confluent.io.
+//
+// Nothing asserted this, so routine dependency updates kept the broken coordinates current and green
+// across several releases — they advanced 7.9.5-ce -> 7.9.9-ce while the defect sat untouched. Hence a
+// standing gate rather than a one-time correction to a version string. Assertions are written over the
+// coordinate *pattern*, never over specific versions, so the next bump cannot silence them.
+//
+// Contracts C1-C3 and C5 of specs/005-classpath-dependency-shedding/contracts/published-pom.md.
+// The deny-list is deliberately offline: a network probe would report a network outage as a pass.
+// ---------------------------------------------------------------------------------------------
+
+// group:artifact -> why a consumer inherits it. An inherited dependency missing from this map fails
+// C3. At most one entry may be justified by `deprecated:` (data-model DR-4) — that bound is what stops
+// "kept for a deprecation" from becoming a general-purpose excuse.
+val inheritedDependencyJustification: Map[String, String] = Map(
+  "org.scala-lang:scala-library"         -> "used-by: every Scala source",
+  "org.apache.kafka:kafka-clients"       -> "used-by: client/KafkaSender, client/DynamicKafkaConsumer, protocol settings",
+  "org.apache.kafka:kafka-streams-scala" -> "deprecated: held only by KafkaSerdesImplicits.sessionWindowedSerde and .consumedFromSerde; removed in 2.0.0",
+  "org.apache.avro:avro"                 -> "used-by: checks/AvroBodyCheckBuilder, avro4s serde derivation",
+)
+
+/** Why this coordinate cannot be fetched from Maven Central, or None if it can. */
+def vendorOnlyReason(group: String, version: String): Option[String] =
+  if (group == "io.confluent")
+    Some("io.confluent artifacts are published only to packages.confluent.io")
+  else if (group == "org.apache.kafka" && (version.endsWith("-ce") || version.endsWith("-ccs")))
+    Some(s"$version is a Confluent rebuild, published only to packages.confluent.io")
+  else None
+
+lazy val checkPublishedPom =
+  taskKey[Unit]("Assert the published POM declares only Maven Central-resolvable dependencies in scopes consumers inherit")
+
+checkPublishedPom := {
+  val log    = streams.value.log
+  val pom    = (root / makePom).value
+  val xml    = scala.xml.XML.loadFile(pom)
+  val report = (root / update).value
+
+  // sbt-scoverage adds its instrumentation artifacts as compile-scope dependencies while `coverage` is
+  // on, so the POM generated during a coverage run declares four org.scoverage entries that a released
+  // POM never carries. CI runs `sbt coverage ... test`, so without this the gate fails on artifacts
+  // that are not part of any publish. Every other contract still runs; only these are filtered.
+  val instrumented = (root / coverageEnabled).value
+
+  // Cross-published artifacts carry a Scala binary suffix in the POM (kafka-streams-scala_2.13) that
+  // the justification map should not have to repeat, or it would need editing on every Scala bump.
+  val scalaSuffix = "_" + scalaBinaryVersion.value
+
+  final case class Dep(group: String, artifact: String, version: String, scope: String) {
+    def ga: String         = s"$group:${artifact.stripSuffix(scalaSuffix)}"
+    def gav: String        = s"$group:$artifact:$version"
+    def inherited: Boolean = scope == "compile" || scope == "runtime"
+  }
+
+  val deps      = (xml \ "dependencies" \ "dependency").map { d =>
+    Dep(
+      (d \ "groupId").text.trim,
+      (d \ "artifactId").text.trim,
+      (d \ "version").text.trim,
+      Option((d \ "scope").text.trim).filter(_.nonEmpty).getOrElse("compile"),
+    )
+  }
+    .filterNot(d => instrumented && d.group == "org.scoverage")
+  val inherited = deps.filter(_.inherited)
+  val failures  = List.newBuilder[String]
+
+  // C1 - inherited scopes carry only Maven Central coordinates.
+  inherited.foreach { d =>
+    vendorOnlyReason(d.group, d.version).foreach { why =>
+      failures += s"C1 ${d.gav} is inherited (scope=${d.scope}) but $why"
+    }
+  }
+
+  // C2 - optional capabilities are not inherited.
+  inherited.foreach { d =>
+    if (d.group == "io.confluent" || d.group == "com.sksamuel.avro4s")
+      failures += s"C2 ${d.gav} serves an optional capability and must not be inherited"
+  }
+
+  // C3 - every inherited dependency is justified, at most one by a deprecation.
+  inherited.foreach { d =>
+    if (!inheritedDependencyJustification.contains(d.ga))
+      failures += s"C3 ${d.gav} is inherited with no recorded justification in inheritedDependencyJustification"
+  }
+  val heldByDeprecation =
+    inherited.map(_.ga).distinct.flatMap(inheritedDependencyJustification.get).count(_.startsWith("deprecated:"))
+  if (heldByDeprecation > 1)
+    failures += s"C3 $heldByDeprecation inherited dependencies are justified only by a deprecation; DR-4 permits at most 1"
+
+  // C5 - publication identity is unchanged.
+  def text(tag: String): String = (xml \ tag).text.trim
+  val expectedArtifactId        = s"gatling-kafka-plugin$scalaSuffix"
+  if (text("groupId") != "org.galaxio") failures += s"C5 groupId is '${text("groupId")}', expected 'org.galaxio'"
+  // Guards a rename of `name` or a flip of `crossPaths`, either of which would publish under a new
+  // coordinate — silently, and irrecoverably on Sonatype.
+  if (text("artifactId") != expectedArtifactId)
+    failures += s"C5 artifactId is '${text("artifactId")}', expected '$expectedArtifactId'"
+  if (text("packaging") != "jar") failures += s"C5 packaging is '${text("packaging")}', expected 'jar'"
+  if (text("url") != "https://github.com/galax-io/gatling-kafka-plugin") failures += s"C5 url is '${text("url")}'"
+  if ((xml \ "licenses" \ "license").isEmpty) failures += "C5 no license declared"
+  if ((xml \ "developers" \ "developer").isEmpty) failures += "C5 no developer declared"
+  if ((xml \ "scm").isEmpty) failures += "C5 no scm block declared"
+  if ((xml \ "organization").isEmpty) failures += "C5 no organization declared"
+  Seq("gatling-core", "gatling-core-java").foreach { a =>
+    deps.find(d => d.group == "io.gatling" && d.artifact == a) match {
+      case Some(d) if d.scope != "provided" => failures += s"C5 io.gatling:$a is scope=${d.scope}, expected provided"
+      case None                             => failures += s"C5 io.gatling:$a is missing from the POM"
+      case _                                => ()
+    }
+  }
+
+  // C1 (transitive) - the POM lists only what this build DECLARES, but a consumer inherits the whole
+  // closure. Checking declarations alone would miss a vendor-only coordinate arriving through a Central
+  // -published dependency, which is the same class of defect one level down. The Runtime configuration
+  // is the right graph to ask: it excludes Provided, so it is exactly what a consumer ends up with.
+  val inheritedClosure = report
+    .configuration(ConfigRef("runtime"))
+    .toSeq
+    .flatMap(_.modules)
+    .filterNot(_.evicted)
+    .map(_.module)
+    .filterNot(m => instrumented && m.organization == "org.scoverage")
+  inheritedClosure.foreach { m =>
+    vendorOnlyReason(m.organization, m.revision).foreach { why =>
+      failures += s"C1 ${m.organization}:${m.name}:${m.revision} is inherited transitively but $why"
+    }
+  }
+
+  val problems = failures.result()
+  if (problems.nonEmpty) {
+    problems.foreach(p => log.error(p))
+    sys.error(
+      s"${problems.size} published-POM contract violation(s) in ${pom.getName}. " +
+        "See specs/005-classpath-dependency-shedding/contracts/published-pom.md",
+    )
+  }
+  log.info(
+    s"checkPublishedPom: ${inherited.size} declared and ${inheritedClosure.size} transitively inherited dependencies, " +
+      "all Central-resolvable and justified",
+  )
+}
+
+// Run on every `sbt test`, not only in CI: this defect was introduced by a dependency bump, and a
+// dependency bump is exactly the change whose author will not think to run a bespoke check.
+Test / test := (Test / test).dependsOn(checkPublishedPom).value
+
+// And gate the tasks that actually produce the artifact. Relying on `test` running first is a property
+// of one workflow file, not of the build: `publishSigned` from a laptop, or a workflow edit that
+// parallelises the test and release steps, would otherwise publish an unchecked POM — and a Sonatype
+// release cannot be withdrawn.
+// `publishSigned` is what `ci-release` actually calls, so gating it is the point of this block; it
+// comes from sbt-pgp rather than sbt core, hence the qualified key.
+publish                                   := publish.dependsOn(checkPublishedPom).value
+publishLocal                              := publishLocal.dependsOn(checkPublishedPom).value
+publishM2                                 := publishM2.dependsOn(checkPublishedPom).value
+com.jsuereth.sbtpgp.PgpKeys.publishSigned := com.jsuereth.sbtpgp.PgpKeys.publishSigned.dependsOn(checkPublishedPom).value
 
 // Every spec under `integration/` starts its own single-node Kafka through Testcontainers, and sbt
 // runs suites in parallel by default — so the peak broker count is the suite count, not anything the
