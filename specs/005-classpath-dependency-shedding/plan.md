@@ -162,6 +162,26 @@ Neither is an open design question; both are claims that a spike could not settl
 | **G1 — client pin** | The build compiles and tests against the same Kafka client version consumers resolve | Pin the client version, re-run `sbt "clean; compile; Test/compile; evicted"`, confirm no `kafka-clients` conflict is reported | Investigate whether the opt-in artifacts can be excluded from the plugin's own compile classpath; escalate before proceeding, since an unpinned build makes every downstream test result unattributable |
 | **G2 — Java overload resolution** | A Java or Kotlin consumer can compile against the facade with no Schema Registry artifact present | Compile a plain Java and a plain Kotlin simulation against the published artifact with Confluent absent, exercising the non-Schema-Registry `avro` overload | The `SchemaRegistryClient`-typed overloads must move to the opt-in Java class, which is a Java-source break. Raise with the maintainer before implementing — it may change the release's version number |
 
+### Outcomes (2026-08-09)
+
+**G1 — CLOSED.** `dependencyOverrides ++= kafkaOverrides` in `build.sbt` pins `kafka-clients`,
+`kafka-streams`, and `kafka-streams-scala` to the declared Apache version, defeating the eviction via
+`kafka-schema-registry-client`. `sbt "clean; compile; Test/compile; evicted"` exits 0 with zero
+`kafka-clients` conflicts; the only remaining conflict is the pre-existing, transitive-only
+`slf4j-api`. The overrides do not surface in the published POM, so Contract C5 is unaffected. The build
+now compiles and tests against the client it ships.
+
+**G2 — CLOSED FOR JAVA. Kotlin unverified.** `javac` compiled a probe calling
+`avro(JExpression, Serializer, Deserializer)` alongside plain protocol and request DSL usage, against
+the compile classpath with all seven `io.confluent` jars removed (95 of 102 entries) — exit 0, no
+diagnostics. Overload resolution does not force loading `SchemaRegistryClient`, so the two
+`SchemaRegistryClient`-typed overloads and the `AvroExpressionBuilder` constructor can stay in place,
+deprecated, and Java source compatibility is fully preserved. **The Kotlin half was not run**:
+`kotlinc` is not installed on this machine, and — separately — the build declares no Kotlin plugin, so
+the four simulations under `src/test/kotlin/` are compiled by no build step at all. Java's result is
+the load-bearing one, since the affected signatures are Java and Kotlin resolves the same descriptors,
+but this is recorded as unverified rather than assumed. Tracked as T045.
+
 ## Issue Decomposition
 
 Constitution Principle V requires one tracked issue per semantic commit. Milestone 10 currently holds

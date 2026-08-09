@@ -29,12 +29,21 @@ Kafka protocol plugin for [Gatling](https://gatling.io/) load testing framework.
 
 ## Compatibility
 
-| Branch / Line | Gatling | Scala | Java |
-|---|---|---|---|
-| `main` / `1.0.x` | 3.13.5 | 2.13.16 | 17+ |
-| 0.22.x | 3.13.x | 2.13 | 17+ |
-| 0.21.x | 3.12.x | 2.13 | 17+ |
-| 0.20.3 | 3.11.5 | 2.13 | 17+ |
+| Branch / Line | Gatling | Scala | Java | Kafka client |
+|---|---|---|---|---|
+| `main` / `1.3.x` | 3.13.5 | 2.13.18 | 17+ | Apache 3.9.x |
+| `1.1.x` – `1.2.x` | 3.13.5 | 2.13.18 | 17+ | Confluent 7.9.x-ce |
+| `1.0.x` | 3.13.5 | 2.13.16 | 17+ | Confluent 7.9.x-ccs |
+| 0.22.x | 3.13.x | 2.13 | 17+ | Confluent 7.x |
+| 0.21.x | 3.12.x | 2.13 | 17+ | Confluent 7.x |
+| 0.20.3 | 3.11.5 | 2.13 | 17+ | Confluent 7.x |
+
+> **Kafka client:** from `1.3.0` the plugin depends on the Apache release of `kafka-clients`
+> (`org.apache.kafka:kafka-clients:3.9.x`) rather than Confluent's `-ce` rebuild of the same upstream
+> code. Confluent Platform 7.9.x is built from Apache Kafka 3.9.x, so this is the same code under a
+> different version scheme — but the Confluent rebuild is published only to `packages.confluent.io`,
+> which made the plugin unresolvable for anyone building against Maven Central. Broker compatibility is
+> unchanged.
 
 > **Version guidance:** if you are on Gatling `3.11.5`, use plugin `0.20.3`. The `1.0.x` / `main` line targets Gatling `3.13.x`.
 >
@@ -66,6 +75,81 @@ gatling("org.galaxio:gatling-kafka-plugin_2.13:<version>")
   <scope>test</scope>
 </dependency>
 ```
+
+Everything above resolves from Maven Central. No additional repository is required for plain
+serialization — which covers producing, request-reply, checks, and consume-only tracking.
+
+### Optional: Avro via Confluent Schema Registry
+
+Schema-Registry-backed Avro needs two artifacts that Confluent publishes only to its own repository —
+they are not on Maven Central, so the plugin declares them as `provided` and you add them yourself.
+This mirrors how `avro4s` has always worked here. **Skip this section entirely if you do not use
+Schema Registry**; nothing else in the plugin needs it.
+
+```scala
+resolvers += "Confluent" at "https://packages.confluent.io/maven/"
+
+libraryDependencies ++= Seq(
+  "io.confluent" % "kafka-avro-serializer"    % "7.9.9" % Test,
+  "io.confluent" % "kafka-streams-avro-serde" % "7.9.9" % Test,
+).map(_.exclude("org.apache.kafka", "kafka-clients"))
+```
+
+```kotlin
+repositories {
+    maven("https://packages.confluent.io/maven/")
+}
+
+dependencies {
+    gatling("io.confluent:kafka-avro-serializer:7.9.9") {
+        exclude(group = "org.apache.kafka", module = "kafka-clients")
+    }
+    gatling("io.confluent:kafka-streams-avro-serde:7.9.9") {
+        exclude(group = "org.apache.kafka", module = "kafka-clients")
+    }
+}
+```
+
+```xml
+<repositories>
+  <repository>
+    <id>confluent</id>
+    <url>https://packages.confluent.io/maven/</url>
+  </repository>
+</repositories>
+
+<dependencies>
+  <dependency>
+    <groupId>io.confluent</groupId>
+    <artifactId>kafka-avro-serializer</artifactId>
+    <version>7.9.9</version>
+    <scope>test</scope>
+    <exclusions>
+      <exclusion><groupId>org.apache.kafka</groupId><artifactId>kafka-clients</artifactId></exclusion>
+    </exclusions>
+  </dependency>
+  <dependency>
+    <groupId>io.confluent</groupId>
+    <artifactId>kafka-streams-avro-serde</artifactId>
+    <version>7.9.9</version>
+    <scope>test</scope>
+    <exclusions>
+      <exclusion><groupId>org.apache.kafka</groupId><artifactId>kafka-clients</artifactId></exclusion>
+    </exclusions>
+  </dependency>
+</dependencies>
+```
+
+**The `kafka-clients` exclusion is not optional — keep it.** These artifacts pull
+`io.confluent:kafka-schema-registry-client`, which depends on Confluent's own rebuild of the Kafka
+client (`kafka-clients:7.9.x-ccs`). sbt and Gradle both resolve conflicts by taking the highest
+version, so that rebuild wins over the Apache `3.9.x` this plugin declares and your load test silently
+runs a different client from the one the plugin is built and tested against. Excluding it leaves the
+plugin's own Apache client in place. Maven resolves nearest-wins and is not affected, but the exclusion
+is harmless there and keeps the three snippets equivalent.
+
+Your simulation code needs no change: `org.galaxio.gatling.kafka.Predef._` exposes the Avro serdes
+exactly as before. See [Schema Registry Integration](#schema-registry-integration) for usage.
 
 If you are installing this while upgrading an older test suite, read the [Migration Guide](#migration-guide) before copying examples from `main`.
 
@@ -415,11 +499,21 @@ scenario("Avro4s")
 
 ### Schema Registry Integration
 
+> **Requires two extra dependencies.** From `1.3.0` the Confluent Schema Registry artifacts are
+> `provided` rather than inherited, because they are not published to Maven Central. Add them and the
+> Confluent resolver as shown in
+> [Installation → Optional: Avro via Confluent Schema Registry](#optional-avro-via-confluent-schema-registry)
+> before using anything in this section. Without them the code below still compiles, and fails at run
+> time with `NoClassDefFoundError: io/confluent/kafka/streams/serdes/avro/GenericAvroSerde`.
+
 For Schema Registry-backed Avro classes, provide an implicit `schemaRegUrl` or your own Kafka `Serde[T]`:
 
 ```scala
 implicit val schemaRegUrl: String = "http://localhost:8081"
 ```
+
+The same applies to `avroBody` checks and to the Java facade's `avro(...)` entry points, which are
+backed by the same Confluent serdes.
 
 ### Avro in Request-Reply
 
@@ -464,6 +558,47 @@ Use this section as release-based upgrade notes. Start from the version you are 
 | `0.20.3` | `1.0.x` | Move from Gatling `3.11.5` to `3.13.x`, update request-reply consumer settings, re-check examples against current README. |
 | `0.21.x` | `1.0.x` | Stay on Gatling `3.13.x`, review request-reply defaults and DSL surface. |
 | `0.20.x` or older | `1.0.x` | Treat as full doc refresh. Older consume-only or per-action matcher APIs are not present. |
+| `1.0.x` – `1.2.x` | `1.3.x` | Build-file only. Plain users: no change. Schema Registry Avro users: declare two artifacts and the Confluent resolver — see below. |
+
+### `1.2.x` → `1.3.x` — Confluent artifacts are no longer inherited
+
+**If you use plain serialization, avro4s, or anything other than Confluent Schema Registry: nothing
+to do.** Bump the version and carry on. You may also drop the Confluent resolver from your build if
+you added one — it is no longer needed.
+
+**Why this changed.** Up to `1.2.x` the plugin declared four dependencies that are published only to
+`packages.confluent.io`, while its released POM carries no repository list. A consumer building against
+Maven Central alone could not resolve the plugin at all. Two of the four (the Kafka client and Kafka
+Streams Scala) were Confluent rebuilds of Apache code and now use the Apache coordinates. The other two
+are genuinely Confluent-only and have become optional.
+
+**If you use Schema-Registry-backed Avro**, your build previously received these transitively. Declare
+them yourself, exactly as you already declare `avro4s`:
+
+```scala
+resolvers += "Confluent" at "https://packages.confluent.io/maven/"
+
+libraryDependencies ++= Seq(
+  "io.confluent" % "kafka-avro-serializer"    % "7.9.9" % Test,
+  "io.confluent" % "kafka-streams-avro-serde" % "7.9.9" % Test,
+).map(_.exclude("org.apache.kafka", "kafka-clients"))
+```
+
+Keep the `kafka-clients` exclusion — without it these artifacts pull Confluent's own rebuild of the
+Kafka client, which outranks the Apache one this plugin declares under sbt's and Gradle's
+highest-version-wins resolution. See
+[Installation](#optional-avro-via-confluent-schema-registry) for the Gradle and Maven forms and the
+full explanation.
+
+**No source change is required, in any scenario.** Imports, implicits, and every Scala and Java entry
+point are unchanged — `Predef` still supplies the Avro serdes.
+
+**How you find out if you forget them.** Not at build time: `provided` dependencies are simply absent
+from your classpath, so resolution and compilation both succeed. The serdes construct their Confluent
+delegate on first use, so the first Avro send or check fails with
+`NoClassDefFoundError: io/confluent/kafka/streams/serdes/avro/GenericAvroSerde` — in the middle of a
+run. If your suite uses Schema Registry Avro, add the dependencies before you upgrade rather than
+finding out from a load test.
 
 ### Upgrading to `1.2.0`
 

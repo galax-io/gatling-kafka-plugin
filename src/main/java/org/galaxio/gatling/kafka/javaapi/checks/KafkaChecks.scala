@@ -1,7 +1,6 @@
 package org.galaxio.gatling.kafka.javaapi.checks
 
 import com.fasterxml.jackson.databind.JsonNode
-import io.confluent.kafka.streams.serdes.avro.GenericAvroSerde
 import io.gatling.core.check._
 import io.gatling.core.check.bytes.BodyBytesCheckType
 import io.gatling.core.check.jmespath.JmesPathCheckType
@@ -23,7 +22,11 @@ import scala.jdk.CollectionConverters._
 object KafkaChecks {
   class SimpleChecksScala extends KafkaCheckSupport {}
 
-  val avroSerde: Serde[GenericRecord] = new GenericAvroSerde()
+  // Deferred for the same reason as KafkaSerdesImplicits.avroSerde: this object is reached by the Java
+  // facade's plain entry points too, so constructing a Confluent serde while it initialises would make
+  // the optional artifact mandatory for every Java simulation. Its own instance, as before — the Scala
+  // DSL and the Java facade have never shared one, and GenericAvroSerde carries mutable configure state.
+  val avroSerde: Serde[GenericRecord] = new org.galaxio.gatling.kafka.request.LazyGenericAvroSerde
 
   private def toScalaCheck(javaCheckBuilder: io.gatling.javaapi.core.CheckBuilder): KafkaCheck = {
     val scalaCheck = javaCheckBuilder.asScala

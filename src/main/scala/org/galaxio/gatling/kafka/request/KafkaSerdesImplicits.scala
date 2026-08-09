@@ -1,16 +1,12 @@
 package org.galaxio.gatling.kafka.request
 
-import io.confluent.kafka.schemaregistry.client.CachedSchemaRegistryClient
-import io.confluent.kafka.serializers.{KafkaAvroDeserializer, KafkaAvroSerializer}
-import io.confluent.kafka.streams.serdes.avro.GenericAvroSerde
 import org.apache.avro.generic.GenericRecord
-import org.apache.kafka.common.serialization.{Deserializer, Serde, Serializer, Serdes => JSerdes}
+import org.apache.kafka.common.serialization.{Serde, Serdes => JSerdes}
 import org.apache.kafka.streams.kstream.WindowedSerdes
 import org.apache.kafka.streams.scala.kstream.Consumed
 
 import java.nio.ByteBuffer
 import java.util.UUID
-import scala.jdk.CollectionConverters._
 
 trait KafkaSerdesImplicits {
   implicit def stringSerde: Serde[String]                             = JSerdes.String()
@@ -32,17 +28,21 @@ trait KafkaSerdesImplicits {
   implicit def sessionWindowedSerde[T](implicit tSerde: Serde[T]): WindowedSerdes.SessionWindowedSerde[T] =
     new WindowedSerdes.SessionWindowedSerde[T](tSerde)
 
-  implicit def serdeClass[T](implicit schemaRegUrl: String): Serde[T] = new Serde[T] {
-    override def serializer(): Serializer[T] = new KafkaAvroSerializer(
-      new CachedSchemaRegistryClient(schemaRegUrl.split(',').toList.asJava, 16),
-    ).asInstanceOf[Serializer[T]]
+  // The two Avro members below construct no Confluent type, so this trait — which `Predef` mixes in,
+  // and every simulation imports — holds no reference to one. Their declared types (`Serde`,
+  // `GenericRecord`) come from Maven Central-published artifacts, so implicit search over this trait
+  // works with no Confluent artifact present.
+  //
+  // `avroSerde` MUST stay a strict `val`. It is a published concrete trait member: making it `lazy`
+  // deletes the mixin setter from the compiled interface, so a simulation compiled against an earlier
+  // release keeps its own field, never has it assigned by `$init$`, and silently reads `null` — with no
+  // linkage error naming the cause. `LazyGenericAvroSerde` is what defers the Confluent construction
+  // instead, so the strict val and Contract E1 can both hold.
 
-    override def deserializer(): Deserializer[T] = new KafkaAvroDeserializer(
-      new CachedSchemaRegistryClient(schemaRegUrl.split(',').toList.asJava, 16),
-    ).asInstanceOf[Deserializer[T]]
-  }
+  implicit def serdeClass[T](implicit schemaRegUrl: String): Serde[T] =
+    ConfluentSerdes.schemaRegistrySerde[T](schemaRegUrl)
 
-  implicit val avroSerde: Serde[GenericRecord] = new GenericAvroSerde()
+  implicit val avroSerde: Serde[GenericRecord] = new LazyGenericAvroSerde
 
   implicit def consumedFromSerde[K, V](implicit keySerde: Serde[K], valueSerde: Serde[V]): Consumed[K, V] =
     Consumed.`with`[K, V]
