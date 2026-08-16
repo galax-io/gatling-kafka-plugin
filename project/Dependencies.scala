@@ -8,7 +8,7 @@ object Dependencies {
     // matches the confluentinc/cp-kafka:7.9.5 brokers the test suites run against. The plugin uses
     // only core client API (clients.consumer, clients.producer, common.header, common.serialization,
     // TopicPartition, WakeupException), so nothing here depends on the vendor build.
-    val kafka          = "3.9.2"
+    val kafka          = "8.3.1-ccs"
     val gatling        = "3.13.5"
     val avro4s         = "4.1.2"
     val avro           = "1.12.1"
