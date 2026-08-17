@@ -23,20 +23,27 @@ trait KafkaSerdesImplicits {
   implicit def javaIntegerSerde: Serde[java.lang.Integer]             = JSerdes.Integer()
   implicit def uuidSerde: Serde[UUID]                                 = JSerdes.UUID()
 
-  // The two Avro members below construct no Confluent type, so this trait — which `Predef` mixes in,
-  // and every simulation imports — holds no reference to one. Their declared types (`Serde`,
-  // `GenericRecord`) come from Maven Central-published artifacts, so implicit search over this trait
-  // works with no Confluent artifact present.
+  // Neither Avro member constructs a Confluent type while this trait — which `Predef` mixes in, and
+  // every simulation imports — initialises. Their declared types (`Serde`, `GenericRecord`) come from
+  // Maven Central-published artifacts, so implicit search over this trait works with no Confluent
+  // artifact present; only actually summoning one touches Confluent, and a simulation that summons one
+  // is by definition doing Avro and has the artifacts.
   //
-  // `avroSerde` MUST stay a strict `val`. It is a published concrete trait member: making it `lazy`
-  // deletes the mixin setter from the compiled interface, so a simulation compiled against an earlier
-  // release keeps its own field, never has it assigned by `$init$`, and silently reads `null` — with no
-  // linkage error naming the cause. `LazyGenericAvroSerde` is what defers the Confluent construction
-  // instead, so the strict val and Contract E1 can both hold.
+  // `avroSerde` was a strict `val` until 2.0.0, deferring through a `LazyGenericAvroSerde` wrapper,
+  // because turning a published concrete trait member `lazy` deletes the mixin setter from the
+  // compiled interface — a simulation built against an earlier release would keep its own field, never
+  // have it assigned by `$init$`, and silently read `null`. A major release is where that is paid for
+  // openly, so the wrapper is gone and the member is simply `lazy`.
+  //
+  // `lazy val`, not `def`. `GenericAvroSerde` is unusable until `configure(configs, isKey)` supplies
+  // its Schema Registry client, and nothing in the plugin calls that — configuring the serde the DSL
+  // hands out is the user's only route. A `def` would hand every summon a fresh, unconfigured instance,
+  // so configuring it would silently configure a throwaway. One instance per mixing-in object keeps
+  // that route working while still constructing nothing until first use.
 
   implicit def serdeClass[T](implicit schemaRegUrl: String): Serde[T] =
     ConfluentSerdes.schemaRegistrySerde[T](schemaRegUrl)
 
-  implicit val avroSerde: Serde[GenericRecord] = new LazyGenericAvroSerde
+  implicit lazy val avroSerde: Serde[GenericRecord] = ConfluentSerdes.newAvroSerde()
 
 }
