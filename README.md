@@ -615,6 +615,44 @@ If you read the field, drop the read. If you matched on it, it was always `None`
 Use `KafkaCheckType.Simple`. Nothing could produce a check carrying `ResponseCode`, and its
 materialization was identical to `Simple`'s, so behaviour is unchanged.
 
+#### `send(...)` now returns `KafkaRequestBuilder`
+
+The `RequestBuilder[K, V]` trait had one abstract member and one implementation, and was public only
+because it was the declared return type of the documented `send` methods. It is folded into
+`KafkaRequestBuilder`. Invisible unless you wrote the type out:
+
+```scala
+// before
+val req: RequestBuilder[String, String] = kafka("r").topic("t").send("k", "v")
+// after
+val req: KafkaRequestBuilder[String, String] = kafka("r").topic("t").send("k", "v")
+```
+
+Inference (`val req = ...`) needs no change. The Java facade's own
+`javaapi.request.builder.RequestBuilder` is a different class and is unaffected.
+
+#### `LazyGenericAvroSerde` is gone
+
+An internal wrapper that existed only because the `1.x` binary freeze forced `avroSerde` to be a
+strict `val`; it is now simply `lazy`. `Predef` still supplies `Serde[GenericRecord]`, still hands out
+one stable instance — so `Predef.avroSerde.configure(...)` and `KafkaChecks.avroSerde().configure(...)`
+still configure the serde the DSL later uses — plain simulations still start with no Confluent artifact
+present, and Avro still fails only when you actually use it. **No source change.**
+
+If you referenced the class directly, use `Predef`'s `avroSerde` (Scala) or
+`KafkaChecks.avroSerde()` (Java) instead.
+
+#### Two lower-level types changed shape
+
+Neither appears in ordinary simulations; both break code that names them directly.
+
+- `javaapi.request.builder.RequestBuilder`'s constructor now takes the concrete Scala
+  `KafkaRequestBuilder<K, V>` instead of the removed `RequestBuilder<K, V>` trait. Only code that
+  constructs this wrapper itself is affected — `kafka(...).topic(...).send(...)` returns one already.
+- `KafkaAttributes.producerTopic` is `Expression[String]` instead of `Option[Expression[String]]`.
+  Every builder that reaches an action supplies a topic, so the `Option` could only ever be `Some`.
+  If you build `KafkaAttributes` directly — in a test harness, say — drop the `Some(...)` wrapper.
+
 #### Java produce-only request names now resolve Gatling EL
 
 `kafka("name").topic(...)` previously passed the request name through as a literal, while

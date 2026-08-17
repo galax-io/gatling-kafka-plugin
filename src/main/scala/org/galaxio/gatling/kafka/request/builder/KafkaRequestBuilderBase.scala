@@ -11,7 +11,7 @@ import scala.reflect.ClassTag
 object KafkaRequestBuilderBase {
 
   final case class OnlyPublishStep(requestName: Expression[String], producerTopic: Expression[String]) {
-    def send[V: Serde: ClassTag](value: Expression[V]): RequestBuilder[Nothing, V] =
+    def send[V: Serde: ClassTag](value: Expression[V]): KafkaRequestBuilder[Nothing, V] =
       KafkaRequestBuilder[Nothing, V](
         KafkaAttributes(
           requestName = requestName,
@@ -30,7 +30,7 @@ object KafkaRequestBuilderBase {
         key: Expression[K],
         value: Expression[V],
         headers: Expression[Headers] = List.empty[Header],
-    ): RequestBuilder[K, V] =
+    ): KafkaRequestBuilder[K, V] =
       KafkaRequestBuilder(
         KafkaAttributes(
           requestName = requestName,
