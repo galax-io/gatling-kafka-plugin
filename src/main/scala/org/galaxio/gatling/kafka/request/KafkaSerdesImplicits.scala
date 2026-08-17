@@ -2,8 +2,6 @@ package org.galaxio.gatling.kafka.request
 
 import org.apache.avro.generic.GenericRecord
 import org.apache.kafka.common.serialization.{Serde, Serdes => JSerdes}
-import org.apache.kafka.streams.kstream.WindowedSerdes
-import org.apache.kafka.streams.scala.kstream.Consumed
 
 import java.nio.ByteBuffer
 import java.util.UUID
@@ -25,20 +23,6 @@ trait KafkaSerdesImplicits {
   implicit def javaIntegerSerde: Serde[java.lang.Integer]             = JSerdes.Integer()
   implicit def uuidSerde: Serde[UUID]                                 = JSerdes.UUID()
 
-  // No replacement is named on purpose: session windowing belongs to Kafka Streams, which this plugin
-  // neither uses nor wraps. Pointing at something inside the plugin would imply a capability that does
-  // not exist. These two implicits are also the sole reason kafka-streams-scala is still a dependency
-  // consumers inherit — they cannot be dropped before the implicits go, because their Kafka Streams
-  // types appear in the *signatures* that implicit search reads for every simulation.
-  @deprecated(
-    "Kafka Streams windowing has no role in a Gatling load test and this plugin never uses it. " +
-      "Depend on org.apache.kafka:kafka-streams-scala_2.13 directly if you build Streams topologies. " +
-      "Removed in 2.0.0 together with the kafka-streams-scala dependency.",
-    "1.3.0",
-  )
-  implicit def sessionWindowedSerde[T](implicit tSerde: Serde[T]): WindowedSerdes.SessionWindowedSerde[T] =
-    new WindowedSerdes.SessionWindowedSerde[T](tSerde)
-
   // The two Avro members below construct no Confluent type, so this trait — which `Predef` mixes in,
   // and every simulation imports — holds no reference to one. Their declared types (`Serde`,
   // `GenericRecord`) come from Maven Central-published artifacts, so implicit search over this trait
@@ -54,14 +38,5 @@ trait KafkaSerdesImplicits {
     ConfluentSerdes.schemaRegistrySerde[T](schemaRegUrl)
 
   implicit val avroSerde: Serde[GenericRecord] = new LazyGenericAvroSerde
-
-  @deprecated(
-    "Consumed is a Kafka Streams topology parameter and this plugin never builds a topology. " +
-      "Depend on org.apache.kafka:kafka-streams-scala_2.13 directly if you build Streams topologies. " +
-      "Removed in 2.0.0 together with the kafka-streams-scala dependency.",
-    "1.3.0",
-  )
-  implicit def consumedFromSerde[K, V](implicit keySerde: Serde[K], valueSerde: Serde[V]): Consumed[K, V] =
-    Consumed.`with`[K, V]
 
 }

@@ -59,7 +59,9 @@ class KafkaRequestReplyActionSpec extends munit.FunSuite {
   private def attributes: KafkaAttributes[Array[Byte], Array[Byte]] =
     KafkaAttributes[Array[Byte], Array[Byte]](
       requestName = _ => "request-reply".success,
-      producerTopic = None,
+      // Never resolved by this suite: it drives the action through `sendKafkaMessage` with a
+      // pre-built message rather than through `sendRequest`, which is what reads this.
+      producerTopic = _ => "unused".success,
       consumerTopic = None,
       key = None,
       value = _ => Array.emptyByteArray.success,

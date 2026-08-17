@@ -22,16 +22,16 @@ object KafkaProtocolBuilder {
   def properties(p: (String, AnyRef), ps: (String, AnyRef)*): KafkaProtocolBuilder =
     properties((p +: ps).toMap)
 
+  /** The reply timeout belongs to the consume step, not here: a producer-only protocol never waits for a reply. The `timeout` /
+    * `withDefaultTimeout` pair that used to sit on this step was removed in 2.0.0 — no example, test or README recipe reached
+    * it. Use `properties(...)` for a produce-only protocol, or continue to `consumeSettings(...)`.
+    */
   case class KPProducerSettingsStep(producerSettings: Map[String, AnyRef]) {
     def consumeSettings(cs: Map[String, AnyRef]): KPConsumeSettingsStep = KPConsumeSettingsStep(producerSettings, cs)
 
     def consumeSettings(cp: (String, AnyRef), cps: (String, AnyRef)*): KPConsumeSettingsStep = consumeSettings(
       (cp +: cps).toMap,
     )
-
-    def timeout(t: FiniteDuration): KafkaProtocolBuilder = KafkaProtocolBuilder(producerSettings, Map.empty, t)
-    def withDefaultTimeout: KafkaProtocolBuilder         = KafkaProtocolBuilder(producerSettings, Map.empty, 60.seconds)
-
   }
 
   case class KPConsumeSettingsStep(producerSettings: Map[String, AnyRef], consumeSettings: Map[String, AnyRef]) {
@@ -72,7 +72,7 @@ final case class KafkaProtocolBuilder(
     )
 
     val consumerSettingsWithDefaults =
-      withDefaultAutoReset(consumeSettings) ++ withDefaultAutoCommit(consumeSettings) ++
+      withDefaultAutoCommit(withDefaultAutoReset(consumeSettings)) ++
         Map(
           ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG   -> Serdes.ByteArray().deserializer().getClass.getName,
           ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG -> Serdes.ByteArray().deserializer().getClass.getName,

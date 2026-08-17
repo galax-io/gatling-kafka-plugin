@@ -101,7 +101,8 @@ class KeylessCorrelationSpec extends munit.FunSuite with TestContainerForAll wit
   private def attributes: KafkaAttributes[Array[Byte], Array[Byte]] =
     KafkaAttributes[Array[Byte], Array[Byte]](
       requestName = _ => "request-reply".success,
-      producerTopic = None,
+      // Overridden per test where the action's own `sendRequest` path is exercised; unused otherwise.
+      producerTopic = _ => "unused".success,
       consumerTopic = None,
       key = None,
       value = _ => Array.emptyByteArray.success,
@@ -330,7 +331,7 @@ class KeylessCorrelationSpec extends munit.FunSuite with TestContainerForAll wit
           GatlingConfiguration.loadForTest(),
         )
         // key = None is what the DSL produces for `send[K, V](null, payload)`, since `Option(null)` is `None`.
-        val keyless        = attributes.copy(producerTopic = Some(_ => topic.success))
+        val keyless        = attributes.copy(producerTopic = _ => topic.success)
         val action         = new KafkaRequestAction[Array[Byte], Array[Byte]](
           KafkaComponents(coreComponents, protocol, None, sender),
           keyless,

@@ -15,7 +15,7 @@ object KafkaRequestBuilderBase {
       KafkaRequestBuilder[Nothing, V](
         KafkaAttributes(
           requestName = requestName,
-          producerTopic = Option(producerTopic),
+          producerTopic = producerTopic,
           consumerTopic = None,
           key = None,
           value = value,
@@ -34,7 +34,7 @@ object KafkaRequestBuilderBase {
       KafkaRequestBuilder(
         KafkaAttributes(
           requestName = requestName,
-          producerTopic = Option(producerTopic),
+          producerTopic = producerTopic,
           consumerTopic = None,
           key = Option(key),
           value = value,
@@ -48,57 +48,11 @@ object KafkaRequestBuilderBase {
 
 }
 
+// A request names its producer topic before it names its payload: `kafka(name).topic(t).send(...)` for
+// produce-only, `kafka(name).requestReply.requestTopic(rt).replyTopic(ct).send(...)` for request-reply.
+// The topic-less `send(...)` family that used to sit here built actions with no producer topic, which
+// failed at send time for every scenario that reached them, and was removed in 2.0.0.
 case class KafkaRequestBuilderBase(requestName: Expression[String]) {
-
-  def send[K: Serde: ClassTag, V: Serde: ClassTag](
-      key: Expression[K],
-      payload: Expression[V],
-      headers: Expression[Headers] = List.empty[Header],
-  ): RequestBuilder[K, V] = {
-    if (key == null)
-      KafkaRequestBuilder[Nothing, V](
-        KafkaAttributes(
-          requestName = requestName,
-          producerTopic = None,
-          consumerTopic = None,
-          key = None,
-          value = payload,
-          headers = Option(headers),
-          keySerde = None,
-          valueSerde = implicitly[Serde[V]],
-          checks = List.empty,
-        ),
-      )
-    else
-      KafkaRequestBuilder(
-        KafkaAttributes(
-          requestName = requestName,
-          producerTopic = None,
-          consumerTopic = None,
-          key = Option(key),
-          value = payload,
-          headers = Option(headers),
-          keySerde = Some(implicitly[Serde[K]]),
-          valueSerde = implicitly[Serde[V]],
-          checks = List.empty,
-        ),
-      )
-  }
-
-  def send[V: Serde: ClassTag](payload: Expression[V]): RequestBuilder[Nothing, V] =
-    KafkaRequestBuilder[Nothing, V](
-      KafkaAttributes(
-        requestName = requestName,
-        producerTopic = None,
-        consumerTopic = None,
-        key = None,
-        value = payload,
-        headers = None,
-        keySerde = None,
-        valueSerde = implicitly[Serde[V]],
-        checks = List.empty,
-      ),
-    )
 
   def topic(producerTopic: Expression[String]): KafkaRequestBuilderBase.OnlyPublishStep =
     KafkaRequestBuilderBase.OnlyPublishStep(requestName, producerTopic)
@@ -115,7 +69,7 @@ case class KafkaRequestBuilderBase(requestName: Expression[String]) {
         KafkaRequestReplyActionBuilder[K, V](
           KafkaAttributes[K, V](
             requestName,
-            Option(producerTopic),
+            producerTopic,
             Option(consumerTopic),
             Option(key),
             payload,
