@@ -5,7 +5,7 @@ import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.header.Headers
 
 /** Topic may either be an 'input' or an 'output' topic. If both are defined here, the serdes may need to pick one without any
-  * real prior knowledge (see KafkaProtocolBuilderNew.matchByMessage)
+  * real prior knowledge (see `KafkaProtocolBuilder.matchByMessage`).
   *
   * `key` and `value` are both nullable, and an absent one is distinct from an empty one — the distinction Kafka itself draws. A
   * null key means the record carries none, which is what makes the partitioner spread it round-robin; a null value is a

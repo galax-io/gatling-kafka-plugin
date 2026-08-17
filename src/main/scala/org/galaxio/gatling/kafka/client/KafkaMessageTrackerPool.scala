@@ -12,7 +12,6 @@ import org.galaxio.gatling.kafka.request.{KafkaProtocolMessage, KafkaSerdesImpli
 
 import java.util.concurrent.atomic.{AtomicInteger, AtomicLong, AtomicReference}
 import java.util.concurrent.{
-  CompletionException,
   ConcurrentHashMap,
   ExecutorService,
   Executors,
@@ -201,6 +200,9 @@ final class KafkaMessageTrackerPool(
       case e: Throwable =>
         logger.error(e.getMessage, e)
     }
+    // Ordering is deliberate, not belt-and-braces: this runs well before `setupExecutor.shutdown()`
+    // below, with a consumer-future wait and a continuation drain in between. Without the cancel the
+    // periodic sweep keeps firing across that window, on trackers already told to stop.
     idleSweep.cancel(false)
     consumerExecutor.shutdown()
     // Closing the consumer above failed every pending readiness, and those continuations run on the
@@ -227,11 +229,6 @@ final class KafkaMessageTrackerPool(
 
   private def consumerFailedException(failure: Exception): IllegalStateException =
     new IllegalStateException("Kafka consumer failed; tracker pool can no longer be used", failure)
-
-  private def completionCause(error: Throwable): Throwable = error match {
-    case e: CompletionException if e.getCause != null => e.getCause
-    case other                                        => other
-  }
 
   /** Obtains, creating it if needed, the tracker for `(consumerTopic, messageMatcher)` and hands it to `onReady`. Never blocks
     * the calling thread: when the reply topic has to be subscribed first, the wait for its assignment happens on the pool's
@@ -320,7 +317,11 @@ final class KafkaMessageTrackerPool(
       readiness.whenCompleteAsync(
         (_: Void, error: Throwable) => {
           timeoutTask.cancel(false)
-          if (error != null) onFailure(completionCause(error))
+          // `error` arrives unwrapped: `readiness` is the plain CompletableFuture returned by
+          // requestTopicSubscription, every completion path calls completeExceptionally with a raw
+          // exception, and this callback is registered on that same future rather than a derived stage.
+          // A CompletionException unwrap used to sit here and could never fire.
+          if (error != null) onFailure(error)
           else {
             // The consumer can have failed between the assignment landing and this continuation
             // running; registering now would hand back a tracker that already missed the failure

@@ -1,5 +1,4 @@
 import Dependencies.*
-//import org.galaxio.performance.avro.RegistrySubject
 
 // sbt-git's default JGit reader throws NoWorkTreeException in linked git worktrees
 // (where `.git` is a file, not a directory), which breaks project loading there.
@@ -7,8 +6,7 @@ import Dependencies.*
 // worktrees too. (sbt-git helper; sets ThisBuild / useConsoleForROGit := true.)
 useReadableConsoleGit
 
-val scalaV      = "2.13.18"
-val avroSchemas = Seq() // for example Seq(RegistrySubject("test-hello-schema", 1))
+val scalaV = "2.13.18"
 
 lazy val root = (project in file("."))
   .enablePlugins(GitVersioning, GatlingPlugin)
@@ -22,8 +20,6 @@ lazy val root = (project in file("."))
     libraryDependencies += "org.scalatest" %% "scalatest" % "3.2.20" % Test,
     libraryDependencies ++= testcontainers,
     dependencyOverrides ++= kafkaOverrides,
-    schemaRegistrySubjects ++= avroSchemas,
-//    schemaRegistryUrl := "http://test-schema-registry:8081",
     resolvers ++= Seq(
       "Confluent" at "https://packages.confluent.io/maven/",
     ),
@@ -37,6 +33,16 @@ lazy val root = (project in file("."))
       "-deprecation",
       "-feature",
       "-unchecked",
+      // Residue guard. Every audit of this repository has re-derived the same finding — unused imports
+      // and a private member nobody reads — so the compiler asserts it instead. Fatal by virtue of
+      // -Xfatal-warnings above, and it must stay satisfiable with no @nowarn anywhere: a suppression is
+      // evidence the wrong warning class was chosen, not a fix.
+      //
+      // `params` and `implicits` are deliberately absent. This codebase is dense with their classic
+      // false-positive sources — `override`s implementing Gatling's and Kafka's interfaces cannot drop a
+      // parameter, and KafkaCheckSupport is a wall of implicit conversions — so including them would buy
+      // coverage with annotations and turn a self-enforcing guard into a suppression habit.
+      "-Wunused:imports,privates,locals,patvars",
       "-language:implicitConversions",
       "-language:higherKinds",
       "-language:existentials",

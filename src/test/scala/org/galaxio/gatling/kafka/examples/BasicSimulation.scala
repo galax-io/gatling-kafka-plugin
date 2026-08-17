@@ -12,7 +12,6 @@ import org.galaxio.gatling.kafka.Predef._
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 
-import java.util.Properties
 import java.util.concurrent.atomic.AtomicInteger
 import scala.concurrent.duration.DurationInt
 

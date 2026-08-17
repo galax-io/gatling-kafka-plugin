@@ -2,7 +2,6 @@ package org.galaxio.gatling.kafka.client
 
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.{CompletableFuture, CopyOnWriteArrayList, ExecutionException, TimeUnit, TimeoutException}
-import scala.concurrent.duration.{DurationInt, FiniteDuration}
 import scala.jdk.CollectionConverters._
 
 class DynamicKafkaConsumerSpec extends munit.FunSuite {
