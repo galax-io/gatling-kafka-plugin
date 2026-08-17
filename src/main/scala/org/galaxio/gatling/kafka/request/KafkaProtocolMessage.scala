@@ -22,8 +22,6 @@ import org.apache.kafka.common.header.Headers
   *   the topic this event is for
   * @param headers
   *   any supplementary headers e.g. serde related headers
-  * @param responseCode
-  *   a response code
   */
 
 final case class KafkaProtocolMessage(
@@ -32,7 +30,6 @@ final case class KafkaProtocolMessage(
     producerTopic: String,
     consumerTopic: String,
     headers: Option[Headers] = None,
-    responseCode: Option[String] = None,
 ) {
   def toProducerRecord: ProducerRecord[Array[Byte], Array[Byte]] = {
     headers.fold(new ProducerRecord(producerTopic, key, value))(hs => new ProducerRecord(producerTopic, null, key, value, hs))

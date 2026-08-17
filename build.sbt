@@ -63,13 +63,13 @@ lazy val root = (project in file("."))
 // ---------------------------------------------------------------------------------------------
 
 // group:artifact -> why a consumer inherits it. An inherited dependency missing from this map fails
-// C3. At most one entry may be justified by `deprecated:` (data-model DR-4) — that bound is what stops
-// "kept for a deprecation" from becoming a general-purpose excuse.
+// C3. Every entry names a code path that uses it: the `deprecated:` escape hatch, and the rule that
+// bounded it to one entry, went with the Kafka Streams surface it was written for in 2.0.0. A
+// dependency held by nothing but a deprecation is now simply unjustified.
 val inheritedDependencyJustification: Map[String, String] = Map(
-  "org.scala-lang:scala-library"         -> "used-by: every Scala source",
-  "org.apache.kafka:kafka-clients"       -> "used-by: client/KafkaSender, client/DynamicKafkaConsumer, protocol settings",
-  "org.apache.kafka:kafka-streams-scala" -> "deprecated: held only by KafkaSerdesImplicits.sessionWindowedSerde and .consumedFromSerde; removed in 2.0.0",
-  "org.apache.avro:avro"                 -> "used-by: checks/AvroBodyCheckBuilder, avro4s serde derivation",
+  "org.scala-lang:scala-library"   -> "used-by: every Scala source",
+  "org.apache.kafka:kafka-clients" -> "used-by: client/KafkaSender, client/DynamicKafkaConsumer, protocol settings",
+  "org.apache.avro:avro"           -> "used-by: checks/AvroBodyCheckBuilder, avro4s serde derivation",
 )
 
 /** Why this coordinate cannot be fetched from Maven Central, or None if it can. */
@@ -130,15 +130,11 @@ checkPublishedPom := {
       failures += s"C2 ${d.gav} serves an optional capability and must not be inherited"
   }
 
-  // C3 - every inherited dependency is justified, at most one by a deprecation.
+  // C3 - every inherited dependency is justified by a code path that uses it.
   inherited.foreach { d =>
     if (!inheritedDependencyJustification.contains(d.ga))
       failures += s"C3 ${d.gav} is inherited with no recorded justification in inheritedDependencyJustification"
   }
-  val heldByDeprecation =
-    inherited.map(_.ga).distinct.flatMap(inheritedDependencyJustification.get).count(_.startsWith("deprecated:"))
-  if (heldByDeprecation > 1)
-    failures += s"C3 $heldByDeprecation inherited dependencies are justified only by a deprecation; DR-4 permits at most 1"
 
   // C5 - publication identity is unchanged.
   def text(tag: String): String = (xml \ tag).text.trim

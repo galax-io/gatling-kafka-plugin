@@ -195,7 +195,10 @@ class KafkaMessageTracker[K, V](
             KO,
             published.next,
             published.requestName,
-            message.responseCode,
+            // A reply that arrived and then failed a check has no failure type to report: the
+            // exception-derived codes come from the send and timeout paths (`failPending`), not from
+            // the record. This forwarded `message.responseCode` before 2.0.0, which was always None.
+            None,
             Some(errorMessage),
           )
         case Right((newSession, Some(Failure(m)))) =>
@@ -206,7 +209,7 @@ class KafkaMessageTracker[K, V](
             KO,
             published.next,
             published.requestName,
-            message.responseCode,
+            None,
             Some(m),
           )
         case Right((newSession, _))                =>

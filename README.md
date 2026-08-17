@@ -559,6 +559,90 @@ Use this section as release-based upgrade notes. Start from the version you are 
 | `0.21.x` | `1.0.x` | Stay on Gatling `3.13.x`, review request-reply defaults and DSL surface. |
 | `0.20.x` or older | `1.0.x` | Treat as full doc refresh. Older consume-only or per-action matcher APIs are not present. |
 | `1.0.x` – `1.2.x` | `1.3.x` | Build-file only. Plain users: no change. Schema Registry Avro users: declare two artifacts and the Confluent resolver — see below. |
+| `1.3.x` | `2.0.0` | Source-breaking, but only for API that could not work. Most suites need no change — see below. |
+
+### `1.3.x` → `2.0.0` — removals
+
+`2.0.0` removes published API. Every removal below is something that either could not run, never
+carried a value, or had no caller — nothing that worked has been taken away. **If your simulations
+use `kafka("name").topic(...).send(...)` and
+`kafka("name").requestReply.requestTopic(...).replyTopic(...).send(...)`, you need no source change
+at all.**
+
+#### `send(...)` without a topic is gone
+
+The `send(...)` overloads that could be called directly on `kafka("name")` — without `.topic(...)`
+or `.requestReply...` first — have been removed from both the Scala DSL and the `javaapi` facade.
+
+They never worked. Every action they built carried no producer topic and failed at send time with
+`Kafka producer topic is not defined`; the Java `sendWithClass(payload, class, headers)` overload
+threw `IllegalArgumentException` while the scenario was still being constructed. If you have one of
+these in a suite, it has been reporting failures rather than sending.
+
+```scala
+// before — compiles, fails at run time
+kafka("request").send[String, String]("key", "payload")
+
+// after — name the topic first
+kafka("request").topic("my-topic").send[String, String]("key", "payload")
+```
+
+#### `kafka-streams-scala` is no longer inherited
+
+`sessionWindowedSerde` and `consumedFromSerde`, deprecated in `1.3.0`, are removed — and with them
+the `org.apache.kafka:kafka-streams-scala` dependency your build used to receive transitively. The
+plugin never built a Streams topology, so nothing in it used them.
+
+If you genuinely build Streams topologies in your harness, declare the artifact yourself:
+
+```scala
+libraryDependencies += "org.apache.kafka" %% "kafka-streams-scala" % "3.9.2" % Test
+```
+
+The inherited dependency set is now `scala-library`, `kafka-clients` and `avro` — three coordinates,
+each used by plugin code.
+
+#### `KafkaProtocolMessage.responseCode` is gone
+
+Nothing ever set it: every message carried `None` from the day it was added. **Your reports do not
+change.** The failure type shown for a failed request comes from a different source — the exception's
+own class name, set by the request-reply action and the timeout path — and is untouched.
+
+If you read the field, drop the read. If you matched on it, it was always `None`.
+
+#### `KafkaCheckType.ResponseCode` is gone
+
+Use `KafkaCheckType.Simple`. Nothing could produce a check carrying `ResponseCode`, and its
+materialization was identical to `Simple`'s, so behaviour is unchanged.
+
+#### Java produce-only request names now resolve Gatling EL
+
+`kafka("name").topic(...)` previously passed the request name through as a literal, while
+`kafka("name").requestReply()...` resolved it as a Gatling expression. The produce-only path now
+matches request-reply.
+
+For almost every suite this changes nothing — a plain name like `"BasicRequest"` resolves to itself.
+It matters only if your request name contains `#{...}`: it used to appear verbatim in reports and now
+resolves per virtual user, and a name referring to a session attribute that is not set will fail the
+request instead of reporting the literal.
+
+```java
+// resolves per user now; previously reported literally as "order-#{orderId}"
+kafka("order-#{orderId}").topic("orders").send(key, payload);
+```
+
+If you were relying on the literal, escape it (`\#{orderId}`) or rename the request.
+
+#### `timeout` / `withDefaultTimeout` on the producer-settings step are gone
+
+The reply timeout belongs to the consume step — a produce-only protocol never waits for a reply.
+Both methods remain on `consumeSettings(...)`:
+
+```scala
+kafka.producerSettings(...).consumeSettings(...).timeout(10.seconds)   // unchanged
+```
+
+For a produce-only protocol use `kafka.properties(...)`.
 
 ### `1.2.x` → `1.3.x` — Confluent artifacts are no longer inherited
 

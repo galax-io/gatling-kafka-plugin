@@ -56,8 +56,8 @@ Phases follow [research.md](./research.md) R7: **US1 → US2 → US3 → US5 →
 
 **Purpose**: Make the tracker agree with the audit before any code moves. No source changes.
 
-- [ ] T001 Commit the spec artifacts as their own commit (Principle V, spec-first): `specs/006-v2-cleanup-sweep/` and `.specify/feature.json`, message `docs(speckit): add 006-v2-cleanup-sweep spec/plan/tasks`
-- [ ] T002 Confirm milestone [#15 `v2.0.0 Cleanup`](https://github.com/galax-io/gatling-kafka-plugin/milestone/15) is the target and record that `scripts/current-milestone.sh` resolves nothing yet, so `.claude/hooks/milestone-guard.sh` will need `MILESTONE_GUARD_OFF=1` for deliberate assignment to a non-lowest milestone
+- [X] T001 Commit the spec artifacts as their own commit (Principle V, spec-first): `specs/006-v2-cleanup-sweep/` and `.specify/feature.json`, message `docs(speckit): add 006-v2-cleanup-sweep spec/plan/tasks`
+- [X] T002 Confirm milestone [#15 `v2.0.0 Cleanup`](https://github.com/galax-io/gatling-kafka-plugin/milestone/15) is the target. **Measured**: `scripts/current-milestone.sh` resolves to `16  v1.4.0 Measurement truth` — it sorts open milestones by semver, not by milestone number — so `.claude/hooks/milestone-guard.sh` will block assignment to #15 and `MILESTONE_GUARD_OFF=1` is genuinely required (plan.md Complexity Tracking records why this is a hook limitation, not a principle override)
 - [ ] T003 [P] Add a comment to [#215](https://github.com/galax-io/gatling-kafka-plugin/issues/215) noting the overlap with US2: its `KafkaRequestFailureMessagesSpec:19-24` item is removed by #216 together with `buildFailure`, so US4 must not count it twice
 - [ ] T004 [P] Open a new issue in milestone #15 for verdict B1 — `KafkaCheckMaterializer.avroBody`, `KafkaMessagePreparer.avroPreparer` and `AvroErrorMapper` are unreachable published surface, citing that both `avroBody` entry points route through `AvroBodyCheckBuilder._avroBody` → `kafkaStatusCheck`
 - [ ] T005 [P] Correct the body of [#216](https://github.com/galax-io/gatling-kafka-plugin/issues/216): replace its unused-import estimates with the measured 22 imports across 12 files plus 1 private type (spec.md verdict A10), and strike its `idleSweep.cancel(false)` item, stating that the cancel runs *before* `setupExecutor.shutdown()` so its "already shut down" premise is false (verdict C1)
@@ -72,11 +72,11 @@ Phases follow [research.md](./research.md) R7: **US1 → US2 → US3 → US5 →
 
 **⚠️ BLOCKING**: no story work may begin until this phase is complete.
 
-- [ ] T006 Fetch the baseline artifact `org.galaxio:gatling-kafka-plugin_2.13:1.3.0` from Maven Central into the scratch directory (verified available during research; no credentials needed)
-- [ ] T007 Extract the baseline public signature set with `javap -public` over every class in the 1.3.0 jar, normalised, into a scratch file — this is the left side of the diff required by [contracts/removed-api.md](./contracts/removed-api.md) R2
-- [ ] T008 [P] Record the current inherited dependency set by running `sbt makePom` and listing `compile`/`runtime` scopes from `target/scala-2.13/*.pom`. Expected baseline: `scala-library`, `kafka-clients`, `kafka-streams-scala`, `avro`
-- [ ] T009 [P] Record the current unused-code finding count by running `sbt 'set root / scalacOptions += "-Wunused:imports,privates,locals,patvars"' 'set root / scalacOptions -= "-Xfatal-warnings"' compile Test/compile` and confirming **23 findings**. A different number means the sources moved since the audit and the extra findings need verdicts before deletion (data-model RE-5)
-- [ ] T010 [P] Record the current `sbt test` outcome as the reference the sweep must not change (SC-005)
+- [X] T006 Fetch the baseline artifact `org.galaxio:gatling-kafka-plugin_2.13:1.3.0` from Maven Central into the scratch directory (verified available during research; no credentials needed)
+- [X] T007 Extract the baseline public signature set with `javap -public` over every class in the 1.3.0 jar, normalised, into a scratch file — this is the left side of the diff required by [contracts/removed-api.md](./contracts/removed-api.md) R2
+- [X] T008 [P] Record the current inherited dependency set by running `sbt makePom` and listing `compile`/`runtime` scopes from `target/scala-2.13/*.pom`. Expected baseline: `scala-library`, `kafka-clients`, `kafka-streams-scala`, `avro`
+- [X] T009 [P] Record the current unused-code finding count by running `sbt 'set root / scalacOptions += "-Wunused:imports,privates,locals,patvars"' 'set root / scalacOptions -= "-Xfatal-warnings"' compile Test/compile` and confirming **23 findings**. A different number means the sources moved since the audit and the extra findings need verdicts before deletion (data-model RE-5)
+- [X] T010 [P] Record the current `sbt test` outcome as the reference the sweep must not change (SC-005)
 
 **Checkpoint**: baselines captured; US1 can begin.
 
@@ -220,7 +220,7 @@ Phases follow [research.md](./research.md) R7: **US1 → US2 → US3 → US5 →
 - [ ] T076 Confirm every `published` entry in the record also appears in the `README.md` migration guide, and vice versa (R7, RE-2)
 - [ ] T077 Run the full CI equivalent with the Compose stack up: `sbt coverage "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaGatlingTest" "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaJavaapiMethodsGatlingTest" "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaConcurrencyLoadTest" test coverageOff coverageReport`
 - [ ] T078 Run `scripts/check-linkage.sh` against milestone #15: every issue closed, every PR merged, each PR carrying a milestone and a `Closes #NNN`
-- [ ] T079 Create the `v2.0.0 …` release milestone name if `scripts/current-milestone.sh` still resolves nothing, so `.claude/hooks/linkage-guard.sh` can gate the tag rather than block it
+- [ ] T079 Confirm `scripts/check-linkage.sh --for-tag v2.0.0` resolves milestone #15. **Measured during T002**: its title `v2.0.0 Cleanup` already starts with the exact version, so the gate resolves and no milestone rename is needed — this task verifies rather than creates
 - [ ] T080 Walk [quickstart.md](./quickstart.md) end to end as the final acceptance pass
 
 ---
