@@ -20,11 +20,11 @@ object AvroBodyCheckBuilder {
       val name                                                         = "avroBody"
       val arity                                                        = "find"
       def apply(prepared: KafkaProtocolMessage): Validation[Option[T]] =
-        // The absent-payload guard belongs here, not on `KafkaMessagePreparer.avroPreparer`. This extractor is what
-        // `KafkaCheckSupport.avroBody` and the Java facade actually reach: they materialize through
-        // `kafkaStatusCheckMaterializer`, whose preparer is the identity, so `prepared` is the raw message and nothing
-        // upstream has looked at the payload. Guarding the preparer instead left a tombstone under `avroBody` reporting
-        // Gatling's generic "found nothing" while every other content check named the absent payload (issue #168, FR-009).
+        // The absent-payload guard belongs here, in the extractor. This is what `KafkaCheckSupport.avroBody` and the Java
+        // facade actually reach: they materialize through `kafkaStatusCheckMaterializer`, whose preparer is the identity,
+        // so `prepared` is the raw message and nothing upstream has looked at the payload. Guarding a preparer instead
+        // left a tombstone under `avroBody` reporting Gatling's generic "found nothing" while every other content check
+        // named the absent payload (issue #168, FR-009).
         KafkaMessagePreparer.withPayload(prepared) {
           Try(Option(implicitly[Serde[T]].deserializer().deserialize(prepared.consumerTopic, prepared.value))).toValidation
         }
