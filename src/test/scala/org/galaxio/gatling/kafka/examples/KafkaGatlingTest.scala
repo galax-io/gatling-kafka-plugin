@@ -1,9 +1,6 @@
 package org.galaxio.gatling.kafka.examples
 
-import com.sksamuel.avro4s._
 import com.typesafe.scalalogging.StrictLogging
-import io.confluent.kafka.schemaregistry.client.CachedSchemaRegistryClient
-import io.confluent.kafka.serializers.{KafkaAvroDeserializer, KafkaAvroSerializer}
 import io.gatling.core.Predef._
 import io.gatling.core.feeder.Feeder
 import io.gatling.core.structure.ScenarioBuilder
@@ -11,16 +8,14 @@ import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.producer.ProducerConfig
 import org.galaxio.gatling.kafka.Predef._
 import org.galaxio.gatling.kafka.avro4s._
-import org.apache.kafka.common.header.Headers
 import org.apache.kafka.common.header.internals.RecordHeaders
-import org.apache.kafka.common.serialization.{ByteArrayDeserializer, ByteArraySerializer, Deserializer, Serde, Serializer}
+import org.apache.kafka.common.serialization.{ByteArrayDeserializer, ByteArraySerializer}
 import org.galaxio.gatling.kafka.client.{DynamicKafkaConsumer, KafkaSender}
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 
 import java.util.concurrent.{ConcurrentHashMap, CountDownLatch, TimeUnit}
 import scala.concurrent.duration.DurationInt
-import scala.jdk.CollectionConverters._
 
 class KafkaGatlingTest extends Simulation with StrictLogging {
 

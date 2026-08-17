@@ -7,8 +7,6 @@ import io.gatling.core.check.xpath.XmlParsers
 import io.gatling.core.config.GatlingConfiguration
 import io.gatling.core.json.JsonParsers
 import net.sf.saxon.s9api.XdmNode
-import org.apache.avro.generic.GenericRecord
-import org.apache.kafka.common.serialization.Serde
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 
 import java.io.ByteArrayInputStream

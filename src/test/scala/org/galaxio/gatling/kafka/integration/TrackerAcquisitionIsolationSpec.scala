@@ -17,7 +17,6 @@ import org.galaxio.gatling.kafka.protocol.KafkaProtocol.{KafkaKeyMatcher, KafkaM
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 import org.testcontainers.utility.DockerImageName
 
-import java.util.Collections
 import java.util.concurrent.atomic.{AtomicLong, AtomicReference}
 import java.util.concurrent.{ConcurrentLinkedQueue, CountDownLatch, TimeUnit}
 import scala.concurrent.duration.{DurationInt, FiniteDuration}

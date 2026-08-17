@@ -4,6 +4,7 @@ import io.gatling.commons.validation.Validation;
 import io.gatling.javaapi.core.internal.Expressions;
 import org.apache.kafka.common.serialization.Serde;
 
+
 public abstract class ExpressionBuilder<V> {
     private final JExpression<V> javaExpression;
     private final Class<V> type;
@@ -13,10 +14,6 @@ public abstract class ExpressionBuilder<V> {
         this.javaExpression = javaExpression;
         this.type = type;
         this.serde = serde;
-    }
-
-    scala.Function1<io.gatling.core.session.Session, Validation<byte[]>> bytes(String topic) {
-        return Expressions.javaFunctionToExpression(javaExpression.andThen(v -> serde.serializer().serialize(topic, v)));
     }
 
     public scala.Function1<io.gatling.core.session.Session, Validation<V>> gatlingExpression() {
