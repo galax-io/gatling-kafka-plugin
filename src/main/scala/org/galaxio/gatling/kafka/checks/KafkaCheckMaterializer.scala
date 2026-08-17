@@ -48,12 +48,11 @@ object KafkaCheckMaterializer {
 
   type KafkaMessageCheckType
 
+  /** Avro body checks materialize through here too, not through a preparer of their own: `AvroBodyCheckBuilder._avroBody`
+    * deserializes inside its extractor, which is what both `KafkaCheckSupport.avroBody` and the Java facade's
+    * `KafkaDsl.avroBody()` reach. A second, preparer-based `avroBody` materializer lived here until 2.0.0 with no caller
+    * anywhere.
+    */
   val kafkaStatusCheck: KafkaCheckMaterializer[KafkaMessageCheckType, KafkaProtocolMessage] =
     new KafkaCheckMaterializer(_.success)
-
-  def avroBody[T <: GenericRecord: Serde](
-      configuration: GatlingConfiguration,
-      topic: String,
-  ): KafkaCheckMaterializer[KafkaMessageCheckType, T] =
-    new KafkaCheckMaterializer(KafkaMessagePreparer.avroPreparer[T](configuration, topic))
 }

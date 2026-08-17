@@ -633,6 +633,12 @@ kafka("order-#{orderId}").topic("orders").send(key, payload);
 
 If you were relying on the literal, escape it (`\#{orderId}`) or rename the request.
 
+#### `KafkaCheckMaterializer.avroBody` and `KafkaMessagePreparer.avroPreparer` are gone
+
+Unreachable. Both `avroBody` entry points — `KafkaCheckSupport.avroBody` for Scala and
+`KafkaDsl.avroBody()` for Java — deserialize inside the check's extractor and never used these. Keep
+using the entry points; nothing about writing an Avro body check changes.
+
 #### `timeout` / `withDefaultTimeout` on the producer-settings step are gone
 
 The reply timeout belongs to the consume step — a produce-only protocol never waits for a reply.
