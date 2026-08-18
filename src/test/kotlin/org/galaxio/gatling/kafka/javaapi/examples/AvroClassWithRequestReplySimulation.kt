@@ -1,8 +1,13 @@
 package org.galaxio.gatling.kafka.javaapi.examples
 
+import io.confluent.kafka.schemaregistry.client.CachedSchemaRegistryClient
+import io.confluent.kafka.serializers.KafkaAvroDeserializer
+import io.confluent.kafka.serializers.KafkaAvroSerializer
 import io.gatling.javaapi.core.CoreDsl.*
 import io.gatling.javaapi.core.Simulation
 import org.apache.kafka.clients.producer.ProducerConfig
+import org.apache.kafka.common.serialization.Deserializer
+import org.apache.kafka.common.serialization.Serializer
 import org.galaxio.gatling.kafka.javaapi.*
 import org.galaxio.gatling.kafka.javaapi.KafkaDsl.*
 import org.galaxio.gatling.kafka.request.*
@@ -44,4 +49,6 @@ class AvroClassWithRequestReplySimulation : Simulation() {
         setUp(scenario("Kafka scenario").exec(kafkaMessage).injectOpen(atOnceUsers(1))).protocols(kafkaProtocolRRAvro)
     }
 
+    /** Stand-in for your own generated Avro type, as in the Java example. */
+    class MyAvroClass
 }

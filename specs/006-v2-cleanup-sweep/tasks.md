@@ -58,9 +58,9 @@ Phases follow [research.md](./research.md) R7: **US1 → US2 → US3 → US5 →
 
 - [X] T001 Commit the spec artifacts as their own commit (Principle V, spec-first): `specs/006-v2-cleanup-sweep/` and `.specify/feature.json`, message `docs(speckit): add 006-v2-cleanup-sweep spec/plan/tasks`
 - [X] T002 Confirm milestone [#15 `v2.0.0 Cleanup`](https://github.com/galax-io/gatling-kafka-plugin/milestone/15) is the target. **Measured**: `scripts/current-milestone.sh` resolves to `16  v1.4.0 Measurement truth` — it sorts open milestones by semver, not by milestone number — so `.claude/hooks/milestone-guard.sh` will block assignment to #15 and `MILESTONE_GUARD_OFF=1` is genuinely required (plan.md Complexity Tracking records why this is a hook limitation, not a principle override)
-- [ ] T003 [P] Add a comment to [#215](https://github.com/galax-io/gatling-kafka-plugin/issues/215) noting the overlap with US2: its `KafkaRequestFailureMessagesSpec:19-24` item is removed by #216 together with `buildFailure`, so US4 must not count it twice
-- [ ] T004 [P] Open a new issue in milestone #15 for verdict B1 — `KafkaCheckMaterializer.avroBody`, `KafkaMessagePreparer.avroPreparer` and `AvroErrorMapper` are unreachable published surface, citing that both `avroBody` entry points route through `AvroBodyCheckBuilder._avroBody` → `kafkaStatusCheck`
-- [ ] T005 [P] Correct the body of [#216](https://github.com/galax-io/gatling-kafka-plugin/issues/216): replace its unused-import estimates with the measured 22 imports across 12 files plus 1 private type (spec.md verdict A10), and strike its `idleSweep.cancel(false)` item, stating that the cancel runs *before* `setupExecutor.shutdown()` so its "already shut down" premise is false (verdict C1)
+- [X] T003 [P] Add a comment to [#215](https://github.com/galax-io/gatling-kafka-plugin/issues/215) noting the overlap with US2: its `KafkaRequestFailureMessagesSpec:19-24` item is removed by #216 together with `buildFailure`, so US4 must not count it twice
+- [X] T004 [P] Open a new issue in milestone #15 for verdict B1 — `KafkaCheckMaterializer.avroBody`, `KafkaMessagePreparer.avroPreparer` and `AvroErrorMapper` are unreachable published surface, citing that both `avroBody` entry points route through `AvroBodyCheckBuilder._avroBody` → `kafkaStatusCheck`
+- [X] T005 [P] Correct the body of [#216](https://github.com/galax-io/gatling-kafka-plugin/issues/216): replace its unused-import estimates with the measured 22 imports across 12 files plus 1 private type (spec.md verdict A10), and strike its `idleSweep.cancel(false)` item, stating that the cancel runs *before* `setupExecutor.shutdown()` so its "already shut down" premise is false (verdict C1)
 
 **Checkpoint**: tracker and audit agree; every removal about to be made has an issue behind it.
 
@@ -175,11 +175,11 @@ Phases follow [research.md](./research.md) R7: **US1 → US2 → US3 → US5 →
 
 **Independent Test**: all four files compile in a scratch Kotlin project depending on the built plugin.
 
-- [ ] T056 [US5] Fix `src/test/kotlin/org/galaxio/gatling/kafka/javaapi/examples/ProducerSimulation.kt`: balance the `.exec(` chain so paren depth returns to zero before `init {`, and resolve the six undeclared references — `MyAvroClass`, `Serializer`, `Deserializer`, `KafkaAvroSerializer`, `KafkaAvroDeserializer`, `CachedSchemaRegistryClient` — by adding imports and defining or substituting the Avro type, following the pattern in the sibling `AvroClassWithRequestReplySimulation.kt`
-- [ ] T057 [P] [US5] Re-read all four Kotlin examples against the post-US1 surface. Checked during research: they use only `topic(...).send(...)` and `requestReply()...send(...)`, neither removed — so this task confirms rather than restructures
-- [ ] T058 [US5] Verify by compiling as a user would: `sbt publishLocal`, then a throwaway Kotlin/Gradle project outside this repository depending on that artifact plus `gatling-core-java` and `gatling-charts-highcharts`, with all four files copied in. Record the result in the PR body; check nothing about the scratch project in
-- [ ] T059 [US5] Confirm the constraints held: the four `.kt` files are still in `src/test/kotlin/org/galaxio/gatling/kafka/javaapi/examples/`, and `grep -in kotlin build.sbt project/plugins.sbt project/Dependencies.scala` returns nothing (FR-023, SC-007)
-- [ ] T060 [US5] Commit as `fix(examples): repair the Kotlin producer simulation (#181)` with `Closes #181`
+- [X] T056 [US5] Fix `src/test/kotlin/org/galaxio/gatling/kafka/javaapi/examples/ProducerSimulation.kt`: balance the `.exec(` chain so paren depth returns to zero before `init {`, and resolve the six undeclared references — `MyAvroClass`, `Serializer`, `Deserializer`, `KafkaAvroSerializer`, `KafkaAvroDeserializer`, `CachedSchemaRegistryClient` — by adding imports and defining or substituting the Avro type, following the pattern in the sibling `AvroClassWithRequestReplySimulation.kt`
+- [X] T057 [P] [US5] Re-read all four Kotlin examples against the post-US1 surface. Checked during research: they use only `topic(...).send(...)` and `requestReply()...send(...)`, neither removed — so this task confirms rather than restructures
+- [X] T058 [US5] Verify by compiling as a user would: `sbt publishLocal`, then a throwaway Kotlin/Gradle project outside this repository depending on that artifact plus `gatling-core-java` and `gatling-charts-highcharts`, with all four files copied in. Record the result in the PR body; check nothing about the scratch project in
+- [X] T059 [US5] Confirm the constraints held: the four `.kt` files are still in `src/test/kotlin/org/galaxio/gatling/kafka/javaapi/examples/`, and `grep -in kotlin build.sbt project/plugins.sbt project/Dependencies.scala` returns nothing (FR-023, SC-007)
+- [X] T060 [US5] Commit as `fix(examples): repair the Kotlin producer simulation (#181)` with `Closes #181`
 
 **Checkpoint**: examples compile against the final API.
 

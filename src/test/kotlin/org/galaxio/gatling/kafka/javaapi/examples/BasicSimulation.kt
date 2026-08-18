@@ -10,10 +10,6 @@ import java.util.concurrent.atomic.AtomicInteger
 
 class BasicSimulation : Simulation() {
 
-    private val kafkaConf = kafka()
-        .topic("test.topic")
-        .properties(mapOf<String, Any>(ProducerConfig.ACKS_CONFIG to "1"))
-
     private val kafkaProtocolC = kafka()
         .producerSettings(
             mapOf<String, Any>(
