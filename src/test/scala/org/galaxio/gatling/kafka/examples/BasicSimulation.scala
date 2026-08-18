@@ -10,21 +10,11 @@ import org.apache.kafka.common.header.Headers
 import org.apache.kafka.common.header.internals.RecordHeaders
 import org.galaxio.gatling.kafka.Predef._
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol
-import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 
 import java.util.concurrent.atomic.AtomicInteger
 import scala.concurrent.duration.DurationInt
 
 class BasicSimulation extends Simulation {
-
-//  val kafkaConf: KafkaProtocol = kafka
-//    .topic("test.topic")
-//    .properties(Map(ProducerConfig.ACKS_CONFIG -> "1"))
-
-  def getHeader(headerKey: String): KafkaProtocolMessage => Array[Byte] =
-    _.headers
-      .flatMap(hs => Option(hs.lastHeader(headerKey)).map(_.value()))
-      .orNull
 
   def kafkaProtocolC: KafkaProtocol = kafka
     .producerSettings(
@@ -35,7 +25,6 @@ class BasicSimulation extends Simulation {
       ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG -> "localhost:9093",
     )
     .timeout(10.seconds)
-//    .matchByMessage(getHeader("test-header"))
 
   val c                              = new AtomicInteger(1)
   val feeder: Feeder[java.util.UUID] = Iterator.continually(Map("kekey" -> java.util.UUID.randomUUID()))
@@ -62,12 +51,11 @@ class BasicSimulation extends Simulation {
         .check(jsonPath("$.M").is("DKF")),
     )
 
+  // Two scenarios, not five: A carries the load, B shows a second scenario sharing the same protocol
+  // and reply channel. C, D and E were byte-identical copies of B and demonstrated nothing further.
   setUp(
     scn("A").inject(atOnceUsers(50)),
     scn("B").inject(atOnceUsers(1)),
-    scn("C").inject(atOnceUsers(1)),
-    scn("D").inject(atOnceUsers(1)),
-    scn("E").inject(atOnceUsers(1)),
   ).protocols(kafkaProtocolC).maxDuration(120.seconds)
 
 }

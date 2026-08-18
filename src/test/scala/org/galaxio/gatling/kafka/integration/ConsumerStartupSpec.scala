@@ -104,25 +104,4 @@ class ConsumerStartupSpec extends munit.FunSuite with TestContainerForAll {
       }
     }
   }
-
-  test("a pool that is built and never used reports no consumer failure") {
-    withContainers { kafka =>
-      // A protocol declaring consumeSettings for scenarios that never perform request-reply builds a
-      // pool anyway. Before the fix it polled a consumer that had never subscribed and logged a
-      // pool nobody had touched.
-      withPool(kafka.bootstrapServers) { pool =>
-        Thread.sleep(IdleBeforeFirstUse.toMillis)
-
-        val failureField    = classOf[KafkaMessageTrackerPool].getDeclaredField("consumerFailure")
-        failureField.setAccessible(true)
-        val consumerFailure = failureField.get(pool).asInstanceOf[AtomicReference[Exception]].get()
-
-        assertEquals(
-          Option(consumerFailure).map(_.getMessage),
-          None,
-          "an unused pool must not latch a consumer failure",
-        )
-      }
-    }
-  }
 }

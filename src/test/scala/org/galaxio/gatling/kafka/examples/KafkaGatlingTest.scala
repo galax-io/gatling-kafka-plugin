@@ -174,16 +174,6 @@ class KafkaGatlingTest extends Simulation with StrictLogging {
       ),
     )
 
-  val kafkaConfwoKey: KafkaProtocol = kafka
-    .properties(
-      Map(
-        ProducerConfig.ACKS_CONFIG                   -> "1",
-        ProducerConfig.BOOTSTRAP_SERVERS_CONFIG      -> "localhost:9093",
-        ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG   -> "org.apache.kafka.common.serialization.StringSerializer",
-        ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG -> "org.apache.kafka.common.serialization.StringSerializer",
-      ),
-    )
-
   val kafkaConfBytes: KafkaProtocol = kafka
     .properties(
       Map(
@@ -436,7 +426,7 @@ class KafkaGatlingTest extends Simulation with StrictLogging {
     scn2.inject(nothingFor(2), atOnceUsers(1)).protocols(kafkaConfBytes),
     scnAvro4s.inject(atOnceUsers(1)).protocols(kafkaAvro4sConf),
     scnRRwo.inject(atOnceUsers(1)).protocols(kafkaProtocolRRBytes2),
-    scnwokey.inject(nothingFor(1), atOnceUsers(1)).protocols(kafkaConfwoKey),
+    scnwokey.inject(nothingFor(1), atOnceUsers(1)).protocols(kafkaConf),
     scnRRKeylessValue.inject(atOnceUsers(KeylessValueUsers)).protocols(kafkaProtocolRRKeylessValue),
     scnRRKeylessKey.inject(atOnceUsers(KeylessKeyUsers)).protocols(kafkaProtocolRRString),
     scnRRTombstone.inject(atOnceUsers(TombstoneUsers)).protocols(kafkaProtocolRRString),
