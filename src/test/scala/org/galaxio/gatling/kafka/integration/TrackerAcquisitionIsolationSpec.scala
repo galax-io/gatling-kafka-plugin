@@ -175,36 +175,12 @@ class TrackerAcquisitionIsolationSpec extends munit.FunSuite with TestContainerF
     def readyDelay: Long       = readyAt.get() - ackAt.get()
   }
 
-  test("acquiring a reply tracker returns immediately from the delivery callback") {
+  test("acquiring a reply tracker holds neither the delivery callback nor the traffic behind it") {
     withContainers { kafka =>
       val bootstrap    = kafka.bootstrapServers
       val requestTopic = "isolation-request"
       val replyTopic   = "isolation-reply"
-      createTopics(bootstrap, requestTopic, replyTopic)
-
-      withPoolAndSender(bootstrap) { (pool, sender, _) =>
-        val acquisition = sendAndAcquireInCallback(sender, pool, requestTopic, replyTopic, 60.seconds)
-        acquisition.awaitSettled()
-
-        assert(acquisition.failure.get() == null, s"acquisition failed: ${acquisition.failure.get()}")
-        assert(
-          acquisition.readyDelay > AssignmentStall.toMillis / 2,
-          s"assignment was not actually slow (${acquisition.readyDelay} ms): the test proves nothing",
-        )
-        assert(
-          acquisition.callbackDuration < CallbackBudget.toMillis,
-          s"delivery callback was held for ${acquisition.callbackDuration} ms waiting for the assignment",
-        )
-      }
-    }
-  }
-
-  test("delivery confirmations keep flowing while a reply topic is still being assigned") {
-    withContainers { kafka =>
-      val bootstrap    = kafka.bootstrapServers
-      val requestTopic = "flow-request"
-      val replyTopic   = "flow-reply"
-      val otherTopic   = "flow-other"
+      val otherTopic   = "isolation-other"
       createTopics(bootstrap, requestTopic, replyTopic, otherTopic)
 
       withPoolAndSender(bootstrap) { (pool, sender, _) =>
@@ -212,6 +188,9 @@ class TrackerAcquisitionIsolationSpec extends munit.FunSuite with TestContainerF
 
         // Wait until the delivery callback has actually started — from here on the producer's I/O
         // thread is inside the acquisition — then push unrelated traffic through the same producer.
+        // A separate test asserted this downstream effect on its own; it is folded in here because it
+        // is the same defect observed one step later, and separating them paid a second full
+        // assignment stall to re-establish the same premise.
         acquisition.awaitCallbackEntered()
         assert(acquisition.settled.getCount > 0, "assignment completed too quickly to prove anything")
 
@@ -239,7 +218,16 @@ class TrackerAcquisitionIsolationSpec extends munit.FunSuite with TestContainerF
         )
 
         acquisition.awaitSettled()
+
         assert(acquisition.failure.get() == null, s"acquisition failed: ${acquisition.failure.get()}")
+        assert(
+          acquisition.readyDelay > AssignmentStall.toMillis / 2,
+          s"assignment was not actually slow (${acquisition.readyDelay} ms): the test proves nothing",
+        )
+        assert(
+          acquisition.callbackDuration < CallbackBudget.toMillis,
+          s"delivery callback was held for ${acquisition.callbackDuration} ms waiting for the assignment",
+        )
       }
     }
   }

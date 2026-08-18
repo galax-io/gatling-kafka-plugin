@@ -1,7 +1,7 @@
 package org.galaxio.gatling.kafka.client
 
 import java.util.concurrent.atomic.AtomicReference
-import java.util.concurrent.{CompletableFuture, CopyOnWriteArrayList, ExecutionException, TimeUnit, TimeoutException}
+import java.util.concurrent.{CompletableFuture, CopyOnWriteArrayList, ExecutionException, TimeUnit}
 import scala.jdk.CollectionConverters._
 
 class DynamicKafkaConsumerSpec extends munit.FunSuite {
@@ -41,42 +41,19 @@ class DynamicKafkaConsumerSpec extends munit.FunSuite {
   private def causeOf(future: CompletableFuture[Void]): Throwable =
     intercept[ExecutionException](future.get(1, TimeUnit.SECONDS)).getCause
 
-  test("removeTopicSubscription queues topic for removal") {
-    val consumer = newConsumer()
-    try {
-      consumer.removeTopicSubscription("topic-1")
-      consumer.removeTopicSubscription("topic-2")
-
-      val field = classOf[DynamicKafkaConsumer[_, _]].getDeclaredField("topicsToRemove")
-      field.setAccessible(true)
-      val queue = field.get(consumer).asInstanceOf[java.util.Queue[String]]
-
-      assertEquals(queue.size(), 2)
-      assertEquals(queue.poll(), "topic-1")
-      assertEquals(queue.poll(), "topic-2")
-    } finally {
-      consumer.close()
-    }
-  }
-
-  // No consumer thread runs in this suite, so nothing here can complete a readiness: these tests cover
-  // queueing and the fail-fast paths only. Readiness actually resolving from an assignment needs a
-  // broker and is covered by TrackerAcquisitionIsolationSpec.
-  test("requestTopicSubscription queues the topic and returns without blocking") {
-    val consumer = newConsumer()
-    try {
-      val queue       = subscriptionQueue(consumer)
-      val initialSize = queue.size()
-
-      val readiness = consumer.requestTopicSubscription("new-topic")
-
-      assertEquals(queue.size(), initialSize + 1)
-      assertEquals(queue.peek()._1, "new-topic")
-      intercept[TimeoutException](readiness.get(50, TimeUnit.MILLISECONDS))
-    } finally {
-      consumer.close()
-    }
-  }
+  // Two tests stood here until 2.0.0 and were removed as shadowed, not as wrong:
+  //
+  //   - "removeTopicSubscription queues topic for removal" mirrored the removal queue's contents. Its
+  //     mutant — a removal that is never queued — is what KafkaIntegrationSpec's before-unsub/after-unsub
+  //     pair detects observably, by a dropped topic still delivering records.
+  //   - "requestTopicSubscription queues the topic and returns without blocking" mirrored the
+  //     subscription queue. A request that is never queued fails every request-reply test in the suite,
+  //     and the non-blocking property is asserted against a real broker by
+  //     TrackerAcquisitionIsolationSpec's "acquiring a reply tracker returns immediately from the
+  //     delivery callback".
+  //
+  // The tests below are kept: each has a fail-fast mutant no integration test reaches, because each is
+  // about what happens *before* a broker is involved.
 
   test("requestTopicSubscription returns a failed future after consumer failure") {
     val consumer = newConsumer()

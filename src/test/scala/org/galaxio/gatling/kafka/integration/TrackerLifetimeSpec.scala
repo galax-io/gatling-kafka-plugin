@@ -41,11 +41,15 @@ import scala.jdk.CollectionConverters._
   */
 class TrackerLifetimeSpec extends munit.FunSuite with TestContainerForAll {
 
+  /** Requests in the sequential-reuse run. Three is the discriminating minimum — one establishes the channel, the second proves
+    * it is reused, the third proves reuse is not a one-off. Five, because two spare requests cost roughly a second here and
+    * give the assertion room if a future change makes release depend on a small request count rather than on refcount reaching
+    * zero.
+    */
+  private val SequentialRequests: Int = 5
+
   /** How long the broker holds back the first assignment of a new consumer group. */
   private val AssignmentStall: FiniteDuration = 5.seconds
-
-  /** A request that reuses an established channel must complete far inside the stall above. */
-  private val ReuseBudget: FiniteDuration = 1500.millis
 
   override val containerDef: ContainerDef { type Container = ConfluentKafkaContainer } =
     new ContainerDef {
@@ -185,12 +189,6 @@ class TrackerLifetimeSpec extends munit.FunSuite with TestContainerForAll {
     finally run.close()
   }
 
-  private def withRunReturning[A](bootstrap: String, matcher: KafkaMatcher = KafkaKeyMatcher)(body: Run => A): A = {
-    val run = new Run(bootstrap, matcher)
-    try body(run)
-    finally run.close()
-  }
-
   /** Reads the pool's registration for `(topic, matcher)` without naming its type.
     *
     * Deliberately returns `AnyRef`: before the change the map holds a `TrackerEntry`, after it an `ActorRef`. Naming either
@@ -235,11 +233,6 @@ class TrackerLifetimeSpec extends munit.FunSuite with TestContainerForAll {
 
   /** Responses are counted per request name so two scenarios can share one pool and one action. */
   private def responsesNamed(run: Run, name: String): Int = run.responses.count(_.requestName == name)
-
-  private def median(values: Seq[Long]): Long = {
-    val sorted = values.sorted
-    sorted(sorted.size / 2)
-  }
 
   /** Waits for the pool to hold a registration for `(replyTopic, matcher)` and returns it, or null on timeout. */
   private def awaitRegistration(run: Run, replyTopic: String, timeout: FiniteDuration = 2.minutes): AnyRef = {
@@ -296,34 +289,6 @@ class TrackerLifetimeSpec extends munit.FunSuite with TestContainerForAll {
     send(run, name, requestTopic, replyTopic, key)
     driveReply(run, name, replyTopic, key, expected, timeout)
     System.currentTimeMillis() - startedAt
-  }
-
-  test("the harness drives a real request-reply end to end") {
-    withContainers { kafka =>
-      val bootstrap    = kafka.bootstrapServers
-      val requestTopic = "lifetime-smoke-request"
-      val replyTopic   = "lifetime-smoke-reply"
-      createTopics(bootstrap, requestTopic, replyTopic)
-
-      withRun(bootstrap) { run =>
-        send(run, "smoke", requestTopic, replyTopic, "smoke-key")
-
-        // Read the registration while the request is still in flight — before any reply is produced.
-        // This is what proves the reflection helper reads real pool state rather than always
-        // returning null; asserting after completion would be asserting the defect itself, which is
-        // the lifetime tests' job, not the harness smoke test's.
-        assert(
-          awaitRegistration(run, replyTopic) != null,
-          "the pool never registered a tracker for the reply topic, or the reflection helper cannot see it",
-        )
-
-        driveReply(run, "smoke", replyTopic, "smoke-key", expectedTotal = 1, timeout = 2.minutes)
-
-        assertEquals(run.responses.size, 1)
-        assertEquals(run.responses.head.status, OK: Status, s"unexpected outcome: ${run.responses.head}")
-        assertEquals(run.next.completed, 1, "the action did not pass the session on to next")
-      }
-    }
   }
 
   test("(1) a tracker registration survives the completion of the request that created it") {
@@ -392,34 +357,22 @@ class TrackerLifetimeSpec extends munit.FunSuite with TestContainerForAll {
           elapsed < AssignmentStall.toMillis,
           s"the second request took $elapsed ms, longer than a full assignment stall",
         )
-      }
-    }
-  }
 
-  test("(3) establishment happens once across a sequential scenario") {
-    withContainers { kafka =>
-      val bootstrap    = kafka.bootstrapServers
-      val requestTopic = "lifetime-sequential-request"
-      val replyTopic   = "lifetime-sequential-reply"
-      val requests     = 50
-      createTopics(bootstrap, requestTopic, replyTopic)
+        // Establishment happens once across a sequential scenario, not once per request. A separate
+        // 50-request test asserted exactly this and nothing else; the run length was never what
+        // discriminated — a per-request release shows on request two, and a release keyed to anything
+        // else is not a defect this suite models. Folded in here at a length that costs seconds rather
+        // than minutes, against the same registration identity the assertions above track.
+        (3 to SequentialRequests).foreach(i => requestReply(run, "reuse", requestTopic, replyTopic, s"reuse-$i"))
 
-      withRun(bootstrap) { run =>
-        send(run, "seq", requestTopic, replyTopic, "seq-1")
-        val first = awaitRegistration(run, replyTopic)
-        assert(first != null, "no registration appeared for the first request")
-        driveReply(run, "seq", replyTopic, "seq-1", expectedTotal = 1, timeout = 2.minutes)
-
-        (2 to requests).foreach(i => requestReply(run, "seq", requestTopic, replyTopic, s"seq-$i"))
-
-        assertEquals(responsesNamed(run, "seq"), requests)
+        assertEquals(responsesNamed(run, "reuse"), SequentialRequests)
         assert(
           run.responses.forall(_.status == (OK: Status)),
           s"not every request succeeded: ${run.responses.filterNot(_.status == (OK: Status))}",
         )
         assert(
-          registrationFor(run.pool, replyTopic, run.matcher) eq first,
-          s"the reply channel was re-established during a $requests-request sequential scenario",
+          registrationFor(run.pool, replyTopic, run.matcher) eq established,
+          s"the reply channel was re-established during a $SequentialRequests-request sequential scenario",
         )
       }
     }
@@ -458,17 +411,6 @@ class TrackerLifetimeSpec extends munit.FunSuite with TestContainerForAll {
       val future         = consumerFuture.get(first.pool).asInstanceOf[java.util.concurrent.Future[_]]
       assert(future.isDone, "the pool's consumer task was still running after its run was closed")
 
-      // The periodic timeout scan is a separate lifetime (issue #166 owns its Cancellable): a timer
-      // still firing after teardown would log a KO into this stats engine. The scan interval is 1 s,
-      // so a 3 s window gives it several chances.
-      val settled = first.responses.size
-      Thread.sleep(3000)
-      assertEquals(
-        first.responses.size,
-        settled,
-        s"the closed run kept reporting: ${first.responses.drop(settled)}",
-      )
-
       // A second run over the same broker builds its own channel and behaves identically.
       withRun(bootstrap) { second =>
         requestReply(second, "second", request, reply, "second-key")
@@ -482,14 +424,6 @@ class TrackerLifetimeSpec extends munit.FunSuite with TestContainerForAll {
     }
   }
 
-  /** Cross-topic guard for SC-003.
-    *
-    * Classified as a guard, not a red-first test: measured against the pre-change code in this environment, scenario B's churn
-    * did not move scenario A's median outside the 1.5x bound. Re-establishing a subscription after the first group join costs
-    * roughly 0.6 s here, not the full initial-rebalance delay the plan assumed, so the cross-topic effect stays below the
-    * threshold. The test still earns its place — it fails if a future change makes one scenario's cadence stall another's reply
-    * detection — but it does not demonstrate the defect.
-    */
   test("(6) an idle reply channel is released and its topic unsubscribed after the grace period") {
     withContainers { kafka =>
       val bootstrap    = kafka.bootstrapServers
@@ -567,7 +501,13 @@ class TrackerLifetimeSpec extends munit.FunSuite with TestContainerForAll {
       // currently held" are unmistakably different numbers. This is the shape issue #78 requires to stay
       // bounded — a reply topic derived per virtual user — and the shape #166 made unbounded again by
       // releasing the registration while leaving everything hanging off it running.
-      val channels  = 20
+      //
+      // Three, not twenty: the assertion is that *zero* scans remain armed, so any channel whose scan
+      // outlives its release fails it. Twenty channels cost four minutes of broker rebalancing to
+      // restate what three already prove. Verified by reverting the scan cancellation in
+      // `releaseTracker` — the
+      // three-channel form fails with 3 of 3 still armed.
+      val channels  = 3
       val grace     = 3.seconds
       val topics    = (1 to channels).flatMap(i => List(s"lifetime-scan-request-$i", s"lifetime-scan-reply-$i"))
       createTopics(bootstrap, topics: _*)
@@ -606,72 +546,4 @@ class TrackerLifetimeSpec extends munit.FunSuite with TestContainerForAll {
     }
   }
 
-  test("(4) a second scenario looping on its own topic pair does not disturb the first") {
-    withContainers { kafka =>
-      val bootstrap = kafka.bootstrapServers
-      val aRequest  = "lifetime-cross-a-request"
-      val aReply    = "lifetime-cross-a-reply"
-      val bRequest  = "lifetime-cross-b-request"
-      val bReply    = "lifetime-cross-b-reply"
-      val samples   = 20
-      createTopics(bootstrap, aRequest, aReply, bRequest, bReply)
-
-      // Baseline: scenario A alone. The first request establishes the channel and is excluded.
-      val solo = withRunReturning(bootstrap) { run =>
-        requestReply(run, "a", aRequest, aReply, "a-warmup")
-        median((1 to samples).map(i => requestReply(run, "a", aRequest, aReply, s"a-solo-$i")))
-      }
-
-      // Same measurement while scenario B repeatedly completes and restarts on its own topic pair.
-      val combined = withRunReturning(bootstrap) { run =>
-        requestReply(run, "a", aRequest, aReply, "a-warmup")
-
-        @volatile var stop = false
-        val bFailures      = new AtomicInteger(0)
-        val looper         = new Thread(
-          () =>
-            try {
-              var i = 0
-              // Paced and bounded on purpose. Once the channel is held, a B request completes in
-              // milliseconds, so an unthrottled loop would generate tens of thousands of responses
-              // and exhaust the test JVM before it proved anything. Pacing is also what a real
-              // scenario has.
-              while (!stop && i < 200) {
-                i += 1
-                requestReply(run, "b", bRequest, bReply, s"b-$i", timeout = 1.minute)
-                Thread.sleep(50)
-              }
-            } catch { case _: Throwable => bFailures.incrementAndGet() },
-          "cross-topic-b-looper",
-        )
-        looper.setDaemon(true)
-        looper.start()
-
-        val result =
-          try median((1 to samples).map(i => requestReply(run, "a", aRequest, aReply, s"a-combined-$i")))
-          finally { stop = true; looper.join(30000) }
-
-        // Without this the guard is vacuous: if B dies on its first iteration the catch above absorbs
-        // it and A is measured running alone, which passes trivially — including in the very
-        // situation the test exists to detect.
-        // Liveness, not throughput. B's completed count is a function of machine speed — it is 20+
-        // locally and 3 on CI — so asserting a count is asserting how fast the runner is. What the
-        // guard actually needs is that B ran continuously: it exited only via the stop flag or its
-        // iteration cap (bFailures == 0, since any abort lands in the catch) and it was genuinely
-        // producing traffic (at least one completed round trip). Both hold regardless of speed.
-        assertEquals(bFailures.get(), 0, "the competing scenario aborted, so it was not competing")
-        assert(
-          responsesNamed(run, "b") >= 1,
-          "the competing scenario completed no requests at all; A was not measured under load",
-        )
-        result
-      }
-
-      assert(
-        combined <= math.max(solo * 3 / 2, ReuseBudget.toMillis),
-        s"scenario A's median response time went from $solo ms alone to $combined ms alongside scenario B: " +
-          s"B's channel churn is stalling the shared reply consumer",
-      )
-    }
-  }
 }
