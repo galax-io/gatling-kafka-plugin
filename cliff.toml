@@ -41,6 +41,12 @@ commit_parsers = [
   { message = "^feat", group = "<!-- 01 -->Features" },
   { message = "^fix", group = "<!-- 02 -->Fixes" },
   { message = "^perf", group = "<!-- 03 -->Performance" },
+  # Spec-kit artifacts are process, not product. `specs/NNN-*/` is version-controlled and the
+  # spec-first commit is mandatory (AGENTS.md), so these commits must exist — but a consumer reading
+  # the release notes has no use for "add 006-v2-cleanup-sweep spec/plan/tasks", and the feature
+  # number means nothing outside this repository. Skipped from the notes, kept in the history.
+  # Must precede the general `^docs` rule below: first match wins.
+  { message = "^docs\\(speckit\\)", skip = true },
   { message = "^docs", group = "<!-- 04 -->Documentation" },
   { message = "^chore\\(deps\\)", group = "<!-- 05 -->Dependencies" },
   { message = "^(refactor|test|ci|build|chore|style|revert)", group = "<!-- 06 -->Maintenance" },
