@@ -10,7 +10,7 @@ import org.apache.kafka.common.serialization.{ByteArrayDeserializer, ByteArraySe
 import org.galaxio.gatling.kafka.client.{DynamicKafkaConsumer, KafkaSender}
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 
-import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger, AtomicLong}
+import java.util.concurrent.atomic.{AtomicBoolean, AtomicLong}
 import java.util.concurrent.TimeUnit
 import scala.concurrent.duration.DurationInt
 import scala.jdk.CollectionConverters._
@@ -57,6 +57,11 @@ class PositionedReadinessSpec extends munit.FunSuite with TestContainerForAll wi
     * is both the start and the end, and a skipped record cannot be told from a delivered one.
     */
   private val WarmUpRecords = 50
+
+  /** How long delivery is given after readiness completes. Generous because it is only ever spent on a genuine failure: the
+    * correct implementation delivers within a poll interval, so a run that spends this budget has found something real.
+    */
+  private val DeliveryBudget = 30.seconds
 
   private def producerSettings(bootstrap: String): Map[String, AnyRef] = Map(
     ProducerConfig.ACKS_CONFIG                   -> "1",
@@ -114,14 +119,17 @@ class PositionedReadinessSpec extends munit.FunSuite with TestContainerForAll wi
       producerThread.setDaemon(true)
       producerThread.start()
 
+      // Both the "has anything arrived" signal and the sequence number the assertion reads, deliberately the same
+      // variable: its -1 sentinel is the "nothing yet" state. A separate arrived-flag published *ahead* of this value is
+      // what made this spec flaky — the wait below exited on the flag, read the sequence number before the callback had
+      // stored it, and reported a delivery timeout it had never actually waited out.
       val firstDelivered = new AtomicLong(-1L)
-      val delivered      = new AtomicInteger(0)
       val consumer       = DynamicKafkaConsumer[Array[Byte], Array[Byte]](
         consumerSettings(bootstrap),
         Set.empty,
         record => {
-          delivered.incrementAndGet()
-          firstDelivered.compareAndSet(-1L, new String(record.value()).toLong)
+          val sequence = new String(record.value()).toLong
+          firstDelivered.compareAndSet(-1L, sequence)
         },
         error => logger.error("[positioned-readiness] consumer failed", error),
       )
@@ -138,12 +146,21 @@ class PositionedReadinessSpec extends munit.FunSuite with TestContainerForAll wi
         // "Now", in the units the contract is written in. Sampled the instant readiness completed.
         val s = produced.get()
 
-        // Let the stream run on so there is something after S to deliver.
-        val deadline = System.currentTimeMillis() + 30000
-        while (delivered.get() == 0 && System.currentTimeMillis() < deadline) Thread.sleep(20)
+        // Let the stream run on so there is something after S to deliver. The condition is the same variable the
+        // assertion reads, so the loop cannot fall through to a value that has not been published yet.
+        val waitingSince = System.currentTimeMillis()
+        val deadline     = waitingSince + DeliveryBudget.toMillis
+        while (firstDelivered.get() < 0 && System.currentTimeMillis() < deadline) Thread.sleep(20)
+        val waited       = System.currentTimeMillis() - waitingSince
 
         val f = firstDelivered.get()
-        assert(f >= 0, s"nothing was delivered within 30 s of readiness completing (producer reached ${produced.get()})")
+        // `waited` is reported rather than the budget: a timeout message that names a budget it never spent sends the
+        // next reader after the broker instead of after the test.
+        assert(
+          f >= 0,
+          s"nothing was delivered in the $DeliveryBudget after readiness completed; waited $waited ms " +
+            s"(producer reached ${produced.get()})",
+        )
         // `s + 1`, not `s`. `produced` is incremented before `sender.send`, and the send is asynchronous, so `S` counts
         // records handed to the producer while the consumer positions at the *appended* log end. When nothing happens to be
         // in flight at resolution time the correct implementation legitimately delivers `S + 1` first, and asserting `f <= s`
