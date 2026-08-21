@@ -230,3 +230,39 @@ Gatling / javaOptions := overrideDefaultJavaOptions(
   "--add-opens=java.base/java.util=ALL-UNNAMED",
   "--add-opens=java.base/java.lang=ALL-UNNAMED",
 )
+
+// ---------------------------------------------------------------------------------------------
+// Running the example simulations.
+//
+// The examples are not in this build at all: they live in examples/{scala,java,kotlin}, one consumer
+// project per language, each depending on the published artifact. `sbt Gatling/test` here runs the
+// three test harnesses.
+//
+// The Java and Kotlin examples are NOT here: `Gatling/testOnly` cannot run them. io.gatling.javaapi
+// .core.Simulation does not extend io.gatling.core.scenario.Simulation, and gatling-test-framework
+// declares exactly one sbt fingerprint, matching only the Scala superclass, so a Java simulation
+// named there selects nothing and the build goes green having run nothing. This is a product
+// boundary, not a repo defect: Gatling's sbt plugin supports Scala only and directs Java and Kotlin
+// users to Maven or Gradle. Each language has its own consumer project under examples/, run the way
+// its users run it.
+//
+// Sequentially, not in parallel: the simulations share one broker, and two of them running at once
+// is exactly the cross-attribution hazard the request-reply matcher exists to prevent.
+Gatling / parallelExecution := false
+
+// One forked JVM per simulation. sbt's default puts every test of a configuration in a single group, so
+// `Gatling / test` would otherwise run all three harnesses in one JVM — letting KafkaConcurrencyLoadTest
+// (30 users held for 100 s) share Gatling's static configuration, Netty allocators and Kafka client
+// statics with the two that follow it. A leaked consumer or an exhausted allocator would then surface in
+// an unrelated simulation, and be diagnosed there.
+//
+// Derived from `(Gatling / forkOptions).value`, not a fresh `ForkOptions()`: the default carries the
+// working directory and the other fork settings, and building one from scratch would silently drop them
+// — including anything a later `Gatling / envVars` or scoped `javaHome` adds.
+Gatling / testGrouping := (Gatling / definedTests).value.map { test =>
+  Tests.Group(
+    name = test.name,
+    tests = Seq(test),
+    runPolicy = Tests.SubProcess((Gatling / forkOptions).value.withRunJVMOptions((Gatling / javaOptions).value.toVector)),
+  )
+}

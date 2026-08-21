@@ -46,8 +46,8 @@ Complexity Tracking below or the plan does not proceed.*
 - [ ] **I. Published API Compatibility**: Does this feature change any public Scala DSL or
       `javaapi` signature, default protocol setting, or serialized format? If YES — approval
       obtained, `!:`/`BREAKING CHANGE` marker planned where breaking, README Migration Guide entry
-      planned, deprecation path kept compiling for one minor release, and `ExampleSmokeValidation`
-      still constructs every README/example simulation.
+      planned, deprecation path kept compiling for one minor release, and every published example still
+      compiles and runs from its consumer project under `examples/`.
 - [ ] **II. Real Broker Over Mocks**: Every Kafka interaction this feature touches — consumer
       lifecycle, tracker-pool concurrency, reply correlation, timeouts, error propagation — is
       validated against Testcontainers or the `docker-compose.kafka.yml` stack. Mocks are confined
