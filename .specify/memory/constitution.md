@@ -32,6 +32,52 @@ Templates requiring updates:
   ⚠ .specify/templates/commands/*.md — directory does not exist in this install; N/A
 
 Deferred TODOs: none
+
+Amendment 1.0.1 (2026-08-19)
+============================
+Version change: 1.0.0 → 1.0.1 (PATCH)
+Bump rationale: no obligation changes. Two factual corrections and one clarification of what an
+existing obligation already meant.
+
+Modified sections:
+  Development Workflow & Quality Gates → "Full CI gate" named two simulations; CI runs three, and
+    now also runs the published Scala examples under the same `Gatling / test`, plus the Java and
+    Kotlin examples from the `examples/maven` consumer project.
+  Principle I → the `ExampleSmokeValidation` clause now says what "constructing" requires. The
+    obligation is unchanged; the implementation was not meeting it. `ExampleSmokeValidation` looked
+    up a constructor without invoking it, so no example was ever constructed and the gate reported
+    success for an example that could not build. Corrected under specs/007-multilang-example-ci-coverage.
+
+Templates requiring updates:
+  ✅ AGENTS.md — Test Model corrected in the same change
+  ✅ README.md — Examples section corrected in the same change
+  ✅ .specify/templates/plan-template.md — reviewed; its Constitution Check wording still holds
+  ✅ .specify/templates/spec-template.md, tasks-template.md — reviewed, unaffected
+
+Deferred TODOs: none
+
+Amendment 1.1.0 (2026-08-21)
+============================
+Version change: 1.0.1 → 1.1.0 (MINOR)
+Bump rationale: Principle I's example clause is restated in terms of what now exists, and it demands
+more than before — every example compiled AND run from a consumer project, where the old clause asked
+only that a gate construct them. Materially expanded guidance, so MINOR rather than PATCH.
+
+Modified sections:
+  Principle I → the `ExampleSmokeValidation` clause named a gate that could only construct examples
+    while they shared this build's classpath. They no longer do: they live in one consumer project
+    per language, each on that language's own build tool, each depending on the published artifact.
+    Running them constructs them, so the requirement is now to run them. `ExampleCoverageCheck`
+    (renamed from `ExampleSmokeValidation`) keeps the separate obligation that no example goes
+    uncovered.
+  Development Workflow & Quality Gates → "Full CI gate" updated to the three example projects.
+
+Templates requiring updates:
+  ✅ AGENTS.md — Commands and Test Model corrected in the same change
+  ✅ README.md — Examples section corrected in the same change
+  ✅ .specify/templates/* — reviewed, unaffected
+
+Deferred TODOs: none
 -->
 
 # Gatling Kafka Plugin Constitution
@@ -51,8 +97,13 @@ cannot be withdrawn.
   a major version, and MUST ship with a Migration Guide entry in `README.md` in the same PR.
 - Deprecate before removing: a replaced entry point MUST keep compiling for at least one minor
   release, annotated as deprecated with its replacement named.
-- `ExampleSmokeValidation` MUST keep constructing every README and example simulation against the
-  current API. A failure there is an API break to reconsider, not a check to relax.
+- Every published example simulation MUST be compiled and run against the current API, from a
+  consumer project that depends on the published artifact — one per language, on that language's own
+  build tool. Running constructs the scenario and the protocol, so it subsumes the construction check
+  a gate inside this build used to attempt. A failure there is an API break to reconsider, not a
+  check to relax.
+- `ExampleCoverageCheck` MUST keep failing when an example has no recorded coverage, so a new example
+  cannot be added without being run somewhere.
 
 **Rationale**: Users pin one plugin version against one Gatling version. Silent signature or
 default drift breaks load-test suites at runtime, in the environment where they are hardest to
@@ -154,8 +205,11 @@ enabled once per clone via `scripts/install-hooks.sh`, enforces formatting on ev
 compile and tests are enforced by CI.
 
 **Full CI gate** requires the Compose stack (Kafka, Zookeeper, Schema Registry) and runs
-`KafkaGatlingTest` and `KafkaJavaapiMethodsGatlingTest` under coverage alongside `sbt test`. The
-exact invocation lives in `AGENTS.md` and `.github/workflows/ci.yml`.
+`KafkaGatlingTest`, `KafkaJavaapiMethodsGatlingTest`, and `KafkaConcurrencyLoadTest` under coverage
+alongside `sbt test`. The published examples are not in this build: they run from the three consumer
+projects under `examples/`, one per language, against the published artifact. Java and Kotlin cannot
+run in sbt at all — Gatling's sbt plugin supports Scala only. The exact invocations live in
+`AGENTS.md` and `.github/workflows/ci.yml`.
 
 **Milestone linkage** is enforced by `scripts/check-linkage.sh` with the `linkage-guard` and
 `milestone-guard` PreToolUse hooks. A release milestone is tag-ready only when every issue in it is
@@ -191,4 +245,4 @@ dependent artifact contradicting a principle is incomplete and MUST NOT merge.
 is permitted only when it is recorded in the plan's Complexity Tracking table with the rejected
 simpler alternative named. An undocumented deviation blocks merge.
 
-**Version**: 1.0.0 | **Ratified**: 2026-07-31 | **Last Amended**: 2026-07-31
+**Version**: 1.1.0 | **Ratified**: 2026-07-31 | **Last Amended**: 2026-08-21

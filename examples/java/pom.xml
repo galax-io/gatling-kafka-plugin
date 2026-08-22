@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>org.galaxio.examples</groupId>
+  <artifactId>gatling-kafka-examples-java</artifactId>
+  <version>1.0.0-SNAPSHOT</version>
+  <packaging>jar</packaging>
+  <name>gatling-kafka-plugin Java examples</name>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <maven.compiler.release>17</maven.compiler.release>
+
+    <gatling.version>3.13.5</gatling.version>
+    <gatling-maven-plugin.version>4.19.1</gatling-maven-plugin.version>
+    <scala.binary.version>2.13</scala.binary.version>
+
+    <!-- A sentinel version, not a release. The plugin's real version comes from dynver and changes
+         with every commit — and gains a timestamp whenever the working tree is dirty — so pinning a
+         real one here would drift or resolve something stale without saying so. Publish under this
+         name and the coordinate is stable and obviously local:
+
+           sbt 'set ThisBuild / version := "0.0.0-EXAMPLES-SNAPSHOT"' publishM2
+
+         Override it to test a released plugin instead:
+           mvn verify -Dgatling-kafka-plugin.version=1.2.0 -->
+    <gatling-kafka-plugin.version>0.0.0-EXAMPLES-SNAPSHOT</gatling-kafka-plugin.version>
+
+    <kafka.version>3.9.2</kafka.version>
+    <avro.version>1.12.1</avro.version>
+    <confluent.version>7.9.9</confluent.version>
+
+    <maven-compiler-plugin.version>3.13.0</maven-compiler-plugin.version>
+    <gatling.runMultipleSimulations>true</gatling.runMultipleSimulations>
+    <maven-enforcer-plugin.version>3.5.0</maven-enforcer-plugin.version>
+    <maven-jar-plugin.version>3.4.2</maven-jar-plugin.version>
+  </properties>
+
+  <repositories>
+    <repository>
+      <id>central</id>
+      <url>https://repo.maven.apache.org/maven2</url>
+      <releases><enabled>true</enabled></releases>
+      <snapshots><enabled>false</enabled></snapshots>
+    </repository>
+    <repository>
+      <id>confluent</id>
+      <url>https://packages.confluent.io/maven/</url>
+      <releases><enabled>true</enabled></releases>
+      <snapshots><enabled>false</enabled></snapshots>
+    </repository>
+  </repositories>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.apache.kafka</groupId>
+        <artifactId>kafka-clients</artifactId>
+        <version>${kafka.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.avro</groupId>
+        <artifactId>avro</artifactId>
+        <version>${avro.version}</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <dependencies>
+    <dependency>
+      <groupId>io.gatling.highcharts</groupId>
+      <artifactId>gatling-charts-highcharts</artifactId>
+      <version>${gatling.version}</version>
+      <scope>test</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.galaxio</groupId>
+      <artifactId>gatling-kafka-plugin_${scala.binary.version}</artifactId>
+      <version>${gatling-kafka-plugin.version}</version>
+      <scope>test</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>io.confluent</groupId>
+      <artifactId>kafka-avro-serializer</artifactId>
+      <version>${confluent.version}</version>
+      <scope>test</scope>
+      <exclusions>
+        <exclusion>
+          <groupId>org.apache.kafka</groupId>
+          <artifactId>kafka-clients</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <version>${maven-enforcer-plugin.version}</version>
+        <executions>
+          <execution>
+            <id>enforce-environment</id>
+            <phase>validate</phase>
+            <goals><goal>enforce</goal></goals>
+            <configuration>
+              <rules>
+                <!-- The plugin supports Java 17+; Gatling 3.13.5 is validated on 17. -->
+                <requireJavaVersion><version>[17,)</version></requireJavaVersion>
+                <requireMavenVersion><version>[3.9.10,)</version></requireMavenVersion>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>${maven-compiler-plugin.version}</version>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <version>${maven-jar-plugin.version}</version>
+        <executions>
+          <execution>
+            <id>default-jar</id>
+            <phase>none</phase>
+          </execution>
+        </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>io.gatling</groupId>
+        <artifactId>gatling-maven-plugin</artifactId>
+        <version>${gatling-maven-plugin.version}</version>
+        <configuration>
+          <runMultipleSimulations>${gatling.runMultipleSimulations}</runMultipleSimulations>
+        </configuration>
+        <executions>
+          <execution>
+            <id>run-all-examples</id>
+            <phase>integration-test</phase>
+            <goals><goal>test</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

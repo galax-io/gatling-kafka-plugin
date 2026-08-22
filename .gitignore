@@ -63,3 +63,8 @@ project/project/
 .claude/settings.local.json
 .claude/worktrees/
 speckit-install.log
+
+# Example consumer projects: Gradle build output and caches. The wrapper itself (gradlew, gradlew.bat,
+# gradle/wrapper/) IS committed — a consumer project without one cannot be run reproducibly.
+.gradle/
+examples/kotlin/build/
