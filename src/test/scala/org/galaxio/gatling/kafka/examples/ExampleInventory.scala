@@ -338,6 +338,22 @@ object ExampleInventory {
     }
   }
 
+  // A deliberate copy, not a reference. `scalafmtConfig := ../../.scalafmt.conf` would dedupe it, but
+  // README promises "Nothing in them is specific to this repository, so you can copy one and start from
+  // it" — and a path pointing two levels out of the project breaks the moment someone takes it at its
+  // word. The duplication stays; what does not stay is it being silent.
+  private val formatPolicy = ".scalafmt.conf"
+
+  /** The example project's formatting policy must be the repo's, byte for byte. */
+  def formatPolicyProblems: Seq[String] = {
+    val root = Paths.get(formatPolicy)
+    val copy = Paths.get("examples/scala", formatPolicy)
+    if (!Files.isRegularFile(root)) Seq(s"$formatPolicy does not exist, so the example copy cannot be checked")
+    else if (!Files.isRegularFile(copy)) Seq(s"$copy does not exist; examples/scala has no formatting policy")
+    else if (Files.readAllBytes(root).sameElements(Files.readAllBytes(copy))) Nil
+    else Seq(s"$copy has drifted from $formatPolicy; the two builds would format the same code differently")
+  }
+
   /** Everything checkable about the example projects without a broker. */
-  def problems: Seq[String] = topicProblems ++ sentinelProblems ++ dependencyPinProblems
+  def problems: Seq[String] = topicProblems ++ sentinelProblems ++ dependencyPinProblems ++ formatPolicyProblems
 }

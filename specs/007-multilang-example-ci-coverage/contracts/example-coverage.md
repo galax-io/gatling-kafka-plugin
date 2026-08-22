@@ -121,26 +121,30 @@ logic, which is precisely the wrong diagnosis.
 
 ---
 
-## C8 — The example projects consume the plugin this build produces
+## C8 — The example projects agree with the repo on everything they duplicate
 
-**Guarantee**: Each example project depends on the version CI publishes, and pins the dependency
-versions `project/Dependencies.scala` declares for it.
+**Guarantee**: Each example project depends on the version CI publishes, pins the dependency versions
+`project/Dependencies.scala` declares for it, and — for `examples/scala` — carries the repo's
+formatting policy byte for byte.
 
 **Asserted by**: `ExampleCoverageCheck`, via `ExampleInventory.sentinelProblems` and
 `dependencyPinProblems`. Both match a coordinate in that build tool's own spelling, not a bare
 substring: every build file also names the sentinel in a comment, and `3.13.5` is a substring of the
 Gradle plugin id `3.13.5.4`, so a substring test would pass on text that pins nothing.
 
-**Fails when**: a project's plugin coordinate drifts from the publish step, or it pins a version other
-than the declared one.
+**Fails when**: a project's plugin coordinate drifts from the publish step, it pins a version other
+than the declared one, or `examples/scala/.scalafmt.conf` differs from the root one or goes missing.
 
 **Bounded by**: which versions each project is expected to pin is stated in `expectedPins`, because
 they legitimately differ — `examples/scala` takes Avro transitively through avro4s and the Confluent
 serde, and `examples/kotlin` takes Gatling from the `io.gatling.gradle` plugin rather than a
 dependency of its own.
 
-**Rationale**: nothing can share a version literal across sbt, Maven and Gradle, so the duplication is
-unavoidable; what is avoidable is the duplication being silent. A bump applied to one file would
+**Rationale**: nothing can share a version literal across sbt, Maven and Gradle, and the formatting
+policy cannot be referenced out of the project either — `scalafmtConfig := ../../.scalafmt.conf` would
+dedupe it, but README promises these projects contain nothing specific to this repository, and a path
+two levels out breaks the moment someone copies one. The duplication is unavoidable; what is avoidable
+is the duplication being silent. A bump applied to one file would
 otherwise leave the other projects on the old version, with CI green because each resolves
 independently.
 
