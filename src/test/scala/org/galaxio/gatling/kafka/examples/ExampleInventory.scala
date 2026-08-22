@@ -116,9 +116,11 @@ object ExampleInventory {
     *
     * Runs over the whole file rather than line by line, because the "inside a string" state has to survive a newline: every
     * language here has multi-line literals, and four of the example files use them (Java text blocks, Kotlin raw strings, Scala
-    * `stripMargin`). Resetting per line would treat a `//` inside such a literal — ordinary content there, not a comment — as
-    * the start of one and truncate it.
+    * `stripMargin`). A triple-quoted block is copied out whole for the same reason: its content is data, and the quotes inside
+    * it are not delimiters, so a `//` in there must survive.
     */
+  private val TripleQuote = "\"\"\""
+
   private def stripComments(text: String): String = {
     val out    = new StringBuilder
     var inStr  = false
@@ -127,7 +129,16 @@ object ExampleInventory {
     while (i < text.length) {
       val c = text.charAt(i)
       if (escape) { out.append(c); escape = false; i += 1 }
-      else if (c == '\\' && inStr) { out.append(c); escape = true; i += 1 }
+      else if (!inStr && text.startsWith(TripleQuote, i)) {
+        // A triple-quoted block — Java text block, Kotlin raw string, Scala stripMargin literal — is
+        // copied out verbatim. Its content is data: `//` in there is ordinary text, and the quotes
+        // inside it are not delimiters, so toggling on each one would leave the scanner out of step
+        // with reality for the rest of the block.
+        val end  = text.indexOf(TripleQuote, i + TripleQuote.length)
+        val stop = if (end < 0) text.length else end + TripleQuote.length
+        out.append(text, i, stop)
+        i = stop
+      } else if (c == '\\' && inStr) { out.append(c); escape = true; i += 1 }
       else if (c == '"') { out.append(c); inStr = !inStr; i += 1 }
       else if (!inStr && c == '/' && i + 1 < text.length && text.charAt(i + 1) == '/') {
         // Skip to the newline, which is kept so line structure survives.
@@ -256,47 +267,71 @@ object ExampleInventory {
   /** Every guarantee C6 makes, in one call so a caller cannot enforce half of it. */
   def topicProblems: Seq[String] = topicCollisions ++ unresolvedTopics ++ missingBrokerTopics
 
-  private val exampleBuildFiles =
-    Seq("examples/scala/build.sbt", "examples/java/pom.xml", "examples/kotlin/build.gradle.kts")
-
-  // The sentinel is a fixed coordinate, not a dynver version, and both mavenLocal and Resolver.mavenLocal
-  // read whatever sits under it with no checksum. If one build file's string drifts from the publish step,
-  // that project keeps resolving a previously-published jar instead of failing — a green run against stale
-  // code. Four literals with nothing comparing them is what makes that possible, so compare them.
+  // Each entry says how that build tool spells the dependency, so the check reads the coordinate and
+  // not merely the file. Every one of these files also names the sentinel in a comment, and a bare
+  // `contains` is satisfied by the comment alone — the same substring-for-token defect the topic check
+  // above had, which is why both now match a shape.
   private val sentinelVersion = "0.0.0-EXAMPLES-SNAPSHOT"
 
-  /** The version each example project consumes must match the one CI publishes. */
+  private val sentinelCoordinates = Seq(
+    (".github/workflows/ci.yml", s"""version := "$sentinelVersion""""),
+    ("examples/scala/build.sbt", s"""% "$sentinelVersion""""),
+    ("examples/java/pom.xml", s"<gatling-kafka-plugin.version>$sentinelVersion</gatling-kafka-plugin.version>"),
+    ("examples/kotlin/build.gradle.kts", s"gatling-kafka-plugin_2.13:$sentinelVersion"),
+  )
+
+  /** The version each example project consumes must be the one CI publishes. */
   def sentinelProblems: Seq[String] =
-    (".github/workflows/ci.yml" +: exampleBuildFiles).flatMap { file =>
+    sentinelCoordinates.flatMap { case (file, coordinate) =>
       val path = Paths.get(file)
       if (!Files.isRegularFile(path)) Seq(s"$file does not exist, so the example version cannot be checked")
-      else if (new String(Files.readAllBytes(path), "UTF-8").contains(sentinelVersion)) Nil
-      else Seq(s"$file does not mention $sentinelVersion; the example projects and the publish step have drifted")
+      else if (new String(Files.readAllBytes(path), "UTF-8").contains(coordinate)) Nil
+      else Seq(s"$file does not carry `$coordinate`; the example projects and the publish step have drifted")
     }
 
   // project/Dependencies.scala is this repo's declared dependency truth. Each example project restates
   // these versions for its own build tool, so a bump applied to the file the author happens to have open
   // would leave the others pinned to the old one — and CI would stay green, because each project resolves
   // independently. Nothing can share the literal across sbt, Maven and Gradle, so compare instead.
-  private val sharedVersion = """val (kafka|gatling|kafkaAvroSerde)\s*=\s*"([^"]+)"""".r
+  private val declaredVersion = """val (\w+)\s*=\s*"([^"]+)"""".r
 
-  /** Every example project must pin the versions `project/Dependencies.scala` declares. */
+  // Which of those each project is expected to pin, and why the gaps are gaps rather than omissions:
+  // examples/scala takes avro transitively through avro4s and the Confluent serde, and examples/kotlin
+  // takes Gatling from the `io.gatling.gradle` plugin rather than a dependency of its own.
+  private val expectedPins = Seq(
+    ("examples/scala/build.sbt", Set("kafka", "gatling", "kafkaAvroSerde")),
+    ("examples/java/pom.xml", Set("kafka", "gatling", "kafkaAvroSerde", "avro")),
+    ("examples/kotlin/build.gradle.kts", Set("kafka", "kafkaAvroSerde", "avro")),
+  )
+
+  // A version has to appear as a whole token. `contains("3.13.5")` is satisfied by the Gradle plugin id
+  // `3.13.5.4`, which pins nothing — the check would pass on a coincidence of someone else's versioning
+  // scheme rather than on a pin this project made.
+  private def pinsVersion(text: String, version: String): Boolean =
+    s"(?<![\\d.])${java.util.regex.Pattern.quote(version)}(?![\\d.])".r.findFirstIn(text).isDefined
+
+  /** Every example project must pin the versions `project/Dependencies.scala` declares for it. */
   def dependencyPinProblems: Seq[String] = {
     val truth = Paths.get("project/Dependencies.scala")
     if (!Files.isRegularFile(truth)) Seq("project/Dependencies.scala does not exist, so pins cannot be checked")
     else {
-      val declared = sharedVersion
+      val declared = declaredVersion
         .findAllMatchIn(new String(Files.readAllBytes(truth), "UTF-8"))
         .map(m => m.group(1) -> m.group(2))
-        .toSeq
-      exampleBuildFiles.flatMap { file =>
+        .toMap
+      expectedPins.flatMap { case (file, names) =>
         val path = Paths.get(file)
         if (!Files.isRegularFile(path)) Seq(s"$file does not exist, so its pins cannot be checked")
         else {
           val text = new String(Files.readAllBytes(path), "UTF-8")
-          declared.collect {
-            case (name, version) if !text.contains(version) =>
-              s"$file does not pin $name $version, which project/Dependencies.scala declares"
+          names.toSeq.sorted.flatMap { name =>
+            declared.get(name) match {
+              case None                                         =>
+                Seq(s"project/Dependencies.scala no longer declares `$name`, which $file is checked against")
+              case Some(version) if !pinsVersion(text, version) =>
+                Seq(s"$file does not pin $name $version, which project/Dependencies.scala declares")
+              case _                                            => Nil
+            }
           }
         }
       }

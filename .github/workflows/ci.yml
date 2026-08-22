@@ -102,10 +102,16 @@ jobs:
       # The example projects resolve their own graphs, so they need their own caches — otherwise every
       # run re-downloads Gatling, the Confluent artifacts, the Gradle distribution and the Kotlin
       # compiler, which is the cost the sbt caching above exists to avoid.
+      # Third-party artifacts only. ~/.m2/repository is also where publishM2 writes the plugin under the
+      # sentinel version, and caching that would mean a run could resolve a jar built from an earlier
+      # commit. The publish step runs first and overwrites it today, so the risk is ordering rather than
+      # presence — excluding it keeps the guarantee even if the steps are ever reordered.
       - name: Cache Maven
         uses: actions/cache@v6
         with:
-          path: ~/.m2/repository
+          path: |
+            ~/.m2/repository
+            !~/.m2/repository/org/galaxio
           key: maven-${{ runner.os }}-${{ hashFiles('examples/java/pom.xml') }}
           restore-keys: maven-${{ runner.os }}-
 
@@ -114,6 +120,7 @@ jobs:
         with:
           path: |
             ~/.gradle/caches
+            !~/.gradle/caches/modules-2/files-2.1/org.galaxio
             ~/.gradle/wrapper
           key: gradle-${{ runner.os }}-${{ hashFiles('examples/kotlin/**/*.kts', 'examples/kotlin/gradle/wrapper/gradle-wrapper.properties') }}
           restore-keys: gradle-${{ runner.os }}-

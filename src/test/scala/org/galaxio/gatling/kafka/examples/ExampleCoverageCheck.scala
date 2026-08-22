@@ -9,7 +9,10 @@ package org.galaxio.gatling.kafka.examples
   *     stayed broken across four releases;
   *   - no two examples share a topic, every topic they use is created by both broker definitions, and no example names a topic
   *     in a way this check cannot read (contract C6). A clash has to be caught before the simulations run — afterwards it
-  *     surfaces as an intermittent reply mismatch that looks like a plugin correlation bug.
+  *     surfaces as an intermittent reply mismatch that looks like a plugin correlation bug;
+  *   - each project consumes the version CI publishes and pins the versions `project/Dependencies.scala` declares for it
+  *     (contract C8). Nothing can share a version literal across sbt, Maven and Gradle, so the duplication is unavoidable —
+  *     what this stops is the duplication being silent.
   *
   * It does not construct or run anything. The examples live in `examples/{scala,java,kotlin}`, each a consumer project on the
   * build tool its users use, and each compiles and runs them itself — running necessarily constructs. This was previously
@@ -32,6 +35,6 @@ object ExampleCoverageCheck {
         s"${examples.flatMap(_.topics).distinct.size} topic(s) checked",
     )
 
-    if (problems.nonEmpty) sys.error(s"${problems.size} example project problem(s); see contracts C3 and C6")
+    if (problems.nonEmpty) sys.error(s"${problems.size} example project problem(s); see contracts C3, C6 and C8")
   }
 }

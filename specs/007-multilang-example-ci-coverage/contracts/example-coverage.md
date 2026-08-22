@@ -121,6 +121,31 @@ logic, which is precisely the wrong diagnosis.
 
 ---
 
+## C8 — The example projects consume the plugin this build produces
+
+**Guarantee**: Each example project depends on the version CI publishes, and pins the dependency
+versions `project/Dependencies.scala` declares for it.
+
+**Asserted by**: `ExampleCoverageCheck`, via `ExampleInventory.sentinelProblems` and
+`dependencyPinProblems`. Both match a coordinate in that build tool's own spelling, not a bare
+substring: every build file also names the sentinel in a comment, and `3.13.5` is a substring of the
+Gradle plugin id `3.13.5.4`, so a substring test would pass on text that pins nothing.
+
+**Fails when**: a project's plugin coordinate drifts from the publish step, or it pins a version other
+than the declared one.
+
+**Bounded by**: which versions each project is expected to pin is stated in `expectedPins`, because
+they legitimately differ — `examples/scala` takes Avro transitively through avro4s and the Confluent
+serde, and `examples/kotlin` takes Gatling from the `io.gatling.gradle` plugin rather than a
+dependency of its own.
+
+**Rationale**: nothing can share a version literal across sbt, Maven and Gradle, so the duplication is
+unavoidable; what is avoidable is the duplication being silent. A bump applied to one file would
+otherwise leave the other projects on the old version, with CI green because each resolves
+independently.
+
+---
+
 ## C7 — No statement about coverage overstates it
 
 **Guarantee**: Every statement in `README.md`, `AGENTS.md`, and `.specify/memory/constitution.md`
