@@ -39,5 +39,5 @@ dependencies {
         exclude(group = "org.apache.kafka", module = "kafka-clients")
     }
     gatling("org.apache.kafka:kafka-clients:3.9.2")
-    gatling("org.apache.avro:avro:1.12.1")
+    gatling("org.apache.avro:avro:1.12.2")
 }
