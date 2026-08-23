@@ -517,7 +517,7 @@ backed by the same Confluent serdes.
 
 ### Avro in Request-Reply
 
-See [AvroClassWithRequestReplySimulation.scala](src/test/scala/org/galaxio/gatling/kafka/examples/AvroClassWithRequestReplySimulation.scala) for a complete request-reply example with a custom Avro `Serde`.
+See [AvroClassWithRequestReplySimulation.scala](examples/scala/src/test/scala/org/galaxio/examples/scalaapi/AvroClassWithRequestReplySimulation.scala) for a complete request-reply example with a custom Avro `Serde`.
 
 ### Avro Schema Download
 
@@ -936,14 +936,32 @@ If your older suite depends on those APIs, plan a code migration instead of a pu
 ## Examples
 
 - [README snippet compile check](src/test/scala/org/galaxio/gatling/kafka/examples/ReadmeExamplesCompileOnly.scala)
-- [Scala examples](src/test/scala/org/galaxio/gatling/kafka/examples)
-- [Java examples](src/test/java/org/galaxio/gatling/kafka/javaapi/examples)
-- [Kotlin examples](src/test/kotlin/org/galaxio/gatling/kafka/javaapi/examples)
+- [Scala examples](examples/scala) — sbt
+- [Java examples](examples/java) — Maven
+- [Kotlin examples](examples/kotlin) — Gradle
 
-Validate that all example simulations still construct against the current API:
+Each is a plain consumer project: it depends on the published artifact exactly as your own project
+does, and runs its simulations with that build tool's own Gatling task. Nothing in them is specific to
+this repository, so you can copy one and start from it.
+
+Publish the plugin locally once, then run whichever you like:
 
 ```bash
-sbt "Test / runMain org.galaxio.gatling.kafka.examples.ExampleSmokeValidation"
+docker compose -f docker-compose.kafka.yml up -d
+sbt 'set ThisBuild / version := "0.0.0-EXAMPLES-SNAPSHOT"' publishM2
+
+(cd examples/scala  && sbt "Gatling / test")        # 5 simulations
+mvn -f examples/java/pom.xml verify                 # 4 simulations
+(cd examples/kotlin && ./gradlew gatlingRun --all)  # 4 simulations
+```
+
+Point any of them at a released version instead of the local snapshot and they run unchanged.
+
+CI runs all three, and additionally checks — with no broker — that every example on disk has recorded
+coverage and that no two examples share a topic:
+
+```bash
+sbt "Test / runMain org.galaxio.gatling.kafka.examples.ExampleCoverageCheck"
 ```
 
 ## Contributing
