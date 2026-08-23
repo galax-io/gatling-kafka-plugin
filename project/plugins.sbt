@@ -2,7 +2,7 @@ resolvers ++= Seq(
   // need for load sbt-schema-registry-plugin dependencies
   "Confluent" at "https://packages.confluent.io/maven/",
 )
-libraryDependencies += "org.apache.avro" % "avro-compiler" % "1.12.1"
+libraryDependencies += "org.apache.avro" % "avro-compiler" % "1.12.2"
 
 addSbtPlugin("com.github.sbt" % "sbt-ci-release"             % "1.12.1")
 addSbtPlugin("com.github.sbt" % "sbt-git"                    % "2.1.0")
