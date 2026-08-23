@@ -11,7 +11,7 @@ object Dependencies {
     val kafka          = "3.9.2"
     val gatling        = "3.13.5"
     val avro4s         = "4.1.2"
-    val avro           = "1.12.1"
+    val avro           = "1.12.2"
     val kafkaAvroSerde = "7.9.9"
     val testcontainers = "0.44.1"
   }
