@@ -30,7 +30,7 @@
     <gatling-kafka-plugin.version>0.0.0-EXAMPLES-SNAPSHOT</gatling-kafka-plugin.version>
 
     <kafka.version>3.9.2</kafka.version>
-    <avro.version>1.12.1</avro.version>
+    <avro.version>1.12.2</avro.version>
     <confluent.version>7.9.9</confluent.version>
 
     <maven-compiler-plugin.version>3.13.0</maven-compiler-plugin.version>
