@@ -49,6 +49,14 @@ commit_parsers = [
   { message = "^docs\\(speckit\\)", skip = true },
   { message = "^docs", group = "<!-- 04 -->Documentation" },
   { message = "^chore\\(deps\\)", group = "<!-- 05 -->Dependencies" },
+  # Scala Steward commits `Update <artifact>[, <artifact>…] to <version>` — its own template,
+  # with no Conventional Commits prefix — so the rule above never sees them and they fell through
+  # to the catch-all, landing three dependency bumps under "Other" in the v2.0.0 notes. Anchored on
+  # that exact shape rather than a bare `^Update`: the trailing version is what distinguishes a
+  # bump from prose, and `to [0-9]` still matches the `(#245)` suffix a squash merge appends.
+  # A human commit could only collide with this by already violating the Conventional Commits
+  # rule AGENTS.md sets for every commit in this repository.
+  { message = "^Update .+ to [0-9]", group = "<!-- 05 -->Dependencies" },
   { message = "^(refactor|test|ci|build|chore|style|revert)", group = "<!-- 06 -->Maintenance" },
   # Catch-all: a non-Conventional-Commit message still ships (e.g. an older or squash-merged commit)
   # instead of silently vanishing from the notes.
