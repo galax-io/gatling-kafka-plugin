@@ -2,7 +2,6 @@ package org.galaxio.gatling.kafka.actions
 
 import io.gatling.commons.stats.{KO, OK}
 import io.gatling.commons.util.Clock
-import io.gatling.commons.validation._
 import io.gatling.core.CoreComponents
 import io.gatling.core.action.Action
 import io.gatling.core.actor.ActorRef

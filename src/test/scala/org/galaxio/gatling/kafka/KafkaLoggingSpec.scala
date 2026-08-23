@@ -31,7 +31,7 @@ class KafkaLoggingSpec extends munit.FunSuite {
 
     assertEquals(
       TestLogging.message(msg),
-      """KafkaProtocolMessage(producerTopic=producer-topic, consumerTopic=consumer-topic, key=text(utf-8,len=3,"key"), value=bytes(len=2,hex=007f), headers=0, responseCode=none)""",
+      """KafkaProtocolMessage(producerTopic=producer-topic, consumerTopic=consumer-topic, key=text(utf-8,len=3,"key"), value=bytes(len=2,hex=007f), headers=0)""",
     )
   }
 }

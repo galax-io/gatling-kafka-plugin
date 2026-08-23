@@ -2,29 +2,26 @@ package org.galaxio.gatling.kafka.checks
 
 import io.gatling.commons.validation.{TryWrapper, Validation}
 import io.gatling.core.check.CheckBuilder.Find
-import io.gatling.core.check.{CheckBuilder, CheckMaterializer, Extractor}
+import io.gatling.core.check.{CheckBuilder, Extractor}
 import io.gatling.core.session.ExpressionSuccessWrapper
-import org.apache.avro.generic.GenericRecord
 import org.apache.kafka.common.serialization.Serde
-import org.galaxio.gatling.kafka.KafkaCheck
 import org.galaxio.gatling.kafka.checks.KafkaCheckMaterializer.KafkaMessageCheckType
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 
 import scala.util.Try
 
 object AvroBodyCheckBuilder {
-  private type KafkaCheckMaterializer[T, P] = CheckMaterializer[T, KafkaCheck, KafkaProtocolMessage, P]
 
   def _avroBody[T: Serde]: CheckBuilder.Find[KafkaMessageCheckType, KafkaProtocolMessage, T] = {
     val tExtractor = new Extractor[KafkaProtocolMessage, T] {
       val name                                                         = "avroBody"
       val arity                                                        = "find"
       def apply(prepared: KafkaProtocolMessage): Validation[Option[T]] =
-        // The absent-payload guard belongs here, not on `KafkaMessagePreparer.avroPreparer`. This extractor is what
-        // `KafkaCheckSupport.avroBody` and the Java facade actually reach: they materialize through
-        // `kafkaStatusCheckMaterializer`, whose preparer is the identity, so `prepared` is the raw message and nothing
-        // upstream has looked at the payload. Guarding the preparer instead left a tombstone under `avroBody` reporting
-        // Gatling's generic "found nothing" while every other content check named the absent payload (issue #168, FR-009).
+        // The absent-payload guard belongs here, in the extractor. This is what `KafkaCheckSupport.avroBody` and the Java
+        // facade actually reach: they materialize through `kafkaStatusCheckMaterializer`, whose preparer is the identity,
+        // so `prepared` is the raw message and nothing upstream has looked at the payload. Guarding a preparer instead
+        // left a tombstone under `avroBody` reporting Gatling's generic "found nothing" while every other content check
+        // named the absent payload (issue #168, FR-009).
         KafkaMessagePreparer.withPayload(prepared) {
           Try(Option(implicitly[Serde[T]].deserializer().deserialize(prepared.consumerTopic, prepared.value))).toValidation
         }

@@ -18,8 +18,8 @@ import scala.concurrent.duration.DurationInt
 
 /** Ad hoc load check for #163: sustained, meaningfully concurrent request-reply traffic through the real Gatling DSL/action
   * pipeline (not a hand-rolled harness like TrackerAcquisitionIsolationSpec). Every request is echoed back by a dedicated
-  * responder, so — unlike KafkaGatlingTest's `scnRRwo` — no scenario here is designed to fail; the residual failures the
-  * assertion still tolerates are tracked defects, see `KnownReplyLossBudgetPercent`.
+  * responder, so — unlike KafkaFailureModesGatlingTest's `scnRRwo` — no scenario here is designed to fail; the residual
+  * failures the assertion still tolerates are tracked defects, see `KnownReplyLossBudgetPercent`.
   *
   * Runs in CI alongside the other simulations (see the "Test (Gatling targeted)" step in ci.yml). It is the only *sustained*
   * concurrent request-reply coverage: 30 virtual users held for 100 s with a zero reply-loss budget. `KafkaGatlingTest`'s

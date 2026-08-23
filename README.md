@@ -517,7 +517,7 @@ backed by the same Confluent serdes.
 
 ### Avro in Request-Reply
 
-See [AvroClassWithRequestReplySimulation.scala](src/test/scala/org/galaxio/gatling/kafka/examples/AvroClassWithRequestReplySimulation.scala) for a complete request-reply example with a custom Avro `Serde`.
+See [AvroClassWithRequestReplySimulation.scala](examples/scala/src/test/scala/org/galaxio/examples/scalaapi/AvroClassWithRequestReplySimulation.scala) for a complete request-reply example with a custom Avro `Serde`.
 
 ### Avro Schema Download
 
@@ -559,6 +559,134 @@ Use this section as release-based upgrade notes. Start from the version you are 
 | `0.21.x` | `1.0.x` | Stay on Gatling `3.13.x`, review request-reply defaults and DSL surface. |
 | `0.20.x` or older | `1.0.x` | Treat as full doc refresh. Older consume-only or per-action matcher APIs are not present. |
 | `1.0.x` – `1.2.x` | `1.3.x` | Build-file only. Plain users: no change. Schema Registry Avro users: declare two artifacts and the Confluent resolver — see below. |
+| `1.3.x` | `2.0.0` | Source-breaking, but only for API that could not work. Most suites need no change — see below. |
+
+### `1.3.x` → `2.0.0` — removals
+
+`2.0.0` removes published API. Every removal below is something that either could not run, never
+carried a value, or had no caller — nothing that worked has been taken away. **If your simulations
+use `kafka("name").topic(...).send(...)` and
+`kafka("name").requestReply.requestTopic(...).replyTopic(...).send(...)`, you need no source change
+at all.**
+
+#### `send(...)` without a topic is gone
+
+The `send(...)` overloads that could be called directly on `kafka("name")` — without `.topic(...)`
+or `.requestReply...` first — have been removed from both the Scala DSL and the `javaapi` facade.
+
+They never worked. Every action they built carried no producer topic and failed at send time with
+`Kafka producer topic is not defined`; the Java `sendWithClass(payload, class, headers)` overload
+threw `IllegalArgumentException` while the scenario was still being constructed. If you have one of
+these in a suite, it has been reporting failures rather than sending.
+
+```scala
+// before — compiles, fails at run time
+kafka("request").send[String, String]("key", "payload")
+
+// after — name the topic first
+kafka("request").topic("my-topic").send[String, String]("key", "payload")
+```
+
+#### `kafka-streams-scala` is no longer inherited
+
+`sessionWindowedSerde` and `consumedFromSerde`, deprecated in `1.3.0`, are removed — and with them
+the `org.apache.kafka:kafka-streams-scala` dependency your build used to receive transitively. The
+plugin never built a Streams topology, so nothing in it used them.
+
+If you genuinely build Streams topologies in your harness, declare the artifact yourself:
+
+```scala
+libraryDependencies += "org.apache.kafka" %% "kafka-streams-scala" % "3.9.2" % Test
+```
+
+The inherited dependency set is now `scala-library`, `kafka-clients` and `avro` — three coordinates,
+each used by plugin code.
+
+#### `KafkaProtocolMessage.responseCode` is gone
+
+Nothing ever set it: every message carried `None` from the day it was added. **Your reports do not
+change.** The failure type shown for a failed request comes from a different source — the exception's
+own class name, set by the request-reply action and the timeout path — and is untouched.
+
+If you read the field, drop the read. If you matched on it, it was always `None`.
+
+#### `KafkaCheckType.ResponseCode` is gone
+
+Use `KafkaCheckType.Simple`. Nothing could produce a check carrying `ResponseCode`, and its
+materialization was identical to `Simple`'s, so behaviour is unchanged.
+
+#### `send(...)` now returns `KafkaRequestBuilder`
+
+The `RequestBuilder[K, V]` trait had one abstract member and one implementation, and was public only
+because it was the declared return type of the documented `send` methods. It is folded into
+`KafkaRequestBuilder`. Invisible unless you wrote the type out:
+
+```scala
+// before
+val req: RequestBuilder[String, String] = kafka("r").topic("t").send("k", "v")
+// after
+val req: KafkaRequestBuilder[String, String] = kafka("r").topic("t").send("k", "v")
+```
+
+Inference (`val req = ...`) needs no change. The Java facade's own
+`javaapi.request.builder.RequestBuilder` is a different class and is unaffected.
+
+#### `LazyGenericAvroSerde` is gone
+
+An internal wrapper that existed only because the `1.x` binary freeze forced `avroSerde` to be a
+strict `val`; it is now simply `lazy`. `Predef` still supplies `Serde[GenericRecord]`, still hands out
+one stable instance — so `Predef.avroSerde.configure(...)` and `KafkaChecks.avroSerde().configure(...)`
+still configure the serde the DSL later uses — plain simulations still start with no Confluent artifact
+present, and Avro still fails only when you actually use it. **No source change.**
+
+If you referenced the class directly, use `Predef`'s `avroSerde` (Scala) or
+`KafkaChecks.avroSerde()` (Java) instead.
+
+#### Two lower-level types changed shape
+
+Neither appears in ordinary simulations; both break code that names them directly.
+
+- `javaapi.request.builder.RequestBuilder`'s constructor now takes the concrete Scala
+  `KafkaRequestBuilder<K, V>` instead of the removed `RequestBuilder<K, V>` trait. Only code that
+  constructs this wrapper itself is affected — `kafka(...).topic(...).send(...)` returns one already.
+- `KafkaAttributes.producerTopic` is `Expression[String]` instead of `Option[Expression[String]]`.
+  Every builder that reaches an action supplies a topic, so the `Option` could only ever be `Some`.
+  If you build `KafkaAttributes` directly — in a test harness, say — drop the `Some(...)` wrapper.
+
+#### Java produce-only request names now resolve Gatling EL
+
+`kafka("name").topic(...)` previously passed the request name through as a literal, while
+`kafka("name").requestReply()...` resolved it as a Gatling expression. The produce-only path now
+matches request-reply.
+
+For almost every suite this changes nothing — a plain name like `"BasicRequest"` resolves to itself.
+It matters only if your request name contains `#{...}`: it used to appear verbatim in reports and now
+resolves per virtual user, and a name referring to a session attribute that is not set will fail the
+request instead of reporting the literal.
+
+```java
+// resolves per user now; previously reported literally as "order-#{orderId}"
+kafka("order-#{orderId}").topic("orders").send(key, payload);
+```
+
+If you were relying on the literal, escape it (`\#{orderId}`) or rename the request.
+
+#### `KafkaCheckMaterializer.avroBody` and `KafkaMessagePreparer.avroPreparer` are gone
+
+Unreachable. Both `avroBody` entry points — `KafkaCheckSupport.avroBody` for Scala and
+`KafkaDsl.avroBody()` for Java — deserialize inside the check's extractor and never used these. Keep
+using the entry points; nothing about writing an Avro body check changes.
+
+#### `timeout` / `withDefaultTimeout` on the producer-settings step are gone
+
+The reply timeout belongs to the consume step — a produce-only protocol never waits for a reply.
+Both methods remain on `consumeSettings(...)`:
+
+```scala
+kafka.producerSettings(...).consumeSettings(...).timeout(10.seconds)   // unchanged
+```
+
+For a produce-only protocol use `kafka.properties(...)`.
 
 ### `1.2.x` → `1.3.x` — Confluent artifacts are no longer inherited
 
@@ -808,14 +936,32 @@ If your older suite depends on those APIs, plan a code migration instead of a pu
 ## Examples
 
 - [README snippet compile check](src/test/scala/org/galaxio/gatling/kafka/examples/ReadmeExamplesCompileOnly.scala)
-- [Scala examples](src/test/scala/org/galaxio/gatling/kafka/examples)
-- [Java examples](src/test/java/org/galaxio/gatling/kafka/javaapi/examples)
-- [Kotlin examples](src/test/kotlin/org/galaxio/gatling/kafka/javaapi/examples)
+- [Scala examples](examples/scala) — sbt
+- [Java examples](examples/java) — Maven
+- [Kotlin examples](examples/kotlin) — Gradle
 
-Validate that all example simulations still construct against the current API:
+Each is a plain consumer project: it depends on the published artifact exactly as your own project
+does, and runs its simulations with that build tool's own Gatling task. Nothing in them is specific to
+this repository, so you can copy one and start from it.
+
+Publish the plugin locally once, then run whichever you like:
 
 ```bash
-sbt "Test / runMain org.galaxio.gatling.kafka.examples.ExampleSmokeValidation"
+docker compose -f docker-compose.kafka.yml up -d
+sbt 'set ThisBuild / version := "0.0.0-EXAMPLES-SNAPSHOT"' publishM2
+
+(cd examples/scala  && sbt "Gatling / test")        # 5 simulations
+mvn -f examples/java/pom.xml verify                 # 4 simulations
+(cd examples/kotlin && ./gradlew gatlingRun --all)  # 4 simulations
+```
+
+Point any of them at a released version instead of the local snapshot and they run unchanged.
+
+CI runs all three, and additionally checks — with no broker — that every example on disk has recorded
+coverage and that no two examples share a topic:
+
+```bash
+sbt "Test / runMain org.galaxio.gatling.kafka.examples.ExampleCoverageCheck"
 ```
 
 ## Contributing
@@ -840,7 +986,7 @@ sbt compile
 sbt test
 
 # Run the Gatling simulations exercised in CI (requires Kafka/Schema Registry, for example via Docker Compose)
-sbt "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaGatlingTest" "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaJavaapiMethodsGatlingTest"
+sbt "Gatling / test"
 
 # Check formatting (matches the formatting CI step)
 sbt scalafmtCheckAll scalafmtSbtCheck
@@ -849,7 +995,7 @@ sbt scalafmtCheckAll scalafmtSbtCheck
 sbt scalafmtAll scalafmtSbt
 
 # Recommended local check before pushing (matches the main CI flow)
-sbt clean compile "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaGatlingTest" "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaJavaapiMethodsGatlingTest" test
+sbt clean compile "Gatling / test" test
 ```
 
 ## Releasing

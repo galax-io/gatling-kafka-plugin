@@ -11,7 +11,7 @@ object Dependencies {
     val kafka          = "3.9.2"
     val gatling        = "3.13.5"
     val avro4s         = "4.1.2"
-    val avro           = "1.12.1"
+    val avro           = "1.12.2"
     val kafkaAvroSerde = "7.9.9"
     val testcontainers = "0.44.1"
   }
@@ -24,13 +24,11 @@ object Dependencies {
   lazy val gatlingTest: Seq[ModuleID] = Seq(
     "io.gatling.highcharts" % "gatling-charts-highcharts" % Versions.gatling % "it,test",
     "io.gatling"            % "gatling-test-framework"    % Versions.gatling % "it,test",
-    "org.scalameta"        %% "munit"                     % "1.3.4"          % Test,
+    "org.scalameta"        %% "munit"                     % "1.3.5"          % Test,
   )
 
   lazy val kafka: Seq[ModuleID] = Seq(
-    ("org.apache.kafka"  % "kafka-clients"       % Versions.kafka)
-      .exclude("org.slf4j", "slf4j-api"),
-    ("org.apache.kafka" %% "kafka-streams-scala" % Versions.kafka)
+    ("org.apache.kafka" % "kafka-clients" % Versions.kafka)
       .exclude("org.slf4j", "slf4j-api"),
   )
 
@@ -38,10 +36,14 @@ object Dependencies {
   // vendor-rebuilt kafka-clients. Left alone, sbt picks the higher version and evicts the Apache one:
   // the build would compile and test against 7.9.x-ccs while publishing a POM that declares 3.9.2, so
   // a green suite would say nothing about the artifact consumers actually run. Pin what we ship.
+  //
+  // Only kafka-clients needs pinning. The kafka-streams and kafka-streams-scala pins that used to sit
+  // here guarded a coordinate this build no longer declares: with the Kafka Streams surface gone in
+  // 2.0.0, Confluent's rebuild of those artifacts has nothing to evict, and it cannot reach a consumer
+  // either — it arrives only through `provided` Avro artifacts, which are excluded from the runtime
+  // configuration `checkPublishedPom` asserts over.
   lazy val kafkaOverrides: Seq[ModuleID] = Seq(
-    "org.apache.kafka"  % "kafka-clients"       % Versions.kafka,
-    "org.apache.kafka"  % "kafka-streams"       % Versions.kafka,
-    "org.apache.kafka" %% "kafka-streams-scala" % Versions.kafka,
+    "org.apache.kafka" % "kafka-clients" % Versions.kafka,
   )
 
   lazy val avro4s: ModuleID = "com.sksamuel.avro4s" %% "avro4s-core" % Versions.avro4s % "provided"

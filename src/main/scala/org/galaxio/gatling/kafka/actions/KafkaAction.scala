@@ -19,9 +19,6 @@ abstract class KafkaAction[K: ClassTag, V: ClassTag](
     throttler: Option[ActorRef[Throttler.Command]],
 ) extends RequestAction with KafkaLogging with NameGen {
 
-  private val missingProducerTopicError =
-    "Kafka producer topic is not defined. Set it with kafka(\"request\").topic(...)."
-
   override def requestName: Expression[String] = attributes.requestName
 
   override def sendRequest(session: Session): Validation[Unit] = {
@@ -38,11 +35,6 @@ abstract class KafkaAction[K: ClassTag, V: ClassTag](
 
   private def traverse[T](ovt: Option[Validation[T]]): Validation[Option[T]] =
     ovt.fold(Option.empty[T].success)(_.map(Option[T]))
-
-  private def resolveProducerTopic(session: Session): Validation[String] =
-    attributes.producerTopic
-      .map(_(session))
-      .getOrElse(missingProducerTopicError.failure)
 
   private val isStringType: Boolean = classTag[V].runtimeClass.getCanonicalName == "java.lang.String"
   private val isKeyString: Boolean  = classTag[K].runtimeClass.getCanonicalName == "java.lang.String"
@@ -78,7 +70,7 @@ abstract class KafkaAction[K: ClassTag, V: ClassTag](
 
   private def resolveToProtocolMessage: Expression[KafkaProtocolMessage] = s =>
     for {
-      producerTopic <- resolveProducerTopic(s)
+      producerTopic <- attributes.producerTopic(s)
       key           <- serializeKey(attributes.keySerde, attributes.key, producerTopic, s)
       consumerTopic <- traverse(attributes.consumerTopic.map(_(s)))
       value         <- serializeValue(producerTopic, s)

@@ -9,9 +9,8 @@ import java.time.Duration
 import java.util
 import java.util.Properties
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
-import java.util.concurrent.{CompletableFuture, ConcurrentHashMap, ConcurrentLinkedQueue, CountDownLatch}
+import java.util.concurrent.{CompletableFuture, ConcurrentHashMap, ConcurrentLinkedQueue}
 import scala.collection.mutable
-import scala.concurrent.duration.{DurationInt, FiniteDuration}
 import scala.jdk.CollectionConverters._
 import scala.util.control.NonFatal
 
@@ -336,8 +335,10 @@ final class DynamicKafkaConsumer[K, V] private (
       }
     } catch {
       case e: WakeupException      =>
-        // Ignore exception if closing
-        // rethrow when someone call wakeup while it is working
+        // `close()` wakes the consumer to interrupt a blocked poll, so while shutting down this is the
+        // expected way out of the loop and is ignored. A wakeup arriving while the consumer is still
+        // running has no legitimate source, so it is latched and reported rather than rethrown — the
+        // rethrow this comment used to describe went with #128.
         if (running.get) {
           markConsumerFailed(e)
           this.onFailure(e)

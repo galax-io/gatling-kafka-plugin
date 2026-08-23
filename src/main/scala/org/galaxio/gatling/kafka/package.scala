@@ -59,7 +59,7 @@ package object kafka {
 
     protected def describeMessage(msg: KafkaProtocolMessage): String = {
       val headerCount = msg.headers.fold(0)(_.toArray.length)
-      s"KafkaProtocolMessage(producerTopic=${msg.producerTopic}, consumerTopic=${msg.consumerTopic}, key=${describeBytes(msg.key)}, value=${describeBytes(msg.value)}, headers=$headerCount, responseCode=${msg.responseCode.getOrElse("none")})"
+      s"KafkaProtocolMessage(producerTopic=${msg.producerTopic}, consumerTopic=${msg.consumerTopic}, key=${describeBytes(msg.key)}, value=${describeBytes(msg.value)}, headers=$headerCount)"
     }
 
     def logMessage(text: => String, msg: KafkaProtocolMessage): Unit = {

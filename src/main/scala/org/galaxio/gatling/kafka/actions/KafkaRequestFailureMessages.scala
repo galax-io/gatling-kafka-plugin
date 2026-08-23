@@ -3,9 +3,6 @@ package org.galaxio.gatling.kafka.actions
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol.{KafkaKeyMatcher, KafkaMatcher, KafkaMessageMatcher, KafkaValueMatcher}
 
 private[actions] object KafkaRequestFailureMessages {
-  def buildFailure(error: String): String =
-    s"Failed to build request: ${Option(error).getOrElse("unknown error")}"
-
   def sendFailure(error: String): String =
     s"Failed to send request to Kafka broker: ${Option(error).getOrElse("unknown error")}"
 

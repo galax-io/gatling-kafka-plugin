@@ -1,6 +1,6 @@
 package org.galaxio.gatling.kafka.integration
 
-import com.dimafeng.testcontainers.ConfluentKafkaContainer
+import com.dimafeng.testcontainers.{ConfluentKafkaContainer, ContainerDef}
 import com.dimafeng.testcontainers.munit.TestContainerForAll
 import org.apache.kafka.clients.admin.{AdminClient, AdminClientConfig, NewTopic}
 import org.apache.kafka.clients.consumer.ConsumerConfig
@@ -17,14 +17,31 @@ import scala.jdk.CollectionConverters._
 
 class KafkaIntegrationSpec extends munit.FunSuite with TestContainerForAll {
 
-  override val containerDef: ConfluentKafkaContainer.Def =
-    ConfluentKafkaContainer.Def(DockerImageName.parse("confluentinc/cp-kafka:7.9.5"))
+  // Auto-create is off so that "a topic that does not exist" is a state the broker actually holds,
+  // rather than one it silently resolves. Every test here creates its topics explicitly through
+  // `createTopic`, so nothing depended on auto-creation — but the subscription test below did depend on
+  // it *not* happening, and with the default setting it was asserting against a topic the broker
+  // materialised underneath it.
+  override val containerDef: ContainerDef { type Container = ConfluentKafkaContainer } =
+    new ContainerDef {
+      override type Container = ConfluentKafkaContainer
+
+      override def createContainer(): ConfluentKafkaContainer = {
+        val container = ConfluentKafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.9.5"))
+        container.container.withEnv("KAFKA_AUTO_CREATE_TOPICS_ENABLE", "false")
+        container
+      }
+    }
 
   private def producerSettings(bootstrap: String): Map[String, AnyRef] = Map(
     ProducerConfig.BOOTSTRAP_SERVERS_CONFIG      -> bootstrap,
     ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG   -> classOf[ByteArraySerializer].getName,
     ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG -> classOf[ByteArraySerializer].getName,
   )
+
+  /** The consumer loop's poll timeout, mirrored here so the wait below is expressed in poll cycles. */
+  private val PollIntervalMillis  = 1000L
+  private val PollCyclesToObserve = 4L
 
   private def consumerSettings(bootstrap: String, groupId: String): Map[String, AnyRef] = Map(
     ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG        -> bootstrap,
@@ -539,9 +556,19 @@ class KafkaIntegrationSpec extends munit.FunSuite with TestContainerForAll {
         awaitConsumerReady(sender, setupTopic, consumerReady)
         sender.close()
         // The caller owns the deadline now: readiness stays pending instead of reporting a timeout itself.
+        //
+        // `topic` is never created, so the consumer can subscribe to it but no partition for it can ever
+        // be assigned or positioned — which is the state this test is about. The wait spans several poll
+        // cycles (the loop polls on a 1 s timeout) because the point is that readiness stays pending
+        // *while the consumer is actively working*, not merely that it is unresolved before the consumer
+        // thread has been scheduled. At the previous 1 ms this passed against a consumer that completed
+        // readiness on subscribe instead of on assignment — the defect class #193 fixed.
         val readiness = consumer.requestTopicSubscription(topic)
-        intercept[TimeoutException](readiness.get(1, TimeUnit.MILLISECONDS))
-        assert(!readiness.isDone, "Expected readiness to still be pending")
+        intercept[TimeoutException](readiness.get(PollCyclesToObserve * PollIntervalMillis, TimeUnit.MILLISECONDS))
+        assert(
+          !readiness.isDone,
+          s"readiness completed within ${PollCyclesToObserve} poll cycles for a topic with no partitions to assign",
+        )
       } finally {
         consumer.close()
         consumerThread.join(5000)

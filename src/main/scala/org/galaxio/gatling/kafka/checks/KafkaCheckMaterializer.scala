@@ -12,8 +12,6 @@ import io.gatling.core.check.{CheckMaterializer, Preparer}
 import io.gatling.core.config.GatlingConfiguration
 import io.gatling.core.json.JsonParsers
 import net.sf.saxon.s9api.XdmNode
-import org.apache.avro.generic.GenericRecord
-import org.apache.kafka.common.serialization.Serde
 import org.galaxio.gatling.kafka.KafkaCheck
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 
@@ -48,12 +46,11 @@ object KafkaCheckMaterializer {
 
   type KafkaMessageCheckType
 
+  /** Avro body checks materialize through here too, not through a preparer of their own: `AvroBodyCheckBuilder._avroBody`
+    * deserializes inside its extractor, which is what both `KafkaCheckSupport.avroBody` and the Java facade's
+    * `KafkaDsl.avroBody()` reach. A second, preparer-based `avroBody` materializer lived here until 2.0.0 with no caller
+    * anywhere.
+    */
   val kafkaStatusCheck: KafkaCheckMaterializer[KafkaMessageCheckType, KafkaProtocolMessage] =
     new KafkaCheckMaterializer(_.success)
-
-  def avroBody[T <: GenericRecord: Serde](
-      configuration: GatlingConfiguration,
-      topic: String,
-  ): KafkaCheckMaterializer[KafkaMessageCheckType, T] =
-    new KafkaCheckMaterializer(KafkaMessagePreparer.avroPreparer[T](configuration, topic))
 }

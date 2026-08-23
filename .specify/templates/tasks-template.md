@@ -161,7 +161,7 @@ Examples of foundational tasks (adjust based on your project):
 - [ ] TXXX Performance optimization across all stories
 - [ ] TXXX [P] Additional unit tests in src/test/scala/
 - [ ] TXXX Run `sbt scalafmtAll scalafmtSbt` then `sbt scalafmtCheckAll scalafmtSbtCheck compile test`
-- [ ] TXXX Run `sbt "Test / runMain org.galaxio.gatling.kafka.examples.ExampleSmokeValidation"` (API-compat gate, Principle I)
+- [ ] TXXX Run `sbt "Test / runMain org.galaxio.gatling.kafka.examples.ExampleCoverageCheck"` (API-compat gate, Principle I)
 - [ ] TXXX Run quickstart.md validation
 
 ---

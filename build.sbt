@@ -1,5 +1,4 @@
 import Dependencies.*
-//import org.galaxio.performance.avro.RegistrySubject
 
 // sbt-git's default JGit reader throws NoWorkTreeException in linked git worktrees
 // (where `.git` is a file, not a directory), which breaks project loading there.
@@ -7,8 +6,7 @@ import Dependencies.*
 // worktrees too. (sbt-git helper; sets ThisBuild / useConsoleForROGit := true.)
 useReadableConsoleGit
 
-val scalaV      = "2.13.18"
-val avroSchemas = Seq() // for example Seq(RegistrySubject("test-hello-schema", 1))
+val scalaV = "2.13.18"
 
 lazy val root = (project in file("."))
   .enablePlugins(GitVersioning, GatlingPlugin)
@@ -22,8 +20,6 @@ lazy val root = (project in file("."))
     libraryDependencies += "org.scalatest" %% "scalatest" % "3.2.20" % Test,
     libraryDependencies ++= testcontainers,
     dependencyOverrides ++= kafkaOverrides,
-    schemaRegistrySubjects ++= avroSchemas,
-//    schemaRegistryUrl := "http://test-schema-registry:8081",
     resolvers ++= Seq(
       "Confluent" at "https://packages.confluent.io/maven/",
     ),
@@ -37,6 +33,16 @@ lazy val root = (project in file("."))
       "-deprecation",
       "-feature",
       "-unchecked",
+      // Residue guard. Every audit of this repository has re-derived the same finding — unused imports
+      // and a private member nobody reads — so the compiler asserts it instead. Fatal by virtue of
+      // -Xfatal-warnings above, and it must stay satisfiable with no @nowarn anywhere: a suppression is
+      // evidence the wrong warning class was chosen, not a fix.
+      //
+      // `params` and `implicits` are deliberately absent. This codebase is dense with their classic
+      // false-positive sources — `override`s implementing Gatling's and Kafka's interfaces cannot drop a
+      // parameter, and KafkaCheckSupport is a wall of implicit conversions — so including them would buy
+      // coverage with annotations and turn a self-enforcing guard into a suppression habit.
+      "-Wunused:imports,privates,locals,patvars",
       "-language:implicitConversions",
       "-language:higherKinds",
       "-language:existentials",
@@ -63,13 +69,13 @@ lazy val root = (project in file("."))
 // ---------------------------------------------------------------------------------------------
 
 // group:artifact -> why a consumer inherits it. An inherited dependency missing from this map fails
-// C3. At most one entry may be justified by `deprecated:` (data-model DR-4) — that bound is what stops
-// "kept for a deprecation" from becoming a general-purpose excuse.
+// C3. Every entry names a code path that uses it: the `deprecated:` escape hatch, and the rule that
+// bounded it to one entry, went with the Kafka Streams surface it was written for in 2.0.0. A
+// dependency held by nothing but a deprecation is now simply unjustified.
 val inheritedDependencyJustification: Map[String, String] = Map(
-  "org.scala-lang:scala-library"         -> "used-by: every Scala source",
-  "org.apache.kafka:kafka-clients"       -> "used-by: client/KafkaSender, client/DynamicKafkaConsumer, protocol settings",
-  "org.apache.kafka:kafka-streams-scala" -> "deprecated: held only by KafkaSerdesImplicits.sessionWindowedSerde and .consumedFromSerde; removed in 2.0.0",
-  "org.apache.avro:avro"                 -> "used-by: checks/AvroBodyCheckBuilder, avro4s serde derivation",
+  "org.scala-lang:scala-library"   -> "used-by: every Scala source",
+  "org.apache.kafka:kafka-clients" -> "used-by: client/KafkaSender, client/DynamicKafkaConsumer, protocol settings",
+  "org.apache.avro:avro"           -> "used-by: checks/AvroBodyCheckBuilder, avro4s serde derivation",
 )
 
 /** Why this coordinate cannot be fetched from Maven Central, or None if it can. */
@@ -130,15 +136,11 @@ checkPublishedPom := {
       failures += s"C2 ${d.gav} serves an optional capability and must not be inherited"
   }
 
-  // C3 - every inherited dependency is justified, at most one by a deprecation.
+  // C3 - every inherited dependency is justified by a code path that uses it.
   inherited.foreach { d =>
     if (!inheritedDependencyJustification.contains(d.ga))
       failures += s"C3 ${d.gav} is inherited with no recorded justification in inheritedDependencyJustification"
   }
-  val heldByDeprecation =
-    inherited.map(_.ga).distinct.flatMap(inheritedDependencyJustification.get).count(_.startsWith("deprecated:"))
-  if (heldByDeprecation > 1)
-    failures += s"C3 $heldByDeprecation inherited dependencies are justified only by a deprecation; DR-4 permits at most 1"
 
   // C5 - publication identity is unchanged.
   def text(tag: String): String = (xml \ tag).text.trim
@@ -228,3 +230,39 @@ Gatling / javaOptions := overrideDefaultJavaOptions(
   "--add-opens=java.base/java.util=ALL-UNNAMED",
   "--add-opens=java.base/java.lang=ALL-UNNAMED",
 )
+
+// ---------------------------------------------------------------------------------------------
+// Running the example simulations.
+//
+// The examples are not in this build at all: they live in examples/{scala,java,kotlin}, one consumer
+// project per language, each depending on the published artifact. `sbt Gatling/test` here runs the
+// four test harnesses.
+//
+// The Java and Kotlin examples are NOT here: `Gatling/testOnly` cannot run them. io.gatling.javaapi
+// .core.Simulation does not extend io.gatling.core.scenario.Simulation, and gatling-test-framework
+// declares exactly one sbt fingerprint, matching only the Scala superclass, so a Java simulation
+// named there selects nothing and the build goes green having run nothing. This is a product
+// boundary, not a repo defect: Gatling's sbt plugin supports Scala only and directs Java and Kotlin
+// users to Maven or Gradle. Each language has its own consumer project under examples/, run the way
+// its users run it.
+//
+// Sequentially, not in parallel: the simulations share one broker, and two of them running at once
+// is exactly the cross-attribution hazard the request-reply matcher exists to prevent.
+Gatling / parallelExecution := false
+
+// One forked JVM per simulation. sbt's default puts every test of a configuration in a single group, so
+// `Gatling / test` would otherwise run every harness in one JVM — letting KafkaConcurrencyLoadTest
+// (30 users held for 100 s) share Gatling's static configuration, Netty allocators and Kafka client
+// statics with the ones that follow it. A leaked consumer or an exhausted allocator would then surface in
+// an unrelated simulation, and be diagnosed there.
+//
+// Derived from `(Gatling / forkOptions).value`, not a fresh `ForkOptions()`: the default carries the
+// working directory and the other fork settings, and building one from scratch would silently drop them
+// — including anything a later `Gatling / envVars` or scoped `javaHome` adds.
+Gatling / testGrouping := (Gatling / definedTests).value.map { test =>
+  Tests.Group(
+    name = test.name,
+    tests = Seq(test),
+    runPolicy = Tests.SubProcess((Gatling / forkOptions).value.withRunJVMOptions((Gatling / javaOptions).value.toVector)),
+  )
+}

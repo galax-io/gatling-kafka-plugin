@@ -6,7 +6,6 @@ import io.confluent.kafka.streams.serdes.avro.GenericAvroSerde
 import org.apache.avro.generic.GenericRecord
 import org.apache.kafka.common.serialization.{Deserializer, Serde, Serializer}
 
-import java.util
 import scala.jdk.CollectionConverters._
 
 /** Every construction of a Confluent Schema Registry type in the Scala sources lives here.
@@ -15,8 +14,9 @@ import scala.jdk.CollectionConverters._
   * the Confluent resolver only if they want Schema-Registry-backed Avro. That is only workable if nothing on the path a *plain*
   * simulation takes constructs one of these types, and `Predef` is on every simulation's path.
   *
-  * `LazyGenericAvroSerde` is what lets the DSL keep handing out a `Serde[GenericRecord]` from a strict `val` — which the
-  * published trait ABI requires — without that val's construction touching Confluent.
+  * `KafkaSerdesImplicits.avroSerde` and `javaapi.checks.KafkaChecks.avroSerde` are both `def`s delegating to [[newAvroSerde]],
+  * so nothing here runs while an entry point initialises. Until 2.0.0 a `LazyGenericAvroSerde` wrapper deferred the
+  * construction instead, because the 1.x binary freeze forced `avroSerde` to be a strict `val`.
   *
   * The Java facade still names Confluent types directly in `javaapi.KafkaDsl` and `javaapi.request.expressions.Builders`; those
   * are public signatures under Principle I and cannot move. They are safe because the JVM resolves method descriptors lazily,
@@ -53,36 +53,4 @@ object ConfluentSerdes {
     override def deserializer(): Deserializer[T] =
       new KafkaAvroDeserializer(client).asInstanceOf[Deserializer[T]]
   }
-}
-
-/** A `Serde[GenericRecord]` that builds its Confluent-backed delegate on first use rather than on construction.
-  *
-  * This exists to satisfy two requirements that would otherwise conflict:
-  *
-  *   - Constitution Principle I: `KafkaSerdesImplicits.avroSerde` is a published concrete trait member. Turning it into a
-  *     `lazy val` deletes the mixin setter from the interface, so a simulation compiled against an earlier release keeps its
-  *     own field, never has it assigned, and silently observes `null` — with no linkage error to point at the cause. It must
-  *     stay a strict `val`.
-  *   - Contract E1: initialising `Predef` must not construct a Confluent type, or the optional artifacts become mandatory for
-  *     every simulation, Avro or not.
-  *
-  * Constructing one of these does neither: the constructor is empty and the only reference to `ConfluentSerdes` sits in a lazy
-  * initialiser the JVM resolves on first call.
-  */
-final class LazyGenericAvroSerde extends Serde[GenericRecord] {
-
-  @volatile private var constructed               = false
-  private lazy val delegate: Serde[GenericRecord] = {
-    constructed = true
-    ConfluentSerdes.newAvroSerde()
-  }
-
-  override def configure(configs: util.Map[String, _], isKey: Boolean): Unit = delegate.configure(configs, isKey)
-
-  /** Closing a serde nobody used must not be the thing that drags Confluent onto the classpath. */
-  override def close(): Unit = if (constructed) delegate.close()
-
-  override def serializer(): Serializer[GenericRecord] = delegate.serializer()
-
-  override def deserializer(): Deserializer[GenericRecord] = delegate.deserializer()
 }

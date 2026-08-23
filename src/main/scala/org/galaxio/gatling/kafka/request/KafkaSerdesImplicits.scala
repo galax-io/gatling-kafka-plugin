@@ -2,8 +2,6 @@ package org.galaxio.gatling.kafka.request
 
 import org.apache.avro.generic.GenericRecord
 import org.apache.kafka.common.serialization.{Serde, Serdes => JSerdes}
-import org.apache.kafka.streams.kstream.WindowedSerdes
-import org.apache.kafka.streams.scala.kstream.Consumed
 
 import java.nio.ByteBuffer
 import java.util.UUID
@@ -25,43 +23,27 @@ trait KafkaSerdesImplicits {
   implicit def javaIntegerSerde: Serde[java.lang.Integer]             = JSerdes.Integer()
   implicit def uuidSerde: Serde[UUID]                                 = JSerdes.UUID()
 
-  // No replacement is named on purpose: session windowing belongs to Kafka Streams, which this plugin
-  // neither uses nor wraps. Pointing at something inside the plugin would imply a capability that does
-  // not exist. These two implicits are also the sole reason kafka-streams-scala is still a dependency
-  // consumers inherit — they cannot be dropped before the implicits go, because their Kafka Streams
-  // types appear in the *signatures* that implicit search reads for every simulation.
-  @deprecated(
-    "Kafka Streams windowing has no role in a Gatling load test and this plugin never uses it. " +
-      "Depend on org.apache.kafka:kafka-streams-scala_2.13 directly if you build Streams topologies. " +
-      "Removed in 2.0.0 together with the kafka-streams-scala dependency.",
-    "1.3.0",
-  )
-  implicit def sessionWindowedSerde[T](implicit tSerde: Serde[T]): WindowedSerdes.SessionWindowedSerde[T] =
-    new WindowedSerdes.SessionWindowedSerde[T](tSerde)
-
-  // The two Avro members below construct no Confluent type, so this trait — which `Predef` mixes in,
-  // and every simulation imports — holds no reference to one. Their declared types (`Serde`,
-  // `GenericRecord`) come from Maven Central-published artifacts, so implicit search over this trait
-  // works with no Confluent artifact present.
+  // Neither Avro member constructs a Confluent type while this trait — which `Predef` mixes in, and
+  // every simulation imports — initialises. Their declared types (`Serde`, `GenericRecord`) come from
+  // Maven Central-published artifacts, so implicit search over this trait works with no Confluent
+  // artifact present; only actually summoning one touches Confluent, and a simulation that summons one
+  // is by definition doing Avro and has the artifacts.
   //
-  // `avroSerde` MUST stay a strict `val`. It is a published concrete trait member: making it `lazy`
-  // deletes the mixin setter from the compiled interface, so a simulation compiled against an earlier
-  // release keeps its own field, never has it assigned by `$init$`, and silently reads `null` — with no
-  // linkage error naming the cause. `LazyGenericAvroSerde` is what defers the Confluent construction
-  // instead, so the strict val and Contract E1 can both hold.
+  // `avroSerde` was a strict `val` until 2.0.0, deferring through a `LazyGenericAvroSerde` wrapper,
+  // because turning a published concrete trait member `lazy` deletes the mixin setter from the
+  // compiled interface — a simulation built against an earlier release would keep its own field, never
+  // have it assigned by `$init$`, and silently read `null`. A major release is where that is paid for
+  // openly, so the wrapper is gone and the member is simply `lazy`.
+  //
+  // `lazy val`, not `def`. `GenericAvroSerde` is unusable until `configure(configs, isKey)` supplies
+  // its Schema Registry client, and nothing in the plugin calls that — configuring the serde the DSL
+  // hands out is the user's only route. A `def` would hand every summon a fresh, unconfigured instance,
+  // so configuring it would silently configure a throwaway. One instance per mixing-in object keeps
+  // that route working while still constructing nothing until first use.
 
   implicit def serdeClass[T](implicit schemaRegUrl: String): Serde[T] =
     ConfluentSerdes.schemaRegistrySerde[T](schemaRegUrl)
 
-  implicit val avroSerde: Serde[GenericRecord] = new LazyGenericAvroSerde
-
-  @deprecated(
-    "Consumed is a Kafka Streams topology parameter and this plugin never builds a topology. " +
-      "Depend on org.apache.kafka:kafka-streams-scala_2.13 directly if you build Streams topologies. " +
-      "Removed in 2.0.0 together with the kafka-streams-scala dependency.",
-    "1.3.0",
-  )
-  implicit def consumedFromSerde[K, V](implicit keySerde: Serde[K], valueSerde: Serde[V]): Consumed[K, V] =
-    Consumed.`with`[K, V]
+  implicit lazy val avroSerde: Serde[GenericRecord] = ConfluentSerdes.newAvroSerde()
 
 }

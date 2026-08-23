@@ -3,7 +3,6 @@ package org.galaxio.gatling.kafka.examples
 import io.gatling.core.Predef._
 import io.gatling.core.feeder.Feeder
 import io.gatling.core.protocol.Protocol
-import io.gatling.core.structure.ScenarioBuilder
 import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.common.header.Headers
 import org.apache.kafka.common.header.internals.RecordHeaders
@@ -11,8 +10,22 @@ import org.galaxio.gatling.kafka.javaapi.KafkaDsl._
 import org.galaxio.gatling.kafka.javaapi.request.expressions.JExpression
 
 import java.util.concurrent.atomic.AtomicInteger
+import scala.concurrent.duration.DurationInt
 
+/** Scala driving the Java facade end to end, so the facade keeps broker-backed coverage here even though the Java examples run
+  * in their own consumer project.
+  *
+  * Every request is expected to succeed. Both halves of that are asserted, and the pair is the gate: `failedRequests.count`
+  * alone is satisfied by a scenario that never ran — a feeder that fails to build, a protocol that fails to start, a facade
+  * method that stops resolving — so the request count is pinned beside it.
+  *
+  * This declared no assertions at all until #248. Gatling exits 0 when a simulation asserts nothing, whatever happened during
+  * the run, so every request here could KO and CI would still report the harness green.
+  */
 class KafkaJavaapiMethodsGatlingTest extends Simulation {
+
+  /** The five facade calls the scenario below exercises, one request each. */
+  private val ExpectedRequests = 5
 
   val c                            = new AtomicInteger(0)
   val feeder: Feeder[Int]          = Iterator.continually(Map("key" -> c.incrementAndGet()))
@@ -69,6 +82,9 @@ class KafkaJavaapiMethodsGatlingTest extends Simulation {
       .exec(kafka("MsgBuilders").topic("myTopic3").send("key#{key}", "val", headers).asScala())
       .inject(nothingFor(1), atOnceUsers(1))
       .protocols(kafkaConfwoKey),
-  )
+  ).assertions(
+    global.failedRequests.count.is(0),
+    global.allRequests.count.is(ExpectedRequests),
+  ).maxDuration(120.seconds)
 
 }

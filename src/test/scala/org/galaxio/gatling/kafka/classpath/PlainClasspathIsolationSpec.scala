@@ -132,24 +132,63 @@ final class PlainClasspathIsolationSpec extends munit.FunSuite {
   }
 
   // ---------------------------------------------------------------------------------------------
-  // The mechanism that lets `avroSerde` stay a strict val (published trait ABI) without Confluent on
-  // the plain path. If this regressed, E1 would hold only by making avroSerde lazy — which silently
-  // returns null for consumers compiled against an earlier release.
+  // Where the failure lands.
+  //
+  // E1 says initialising an entry point must not construct a Confluent type. It does NOT say Avro
+  // must work without the artifacts — that is impossible and the failure has to surface somewhere.
+  // This pins the boundary between the two, which is the property the whole optional-artifact design
+  // rests on: `Predef` initialises, and the failure waits until a simulation actually asks for an
+  // Avro serde.
+  //
+  // Until 2.0.0 the boundary sat one step later, inside `LazyGenericAvroSerde`: summoning `avroSerde`
+  // handed back a wrapper and only `serializer()`/`deserializer()` failed. That wrapper existed
+  // because the 1.x binary freeze forced `avroSerde` to be a strict `val`. With `avroSerde` an
+  // `implicit def`, the body runs on summon, so the summon itself is where Confluent is first
+  // touched — and nothing constructs one before that.
   // ---------------------------------------------------------------------------------------------
 
-  test("LazyGenericAvroSerde constructs and closes without touching Confluent, and fails only on use") {
+  test("summoning avroSerde is what first touches Confluent, not initialising the trait that declares it") {
     val loader = denyingLoader
-    val cls    = initialiseUnderDenyingLoader("org.galaxio.gatling.kafka.request.LazyGenericAvroSerde", loader)
+    val cls    = initialiseUnderDenyingLoader("org.galaxio.gatling.kafka.Predef$", loader)
+    val predef = cls.getField("MODULE$").get(null)
 
-    val serde = cls.getDeclaredConstructor().newInstance()
-    cls.getMethod("close").invoke(serde): Unit
-
+    // Initialisation already succeeded above — that is E1. The summon is the first Confluent touch.
     val thrown = intercept[java.lang.reflect.InvocationTargetException] {
-      cls.getMethod("serializer").invoke(serde): Unit
+      cls.getMethod("avroSerde").invoke(predef): Unit
     }
     assert(
       thrown.getCause.isInstanceOf[NoClassDefFoundError],
-      s"expected the delegate construction to be deferred to first use, got ${thrown.getCause}",
+      s"expected summoning avroSerde to be where the missing Confluent artifact surfaces, got ${thrown.getCause}",
+    )
+  }
+
+  // Deliberately NOT under the denying loader: this is about identity, not isolation. Every other gate
+  // in the suite passes against a per-summon factory, because nothing else configures a serde or
+  // compares two summons — which is exactly how a `def` shipped once.
+  test("avroSerde hands out one stable instance, so configuring it is not configuring a throwaway") {
+    assert(
+      org.galaxio.gatling.kafka.Predef.avroSerde eq org.galaxio.gatling.kafka.Predef.avroSerde,
+      "two summons returned different serdes: GenericAvroSerde is unusable until configure() supplies " +
+        "its registry client, and a fresh instance per summon makes configuring it impossible",
+    )
+    assert(
+      org.galaxio.gatling.kafka.javaapi.checks.KafkaChecks.avroSerde
+        eq org.galaxio.gatling.kafka.javaapi.checks.KafkaChecks.avroSerde,
+      "the Java facade's accessor returned different serdes on two calls",
+    )
+  }
+
+  test("the Java facade's avroSerde accessor behaves the same way") {
+    val loader = denyingLoader
+    val cls    = initialiseUnderDenyingLoader("org.galaxio.gatling.kafka.javaapi.checks.KafkaChecks$", loader)
+    val module = cls.getField("MODULE$").get(null)
+
+    val thrown = intercept[java.lang.reflect.InvocationTargetException] {
+      cls.getMethod("avroSerde").invoke(module): Unit
+    }
+    assert(
+      thrown.getCause.isInstanceOf[NoClassDefFoundError],
+      s"expected the Java facade's avroSerde to construct on call, got ${thrown.getCause}",
     )
   }
 }

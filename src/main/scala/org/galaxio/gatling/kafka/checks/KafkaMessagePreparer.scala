@@ -7,8 +7,6 @@ import io.gatling.core.check.xpath.XmlParsers
 import io.gatling.core.config.GatlingConfiguration
 import io.gatling.core.json.JsonParsers
 import net.sf.saxon.s9api.XdmNode
-import org.apache.avro.generic.GenericRecord
-import org.apache.kafka.common.serialization.Serde
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 
 import java.io.ByteArrayInputStream
@@ -34,13 +32,11 @@ object KafkaMessagePreparer {
     */
   private val NoPayload = "the reply carries no payload, so there is nothing to check against"
 
-  // XML-specific, and deliberately not applied to the string/JSON/Avro preparers: labelling a malformed-JSON or
-  // deserialization failure "Could not parse response into a DOM Document" sends the reader looking for XML that was
-  // never involved. Those paths already return a Validation of their own (`Try(...).toValidation`,
-  // `jsonParsers.safeParse`), so they need no mapper at all.
+  // XML-specific, and deliberately not applied to the string/JSON preparers: labelling a malformed-JSON failure
+  // "Could not parse response into a DOM Document" sends the reader looking for XML that was never involved. Those
+  // paths already return a Validation of their own (`Try(...).toValidation`, `jsonParsers.safeParse`), so they need
+  // no mapper at all.
   private val XmlErrorMapper = "Could not parse response into a DOM Document: " + _
-
-  private val AvroErrorMapper = "Could not deserialize response with the configured Avro serde: " + _
 
   /** Absent payload short-circuits to a failure; everything else keeps its existing behaviour.
     *
@@ -91,10 +87,4 @@ object KafkaMessagePreparer {
         }
       }
 
-  def avroPreparer[T <: GenericRecord: Serde](config: GatlingConfiguration, topic: String): KafkaMessagePreparer[T] = msg =>
-    withPayload(msg) {
-      safely(AvroErrorMapper) {
-        messageCharset(config, msg).map(_ => implicitly[Serde[T]].deserializer().deserialize(topic, msg.value))
-      }
-    }
 }
