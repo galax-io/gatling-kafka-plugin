@@ -236,7 +236,7 @@ Gatling / javaOptions := overrideDefaultJavaOptions(
 //
 // The examples are not in this build at all: they live in examples/{scala,java,kotlin}, one consumer
 // project per language, each depending on the published artifact. `sbt Gatling/test` here runs the
-// three test harnesses.
+// four test harnesses.
 //
 // The Java and Kotlin examples are NOT here: `Gatling/testOnly` cannot run them. io.gatling.javaapi
 // .core.Simulation does not extend io.gatling.core.scenario.Simulation, and gatling-test-framework
@@ -251,9 +251,9 @@ Gatling / javaOptions := overrideDefaultJavaOptions(
 Gatling / parallelExecution := false
 
 // One forked JVM per simulation. sbt's default puts every test of a configuration in a single group, so
-// `Gatling / test` would otherwise run all three harnesses in one JVM — letting KafkaConcurrencyLoadTest
+// `Gatling / test` would otherwise run every harness in one JVM — letting KafkaConcurrencyLoadTest
 // (30 users held for 100 s) share Gatling's static configuration, Netty allocators and Kafka client
-// statics with the two that follow it. A leaked consumer or an exhausted allocator would then surface in
+// statics with the ones that follow it. A leaked consumer or an exhausted allocator would then surface in
 // an unrelated simulation, and be diagnosed there.
 //
 // Derived from `(Gatling / forkOptions).value`, not a fresh `ForkOptions()`: the default carries the
