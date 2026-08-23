@@ -986,7 +986,7 @@ sbt compile
 sbt test
 
 # Run the Gatling simulations exercised in CI (requires Kafka/Schema Registry, for example via Docker Compose)
-sbt "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaGatlingTest" "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaJavaapiMethodsGatlingTest"
+sbt "Gatling / test"
 
 # Check formatting (matches the formatting CI step)
 sbt scalafmtCheckAll scalafmtSbtCheck
@@ -995,7 +995,7 @@ sbt scalafmtCheckAll scalafmtSbtCheck
 sbt scalafmtAll scalafmtSbt
 
 # Recommended local check before pushing (matches the main CI flow)
-sbt clean compile "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaGatlingTest" "Gatling / testOnly org.galaxio.gatling.kafka.examples.KafkaJavaapiMethodsGatlingTest" test
+sbt clean compile "Gatling / test" test
 ```
 
 ## Releasing

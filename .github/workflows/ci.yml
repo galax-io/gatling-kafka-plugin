@@ -141,8 +141,8 @@ jobs:
         run: sbt "Test / runMain org.galaxio.gatling.kafka.examples.ExampleCoverageCheck"
 
       # `Gatling / test` is sbt's own Gatling task, and it picks up every simulation on the test
-      # classpath — the three test harnesses — so one added later is covered without editing this
-      # file. It replaced three hand-listed `testOnly` invocations; the reason each of those mattered
+      # classpath — the four test harnesses — so one added later is covered without editing this
+      # file. It replaced hand-listed `testOnly` invocations; the reason each of those mattered
       # is worth keeping:
       #
       #   KafkaConcurrencyLoadTest is the only *sustained* concurrent request-reply coverage — 30
@@ -150,7 +150,10 @@ jobs:
       #   (issue #167). KafkaGatlingTest's keyless scenarios inject a handful of concurrent users,
       #   enough to observe cross-attribution but not to hold load. KafkaJavaapiMethodsGatlingTest is
       #   Scala driving the Java facade, so the facade keeps end-to-end coverage here even though the
-      #   Java examples run in their own project.
+      #   Java examples run in their own project. KafkaFailureModesGatlingTest holds every scenario
+      #   that is *supposed* to KO — no correlation id, tombstone reply, reply timeout. Keeping them
+      #   out of KafkaGatlingTest is what lets that one assert zero failures, so an error block in
+      #   its output is always a regression rather than something to be checked against a count.
       #
       # Dropping any of them from the suite would be a real loss of coverage, not a tidy-up.
       - name: Test (Gatling + unit, under coverage)

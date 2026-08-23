@@ -205,7 +205,8 @@ enabled once per clone via `scripts/install-hooks.sh`, enforces formatting on ev
 compile and tests are enforced by CI.
 
 **Full CI gate** requires the Compose stack (Kafka, Zookeeper, Schema Registry) and runs
-`KafkaGatlingTest`, `KafkaJavaapiMethodsGatlingTest`, and `KafkaConcurrencyLoadTest` under coverage
+`KafkaGatlingTest`, `KafkaFailureModesGatlingTest`, `KafkaJavaapiMethodsGatlingTest`, and
+`KafkaConcurrencyLoadTest` under coverage
 alongside `sbt test`. The published examples are not in this build: they run from the three consumer
 projects under `examples/`, one per language, against the published artifact. Java and Kotlin cannot
 run in sbt at all — Gatling's sbt plugin supports Scala only. The exact invocations live in
