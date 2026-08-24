@@ -560,9 +560,13 @@ Use this section as release-based upgrade notes. Start from the version you are 
 | `0.20.x` or older | `1.0.x` | Treat as full doc refresh. Older consume-only or per-action matcher APIs are not present. |
 | `1.0.x` – `1.2.x` | `1.3.x` | Build-file only. Plain users: no change. Schema Registry Avro users: declare two artifacts and the Confluent resolver — see below. |
 | `1.3.x` | `2.0.0` | Source-breaking, but only for API that could not work. Most suites need no change — see below. |
-| `2.0.x` | `2.1.0` | Reported failure messages for request-reply and consumer failures now name the exception type. No source or binary change — see below. |
+| `2.0.x` | `2.1.0` | No source change. Reporting moves: failure messages now name the kind of failure, and requests the plugin rejects before sending get a request name of their own — see below. |
 
 ### Upgrading to `2.1.0`
+
+No changes to the DSL, the `javaapi` facade, protocol settings or wire formats — nothing you have written stops compiling.
+What changes is what a run reports, in four places. One of them can turn a passing assertion red, so read that one before
+upgrading.
 
 #### A failed request now names the kind of failure in its message
 
@@ -605,6 +609,125 @@ so build tools treat `2.0.x → 2.1.0` as compatible and would not warn. Removal
 release. Nothing you have compiles differently in `2.1.0`: constructing it, reading `errorType`,
 `copy(errorType = …)` and a four-arity `case SendFailed(id, msg, token, kind) =>` all still work. Drop
 the argument at your convenience; if you matched on it, it was already always `None`.
+
+#### Requests the plugin rejects before sending now have their own request name
+
+A request-reply can end before the record reaches the broker: the configured matcher yields no correlation id, or the reply
+channel cannot be established. Both were reported under the request name your simulation declared, and both are now reported
+under a derived one:
+
+| What happened | Reported as |
+|---|---|
+| The matcher returned nothing for this request | `<your name> [rejected: no correlation id]` |
+| The reply channel could not be acquired | `<your name> [rejected: no reply channel]` |
+| The producer never delivered the record | `<your name> [rejected: not delivered]` |
+
+**The delivery-failure row is the one most likely to move your numbers.** With Kafka's default
+`delivery.timeout.ms` of two minutes, a broker outage used to put a ~120 000 ms sample on every in-flight
+request, under the request's own name. Those requests never reached the broker, so that figure measured
+nothing about your system under test — and it dwarfed everything else on this list.
+
+Status, failure message and measured interval are unchanged. A rejection that waited still reports its wait; a rejection
+decided instantly still reports a near-zero one.
+
+**Why the name and not something else.** Gatling feeds a request name's response-time distribution from every entry carrying
+that name, failures included, and its assertion API has no successful-only scope for `responseTime`. So a request that never
+left the JVM was contributing a sample to the percentile your simulation asserts on. The request name is the only field a
+plugin controls that separates those samples: the response-code slot is discarded before a run's data is written, and the
+alternative — reporting them as run errors — would drop them out of `failedRequests` entirely, which is worse.
+
+**⚠️ This can turn an assertion red.** An assertion of the form:
+
+```scala
+details("My Request").failedRequests.count.is(3)
+```
+
+stops counting rejections, because they are no longer reported under `My Request`. `global.failedRequests` and
+`global.allRequests` are unchanged, and so is every assertion written against them. If a per-request failure count of yours
+was counting rejections, point it at the derived name:
+
+```scala
+details("My Request [rejected: no correlation id]").failedRequests.count.is(3)
+```
+
+**The bracketed suffix is reserved.** Do not declare a request whose name ends in `[rejected: …]`; nothing prevents it, and
+the two rows would merge. Gatling's own redirect naming (`<name> Redirect 1`) carries the same exposure.
+
+**Groups are cleaned too.** A rejection no longer contributes to the cumulated response time of an enclosing
+`group(...)` either, so `details("<your group>").responseTime` stops absorbing requests that never reached
+the broker. It is still counted as a failed request.
+
+**What this does not fix.** `global.responseTime` still includes rejection samples. Gatling feeds the run-wide distribution
+without reference to request name, so no choice available to a plugin can clean it. Assert latency on
+`details("<your name>").responseTime` and on `details("<your group>").responseTime`, and correctness on
+`failedRequests` / `successfulRequests`. Reply timeouts are unchanged and still report under the request's
+own name: a request that waited out its budget did measure your system under test, unlike the three
+rejections above.
+
+#### A request-reply with no consumer `bootstrap.servers` now fails before the run starts
+
+A protocol whose consumer settings carry no `bootstrap.servers` has no reply channel, so a request-reply against it could
+never be answered. Every such request used to be failed individually — one KO per virtual user, each with a near-zero
+interval, for a misconfiguration no run could recover from. The simulation now refuses to start, naming the missing entry.
+
+Note the gate is the `bootstrap.servers` entry, not the `consumeSettings(...)` call: a protocol that calls `consumeSettings`
+and sets only, say, `group.id` is refused too, and the message says so.
+
+**⚠️ The refusal happens while Gatling materialises the scenario, which is after your `before {}` hook has run and before
+`after {}` becomes reachable.** If your `before` starts anything — a container, a stub service, a topic seed — it will not be
+torn down. The plugin's own producers and consumers are still closed, but yours are not. Guard `before` with a `try`/`catch`,
+or check the protocol's consumer settings before you start anything expensive.
+
+- **Produce-only is untouched.** A protocol built with `kafka.properties(...)` carries no consumer settings by design, and
+  publishing never asks for a reply channel. If your simulation only sends, nothing changes.
+- **One caveat, if you attach protocols at the `setUp` level.** A produce-only protocol applied to *every* scenario, in a
+  simulation that also contains a request-reply, now stops the whole run rather than failing that one scenario's requests.
+  Attach the request-reply scenario's protocol per injection, or give the protocol `consumeSettings`.
+
+#### A reply timeout now says when replies arrived that could not be correlated
+
+A service can answer with a tombstone — a record with no payload — which is ordinary traffic on a compacted topic. If your
+protocol correlates on the record value, there is nothing in a tombstone to correlate on: the reply arrives, cannot be matched
+to its request, and is dropped. The request then failed on its reply timeout, indistinguishable from a service that never
+answered at all.
+
+The timeout is still reported, but it now names what happened:
+
+```text
+Reply timeout after 12000 ms. Replies also arrived on this reply topic that KafkaValueMatcher could not
+read a correlation id from, so this request may have been answered in a shape this configuration cannot
+correlate rather than not answered at all. matchByValue correlates on the payload, so the payload cannot
+be null — give this request a body, or correlate on a key or header instead.
+```
+
+The remedy is derived from the matcher you configured, so a header-correlated channel gets header advice.
+The clause carries no count: Gatling groups its error table by message text, and a per-timeout number
+would split one row into hundreds. The count is in the log instead.
+
+Against a service that genuinely never answers, the message is exactly what it was.
+
+**If your target may answer with tombstones, correlate on a header rather than the value.** A tombstone still carries its
+headers, so a header-correlated reply reaches its request and your checks run against it — including the clean absent-payload
+failure `1.2.0` introduced, which on the value-correlated path was unreachable because the reply never got there:
+
+```scala
+import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
+
+// A `val`, not a `def`. Reply channels are keyed on matcher identity, and passing a method reference to
+// matchByMessage eta-expands to a fresh function every time it is evaluated — so two protocols built from
+// the same method on the same reply topic get two channels, two consumers, and each sees only part of the
+// replies. One `val` shared by every protocol that correlates the same way avoids it.
+val correlationId: KafkaProtocolMessage => Array[Byte] =
+  msg => msg.headers.flatMap(hs => Option(hs.lastHeader("x-correlation-id"))).map(_.value()).orNull
+
+val protocol = kafka
+  .producerSettings(...)
+  .consumeSettings(...)
+  .matchByMessage(correlationId)
+```
+
+Correlating on the key works for the same reason and needs no extractor. `matchByValue` against a tombstone-answering service
+cannot be made to work — there is nothing in the record to correlate on.
 
 ### `1.3.x` → `2.0.0` — removals
 
@@ -849,7 +972,9 @@ hashing a constant.
 - Messages that carry a key are unaffected: placement is still `hash(key) % partitions`, so per-key ordering guarantees hold.
 - Immediate rejections (the section above) are reported with a near-zero response time, because that is how long they take.
   If you assert on `global.responseTime` percentiles, note that a run rejecting every request will *lower* them; assert on
-  `failedRequests`/`successfulRequests` to catch that case.
+  `failedRequests`/`successfulRequests` to catch that case. **In `2.1.0` these rejections moved to a request name of their
+  own**, so they no longer affect the percentile reported for the request you declared — but `global.responseTime` still
+  blends them in, so the advice above still holds for it.
 
 > ### ⚠️ Keyless sends to a log-compacted topic now fail
 >
@@ -882,9 +1007,10 @@ The consequence: when acquiring the reply channel fails — for example the repl
 timeout — the request is now reported as a failure **without** being published. Before, it was published first and then
 reported as a failure.
 
-- Reported results are unchanged: the same KO and the same response-time span. (The message text of this
-  failure did change later, in `2.1.0`, which prefixed it with the exception type — see
-  [Upgrading to `2.1.0`](#upgrading-to-210).)
+- Reported results are unchanged: the same KO and the same response-time span. Two things about this
+  failure did change later, in `2.1.0`: its message gained an exception-type prefix, and it moved to a
+  request name of its own, `<your name> [rejected: no reply channel]` — see
+  [Upgrading to `2.1.0`](#upgrading-to-210).
 - What changes is that your system under test no longer receives a request whose reply the plugin could never have matched.
 - If a simulation depended on that request reaching the broker despite the failure, it will now see one fewer record on that
   path.

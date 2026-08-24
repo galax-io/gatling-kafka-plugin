@@ -19,7 +19,7 @@ import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 import org.galaxio.gatling.kafka.request.builder.KafkaAttributes
 
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
-import scala.concurrent.duration.DurationInt
+import scala.concurrent.duration.{DurationInt, FiniteDuration}
 
 /** Issue #167 — a request-reply that supplies nothing the configured matcher can correlate on must be failed before it is sent,
   * not sent and then mismatched.
@@ -36,6 +36,17 @@ class KafkaRequestReplyActionSpec extends munit.FunSuite {
 
   private final class StubClock(now: Long) extends Clock {
     override def nowMillis: Long = now
+  }
+
+  /** Returns `start` on its first reading and `end` on every one after it.
+    *
+    * The action reads the clock exactly twice per rejected request — once on entry for the start instant, once when it reports
+    * — so this pins the reported interval without depending on wall-clock time. Only the action gets one; the pool keeps a
+    * fixed clock, or its idle sweep would consume readings this is counting.
+    */
+  private final class SteppingClock(start: Long, end: Long) extends Clock {
+    private val readings         = new AtomicInteger(0)
+    override def nowMillis: Long = if (readings.getAndIncrement() == 0) start else end
   }
 
   private final class RecordingAction(val name: String) extends Action {
@@ -83,6 +94,8 @@ class KafkaRequestReplyActionSpec extends munit.FunSuite {
   private def withAction(
       matcher: org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaMatcher,
       shutDownPoolFirst: Boolean = false,
+      actionClock: Clock = new StubClock(1_000L),
+      timeout: FiniteDuration = 5.seconds,
   )(
       body: (KafkaRequestReplyAction[Array[Byte], Array[Byte]], RecordingSender, RecordingStatsEngine, RecordingAction) => Unit,
   ): Unit = {
@@ -96,11 +109,13 @@ class KafkaRequestReplyActionSpec extends munit.FunSuite {
       val protocol       = KafkaProtocol(
         producerProperties = Map.empty,
         consumerProperties = deadConsumerSettings,
-        timeout = 5.seconds,
+        timeout = timeout,
         messageMatcher = matcher,
       )
+      // The action's own clock, deliberately not the pool's: the pool's idle sweep reads its clock on a
+      // schedule, which would consume the readings a SteppingClock is counting.
       val coreComponents =
-        new CoreComponents(actorSystem, null, null, None, statsEngine, clock, null, GatlingConfiguration.loadForTest())
+        new CoreComponents(actorSystem, null, null, None, statsEngine, actionClock, null, GatlingConfiguration.loadForTest())
       val action         = new KafkaRequestReplyAction[Array[Byte], Array[Byte]](
         KafkaComponents(coreComponents, protocol, Some(pool), sender),
         attributes,
@@ -141,10 +156,18 @@ class KafkaRequestReplyActionSpec extends munit.FunSuite {
       val responses = statsEngine.responses.get()
       assertEquals(responses.size, 1, "a request that cannot be correlated must still get an outcome")
       assertEquals(responses.head.status, (KO: Status))
+      // Reported, not swallowed — the same guarantee as before, under a name that says what happened.
+      //
+      // It moved off "request-reply" because of what Gatling does with the reading: every request entry
+      // updates the response-time digest for the name it carries, KO included, and the assertion API has
+      // no successful-only scope for response time. A rejection left on the declared name therefore puts a
+      // sample the system under test never produced into the percentile the simulation asserts on
+      // (issue #227). The name is the only field a plugin controls that segregates samples — the
+      // response-code slot is discarded before a run's data is written — so the name is what moves.
       assertEquals(
         responses.head.requestName,
-        "request-reply",
-        "and it must be reported against the request, not swallowed",
+        "request-reply [rejected: no correlation id]",
+        "it must be reported against a name of its own, neither swallowed nor blended into the request's latency",
       )
       assertEquals(
         sender.sends.get(),
@@ -194,6 +217,72 @@ class KafkaRequestReplyActionSpec extends munit.FunSuite {
 
       assertEquals(sender.sends.get(), 0, "nothing was published, so nothing must reach the producer")
       assert(next.lastSession.get() != null, "the virtual user must be advanced rather than left hanging")
+      assert(next.lastSession.get().isFailed, "and advanced as failed")
+    }
+  }
+
+  test("a request whose reply channel cannot be acquired is reported under its own name, with the wait it really took") {
+    // The other rejection, and the one that matters most to a percentile. The two keyless cases above
+    // report near-zero intervals, which drag a percentile down; this one reports the whole wait before it
+    // gave up, which drags it up. Both describe a request that never reached the broker, so both move off
+    // the declared name — and this one has to keep its measured wait when it moves. Reporting it as zero to
+    // make rejections uniform would trade one wrong number for another (issue #227).
+    //
+    // The clock is what pins the interval: the action reads it exactly twice on this path, on entry and
+    // when it reports, so the reported span is 3_500 ms whatever the wall clock did.
+    withAction(KafkaKeyMatcher, shutDownPoolFirst = true, actionClock = new SteppingClock(1_000L, 4_500L)) {
+      (action, sender, statsEngine, next) =>
+        action.sendKafkaMessage("request-reply", keyedMessage, Session("scenario", 1L, null))
+
+        val responses = statsEngine.responses.get()
+        assertEquals(responses.size, 1, "a request whose reply channel never arrived must still get an outcome")
+        assertEquals(responses.head.status, (KO: Status))
+        assertEquals(
+          responses.head.requestName,
+          "request-reply [rejected: no reply channel]",
+          "it never reached the broker, so it must not report against the request's own name",
+        )
+        assertEquals(
+          responses.head.endTimestamp - responses.head.startTimestamp,
+          3_500L,
+          "the wait is relocated, not flattened: a rejection that waited must report what it waited",
+        )
+        assertEquals(
+          sender.sends.get(),
+          0,
+          "nothing is published when the channel that would carry its reply could not be established",
+        )
+        assert(next.lastSession.get() != null, "the virtual user must be advanced rather than left hanging")
+        assert(next.lastSession.get().isFailed, "and advanced as failed")
+    }
+  }
+
+  test("an acquisition that times out is reported from the pool's own thread, under the derived name") {
+    // The asynchronous half of the reply-channel rejection, and the one RejectionKind.NoReplyChannel's
+    // scaladoc is actually about: "the whole consumer-assignment wait", the rejection whose interval
+    // inflates rather than deflates a percentile.
+    //
+    // The sibling test above shuts the pool down first, which makes acquireTracker fail on the calling
+    // thread through its early return. That is deterministic and cheap, but it never leaves the caller —
+    // so it does not exercise setupExecutor.schedule -> readiness.completeExceptionally -> whenCompleteAsync
+    // -> onFailure -> reportRejection, which is where the reporting actually happens in production, on a
+    // different thread. A dead port plus a short assignment budget is the only rig that reaches it.
+    withAction(KafkaKeyMatcher, timeout = 400.millis) { (action, sender, statsEngine, next) =>
+      action.sendKafkaMessage("request-reply", keyedMessage, Session("scenario", 1L, null))
+
+      val deadline = System.currentTimeMillis() + 30_000L
+      while (statsEngine.responses.get().isEmpty && System.currentTimeMillis() < deadline) Thread.sleep(50L)
+
+      val responses = statsEngine.responses.get()
+      assertEquals(responses.size, 1, "the continuation must report exactly one outcome, from whatever thread it runs on")
+      assertEquals(responses.head.status, (KO: Status))
+      assertEquals(
+        responses.head.requestName,
+        "request-reply [rejected: no reply channel]",
+        "the derived name must be applied on the asynchronous path too, not only the synchronous one",
+      )
+      assertEquals(sender.sends.get(), 0, "nothing is published when the channel never became available")
+      assert(next.lastSession.get() != null, "the virtual user must be advanced from the pool's continuation thread")
       assert(next.lastSession.get().isFailed, "and advanced as failed")
     }
   }
