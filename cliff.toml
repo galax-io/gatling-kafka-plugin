@@ -47,6 +47,11 @@ commit_parsers = [
   # number means nothing outside this repository. Skipped from the notes, kept in the history.
   # Must precede the general `^docs` rule below: first match wins.
   { message = "^docs\\(speckit\\)", skip = true },
+  # Same reasoning for the agent guide: AGENTS.md is how this repository is worked on, not
+  # part of what it ships. It is never published in the artifact, and a consumer reading the
+  # notes has no use for "name KafkaFailureModesGatlingTest in the Test Model". Also before
+  # the general `^docs` rule: first match wins.
+  { message = "^docs\\(agents\\)", skip = true },
   { message = "^docs", group = "<!-- 04 -->Documentation" },
   { message = "^chore\\(deps\\)", group = "<!-- 05 -->Dependencies" },
   # Scala Steward commits `Update <artifact>[, <artifact>…] to <version>` — its own template,
