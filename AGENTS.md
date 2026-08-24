@@ -31,7 +31,7 @@ sbt scalafmtCheckAll scalafmtSbtCheck             # format gate — must pass be
 sbt clean compile                                 # compile
 sbt test                                          # unit specs + Testcontainers integration spec
 sbt "Test / runMain org.galaxio.gatling.kafka.examples.ExampleCoverageCheck"      # example coverage + topic contract (no broker)
-sbt "Gatling / test"                              # the 3 test harnesses
+sbt "Gatling / test"                              # every Gatling simulation on the test classpath
 sbt 'set ThisBuild / version := "0.0.0-EXAMPLES-SNAPSHOT"' publishM2             # then run any example project below
 bash scripts/install-hooks.sh                     # enable the pre-commit git hook — once per clone
 ```
@@ -72,7 +72,7 @@ commit; compile + tests stay in CI.
 
 - Follow TDD where practical; add focused regression tests for behavior changes.
 - Prefer a real broker (Testcontainers, or the Compose stack) over mocks when validating Kafka behavior.
-- `KafkaGatlingTest`, `KafkaJavaapiMethodsGatlingTest`, and `KafkaConcurrencyLoadTest` are test simulations, not examples, and they are all `sbt "Gatling / test"` runs.
+- `KafkaGatlingTest`, `KafkaFailureModesGatlingTest`, `KafkaJavaapiMethodsGatlingTest`, and `KafkaConcurrencyLoadTest` are test simulations, not examples, and they are all `sbt "Gatling / test"` runs.
 - The published examples are **not** in this build. They live in three consumer projects, one per language, each on the build tool its users use and each depending on the published artifact: `examples/scala` (sbt), `examples/java` (Maven), `examples/kotlin` (Gradle). Publish with `publishM2` under the sentinel version first, then run each with its own native task.
 - **Do not try to run Java or Kotlin simulations from sbt.** `io.gatling.javaapi.core.Simulation` does not extend `io.gatling.core.scenario.Simulation`, and `gatling-test-framework` declares exactly one sbt fingerprint, matching only the Scala superclass — so naming one selects nothing and exits 0. Gatling's sbt plugin supports Scala only.
 - `examples/kotlin` pins Gradle 8.12 in its committed wrapper because `io.gatling.gradle` 3.13.5.4 — the release matching Gatling 3.13.5 — cannot configure on Gradle 9. Bump the wrapper and the plugin together or not at all.
