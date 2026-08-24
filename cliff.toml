@@ -41,13 +41,18 @@ commit_parsers = [
   { message = "^feat", group = "<!-- 01 -->Features" },
   { message = "^fix", group = "<!-- 02 -->Fixes" },
   { message = "^perf", group = "<!-- 03 -->Performance" },
-  # Spec-kit artifacts are process, not product. `specs/NNN-*/` is version-controlled and the
-  # spec-first commit is mandatory (AGENTS.md), so these commits must exist — but a consumer reading
-  # the release notes has no use for "add 006-v2-cleanup-sweep spec/plan/tasks", and the feature
-  # number means nothing outside this repository. Skipped from the notes, kept in the history.
-  # Must precede the general `^docs` rule below: first match wins.
-  { message = "^docs\\(speckit\\)", skip = true },
-  { message = "^docs", group = "<!-- 04 -->Documentation" },
+  # Documentation here is process, not product. Every `docs` commit this repository has ever had is
+  # either `docs(speckit)` — spec-kit artifacts, which AGENTS.md makes mandatory, so they must exist —
+  # or `docs(agents)`, the agent guide. Neither ships in the artifact, and a consumer reading the notes
+  # has no use for "add 006-v2-cleanup-sweep spec/plan/tasks" or "name KafkaFailureModesGatlingTest in
+  # the Test Model". Skipped from the notes, kept in the history.
+  #
+  # One blanket rule rather than a skip per scope: an enumerated list has to be extended for every new
+  # kind of internal doc, and it was carving exceptions out of a general `^docs` -> Documentation rule
+  # that had never once matched a consumer-facing commit. If a genuinely user-facing docs commit ever
+  # lands — a README change someone needs to read about — give it its own group rule then, against a
+  # real commit instead of a hypothetical one.
+  { message = "^docs", skip = true },
   { message = "^chore\\(deps\\)", group = "<!-- 05 -->Dependencies" },
   # Scala Steward commits `Update <artifact>[, <artifact>…] to <version>` — its own template,
   # with no Conventional Commits prefix — so the rule above never sees them and they fell through
