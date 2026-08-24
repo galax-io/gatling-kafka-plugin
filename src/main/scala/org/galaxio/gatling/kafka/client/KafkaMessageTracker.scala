@@ -70,13 +70,23 @@ object KafkaMessageTracker {
     * its reply timeout and, worse, its channel never returns to idle because nothing releases the reference acquisition took.
     *
     * `errorMessage` carries the failure's own kind as well as its text — `TimeoutException: Expiring 1 record(s)`, composed by
-    * `KafkaRequestFailureMessages.failureCause`. The kind used to travel beside it in Gatling's response-code slot, which no
-    * OSS report reads (issue #254).
+    * `KafkaRequestFailureMessages.failureCause`. The kind used to travel beside it in `errorType`, which was handed to
+    * Gatling's response-code slot — a slot no OSS report reads (issue #254).
+    *
+    * `errorType` is kept, ignored, rather than deleted: this is a published case class, so dropping a field would change
+    * `apply`, `copy`, `unapply` and the accessor and break anything compiled against 2.0.x at run time. Removal belongs in the
+    * next major release, after this deprecation cycle. It carries no `@deprecated` annotation because a case-class parameter
+    * propagates the warning into its own synthesized `apply`/`copy`, which `-Xfatal-warnings` rejects and which the build
+    * forbids suppressing with `@nowarn`.
+    *
+    * @deprecated
+    *   nothing reads `errorType`; put the failure's kind in `errorMessage` via `KafkaRequestFailureMessages.failureCause`
     */
   final case class SendFailed(
       matchId: Array[Byte],
       errorMessage: String,
       token: Long = 0L,
+      errorType: Option[String] = None,
   ) extends TrackerMessage
 
   final case class ConsumerFailure(errorMessage: String) extends TrackerMessage
@@ -258,7 +268,7 @@ class KafkaMessageTracker[K, V](
       }
       stay
 
-    case SendFailed(matchId, errorMessage, token) =>
+    case SendFailed(matchId, errorMessage, token, _) =>
       val key = matchKeyFor(matchId)
       // Same token check: without it a late delivery failure removes and fails whichever request now
       // holds the key, reporting it with an unrelated error while the request that actually failed is

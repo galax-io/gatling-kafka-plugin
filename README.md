@@ -560,33 +560,51 @@ Use this section as release-based upgrade notes. Start from the version you are 
 | `0.20.x` or older | `1.0.x` | Treat as full doc refresh. Older consume-only or per-action matcher APIs are not present. |
 | `1.0.x` – `1.2.x` | `1.3.x` | Build-file only. Plain users: no change. Schema Registry Avro users: declare two artifacts and the Confluent resolver — see below. |
 | `1.3.x` | `2.0.0` | Source-breaking, but only for API that could not work. Most suites need no change — see below. |
-| `2.0.x` | `2.1.0` | Reported failure messages for request-reply now name the exception type. No source change unless you construct `SendFailed` yourself — see below. |
+| `2.0.x` | `2.1.0` | Reported failure messages for request-reply and consumer failures now name the exception type. No source or binary change — see below. |
 
 ### Upgrading to `2.1.0`
 
-#### A failed request-reply now names the kind of failure in its message
+#### A failed request now names the kind of failure in its message
 
-A request-reply that the producer fails to deliver, or whose reply channel cannot be acquired, is now
-reported as `TimeoutException: Expiring 1 record(s) for request-topic-0` rather than as
+A failure is now reported as `TimeoutException: Expiring 1 record(s) for request-topic-0` rather than as
 `Expiring 1 record(s) for request-topic-0`. Nothing else changes: the status is still KO, timings are
-unchanged, successful requests are untouched, and produce-only requests are unaffected.
+unchanged, and successful requests are untouched. Three paths are affected:
 
-The kind of failure was already being collected — it was handed to Gatling in the response-code slot
-that sits beside the message on `logResponse`. Gatling OSS discards that slot before writing run data:
-its file serializer writes groups, name, timestamps, status and message and nothing else, its console
-writer keys the error histogram by message, and the record the HTML report parses back has no field for
-it at all. The value therefore reached no report, no assertion and no `simulation.log` (issue #254).
-Putting it in the message is what makes it visible.
+| Path | Before | Now |
+|---|---|---|
+| Request-reply delivery or reply-channel failure | `Expiring 1 record(s) for t-0` | `TimeoutException: Expiring 1 record(s) for t-0` |
+| Produce-only send failure | `Failed to send request to Kafka broker: Expiring 1 record(s) for t-0` | `Failed to send request to Kafka broker: TimeoutException: Expiring 1 record(s) for t-0` |
+| Consumer failure (fails every in-flight request-reply at once) | `Consumer failure: <text>`, or `Consumer failure: null` when the exception had no message | `Consumer failure: KafkaException: <text>` |
 
-**What to check.** If you assert on, grep for, or group by the exact text of a request-reply failure
-message, the `<ExceptionType>: ` prefix is new. In the HTML report's errors table, failures that used to
-share one row because they shared a message now split by exception type.
+The kind of failure was already being collected on the request-reply path — it was handed to Gatling in
+the response-code slot that sits beside the message on `logResponse`. Gatling OSS discards that slot
+before writing run data: its file serializer writes groups, name, timestamps, status and message and
+nothing else, its console writer keys the error histogram by message, and the record the HTML report
+parses back has no field for it at all. The value therefore reached no report, no assertion and no
+`simulation.log` (issue #254). Putting it in the message is what makes it visible.
 
-#### `KafkaMessageTracker.SendFailed.errorType` is gone
+Where a failure arrives wrapped, the cause is named too — `IllegalStateException: Kafka consumer failed
+(caused by SaslAuthenticationException: …)`. The plugin wraps every consumer fault in one
+`IllegalStateException` with a fixed message, so without the cause a broker outage, an ACL rejection and
+a SASL misconfiguration were reported identically.
+
+**What to check.** If you assert on, grep for, or group by the exact text of a failure message, the
+`<ExceptionType>: ` prefix is new. In the HTML report's errors table, failures that used to share one row
+because they shared a message now split by exception type.
+
+#### `KafkaMessageTracker.SendFailed.errorType` is deprecated
 
 That field carried the failure kind to the response-code slot described above. With the kind now in
-`errorMessage`, it has no destination left, so it is removed. `SendFailed` is constructed by the
-plugin's own request-reply action; if you construct it yourself, drop the fourth argument.
+`errorMessage`, it has no destination left, so nothing reads it and nothing sets it — every `SendFailed`
+carries `None`.
+
+**It is not removed.** `SendFailed` is a published case class, so dropping a field would change `apply`,
+`copy`, `unapply` and the accessor, and anything compiled against `2.0.x` would fail at run time with
+`NoSuchMethodError` rather than at compile time — this project declares `versionScheme := "semver-spec"`,
+so build tools treat `2.0.x → 2.1.0` as compatible and would not warn. Removal belongs in the next major
+release. Nothing you have compiles differently in `2.1.0`: constructing it, reading `errorType`,
+`copy(errorType = …)` and a four-arity `case SendFailed(id, msg, token, kind) =>` all still work. Drop
+the argument at your convenience; if you matched on it, it was already always `None`.
 
 ### `1.3.x` → `2.0.0` — removals
 
@@ -864,7 +882,9 @@ The consequence: when acquiring the reply channel fails — for example the repl
 timeout — the request is now reported as a failure **without** being published. Before, it was published first and then
 reported as a failure.
 
-- Reported results are unchanged: the same KO, the same error message, and the same response-time span.
+- Reported results are unchanged: the same KO and the same response-time span. (The message text of this
+  failure did change later, in `2.1.0`, which prefixed it with the exception type — see
+  [Upgrading to `2.1.0`](#upgrading-to-210).)
 - What changes is that your system under test no longer receives a request whose reply the plugin could never have matched.
 - If a simulation depended on that request reaching the broker despite the failure, it will now see one fewer record on that
   path.

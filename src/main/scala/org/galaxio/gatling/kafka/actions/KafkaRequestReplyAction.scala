@@ -110,7 +110,7 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
             tracker => {
               // Distinguishes this registration from any other sharing the same match id — the message
               // key under the default matcher, so a feeder cycling a fixed key set reuses it constantly.
-              val token       = registrationToken.incrementAndGet()
+              val token                        = registrationToken.incrementAndGet()
               // The handoff, and what the request is measured from.
               //
               // Not the request's start: the reply budget must not be charged for channel acquisition, or a
@@ -118,7 +118,7 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
               // acknowledgement, which is where this used to start — that excluded the produce leg from
               // every reported time, understating what the virtual user waits for and leaving this the only
               // Gatling protocol that measures from something other than handing the request over.
-              val handedOffAt = clock.nowMillis
+              val handedOffAt                  = clock.nowMillis
               tracker ! KafkaMessageTracker
                 .MessagePublished(
                   id,
@@ -135,6 +135,14 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
               // the single terminal outcome and the channel reference. Reporting from this frame instead
               // would leave the record behind, and its later timeout would report the request a second
               // time and advance the same virtual user twice.
+              // Both ways a send can fail report the same way, and the log says exactly what the report
+              // says: composing them separately let the two drift, and `e.getMessage` alone can be null.
+              def failSend(e: Throwable): Unit = {
+                val cause = KafkaRequestFailureMessages.failureCause(e)
+                logger.error(cause, e)
+                tracker ! KafkaMessageTracker.SendFailed(id, cause, token)
+              }
+
               try
                 components.sender.send(protocolMessage)(
                   rm =>
@@ -144,28 +152,24 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
                         protocolMessage,
                       )
                     },
-                  e => {
-                    logger.error(e.getMessage, e)
-                    tracker ! KafkaMessageTracker.SendFailed(id, KafkaRequestFailureMessages.failureCause(e), token)
-                  },
+                  failSend,
                 )
               catch {
                 // The producer reports only ApiException through the callback and rethrows the rest here —
                 // a closed producer, an interrupt, a serializer failure. Letting that escape would reach
                 // the acquisition failure handler below, which knows nothing about the record just
                 // registered.
-                case NonFatal(e) =>
-                  logger.error(e.getMessage, e)
-                  tracker ! KafkaMessageTracker.SendFailed(id, KafkaRequestFailureMessages.failureCause(e), token)
+                case NonFatal(e) => failSend(e)
               }
             },
             e => {
-              logger.error(e.getMessage, e)
+              val cause = KafkaRequestFailureMessages.failureCause(e)
+              logger.error(cause, e)
               // Nothing was published. Approved deliberately rather than as a side effect: there is no
               // ordering that both registers before the send and still publishes when acquisition fails,
               // and publishing a request whose reply can never be received is the state issue #143 exists
               // to prevent from the other direction. The virtual user sees the same KO as before.
-              reportFailure(KafkaRequestFailureMessages.failureCause(e))
+              reportFailure(cause)
             },
           )
         }

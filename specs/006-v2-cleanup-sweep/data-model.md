@@ -120,9 +120,10 @@ The single wire representation. One field is removed; nothing else changes.
   arity — that is a break, and it belongs in the record under RE-2.
 - **KM-2**: The two call sites in `KafkaMessageTracker` that forward `message.responseCode` on
   reply-received paths pass `None` explicitly instead. They have never forwarded anything else.
-- **KM-3**: The **reporting slot** is not this field and does not change. `KafkaRequestReplyAction`
+- **KM-3**: ~~The **reporting slot** is not this field and does not change. `KafkaRequestReplyAction`
   and `KafkaMessageTracker.failPending` populate it with the real failure type on KO paths, and must
-  continue to.
+  continue to.~~ **Superseded by #254 (2.1.0)** — the slot was never read by any OSS report, so the
+  failure type moved into the message and the slot is now `None` on every path.
 - **KM-4**: The trace line in `KafkaLogging.describeMessage` drops the field. It MUST keep describing
   everything it still has, and `KafkaLoggingSpec` is updated to the new exact text — not relaxed to a
   substring match, which would weaken a working assertion to accommodate a removal.

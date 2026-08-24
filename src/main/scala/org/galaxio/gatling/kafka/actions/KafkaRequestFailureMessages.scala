@@ -2,12 +2,15 @@ package org.galaxio.gatling.kafka.actions
 
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol.{KafkaKeyMatcher, KafkaMatcher, KafkaMessageMatcher, KafkaValueMatcher}
 
-private[actions] object KafkaRequestFailureMessages {
+/** Visible to the whole plugin, not just `actions`: [[KafkaRequestFailureMessages.failureCause]] is the one rule for turning a
+  * `Throwable` into what a report shows, and the tracker and the tracker pool build failure messages too. Scoped to `actions`
+  * it could only ever be applied at the three call sites that happen to live there.
+  */
+private[kafka] object KafkaRequestFailureMessages {
   def sendFailure(error: String): String =
     s"Failed to send request to Kafka broker: ${Option(error).getOrElse("unknown error")}"
 
-  def sendFailure(exception: Throwable): String =
-    sendFailure(Option(exception.getMessage).getOrElse(exception.getClass.getSimpleName))
+  def sendFailure(exception: Throwable): String = sendFailure(failureCause(exception))
 
   /** A failure described by the kind of thing it is as well as by its text: `TimeoutException: Expiring 1 record(s)`.
     *
@@ -17,13 +20,30 @@ private[actions] object KafkaRequestFailureMessages {
     * else, its console writer keys the error histogram by message, and the record the report reads back has no field for it at
     * all — so a kind kept out of the message reaches no report (issue #254).
     *
-    * A null or blank message leaves the kind standing on its own rather than reporting `TimeoutException: null`, and an
-    * anonymous `Throwable` subclass — whose `getSimpleName` is empty — is named by its full class name.
+    * The cause is appended when there is one, because the failures that most need naming arrive wrapped: the tracker pool
+    * reports every consumer fault as `IllegalStateException("Kafka consumer failed; …", cause)`, and Kafka wraps its own as
+    * `KafkaException("Failed to construct kafka producer", cause)`. Reading only the outer message would report one constant
+    * string for every broker outage, ACL rejection and SASL misconfiguration alike — exactly the distinction this exists to
+    * preserve.
     */
   def failureCause(exception: Throwable): String = {
-    val kind =
-      if (exception.getClass.getSimpleName.nonEmpty) exception.getClass.getSimpleName else exception.getClass.getName
-    Option(exception.getMessage).filter(_.trim.nonEmpty).fold(kind)(message => s"$kind: $message")
+    val head  = describe(exception)
+    val cause = exception.getCause
+    if (cause == null || (cause eq exception)) head else s"$head (caused by ${describe(cause)})"
+  }
+
+  /** One `Throwable`, named and described.
+    *
+    * `getSimpleName` has two JVM quirks and both reach a report: a Scala `object` reports a trailing `$` — the same hazard
+    * `KafkaRequestReplyAction.matcherName` strips — and an anonymous subclass reports the empty string, which would open the
+    * message with a bare `": "`. A null or blank message leaves the kind standing alone rather than reporting
+    * `TimeoutException: null`; `isBlank` rather than `trim.nonEmpty` because the latter treats a non-breaking space as text.
+    */
+  private def describe(error: Throwable): String = {
+    val simple  = error.getClass.getSimpleName.stripSuffix("$")
+    val kind    = if (simple.nonEmpty) simple else error.getClass.getName
+    val message = error.getMessage
+    if (message == null || message.isBlank) kind else s"$kind: $message"
   }
 
   /** Reported when a request-reply supplies nothing the configured matcher can correlate a reply on — in practice a request

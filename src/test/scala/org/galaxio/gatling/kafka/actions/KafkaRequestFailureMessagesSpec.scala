@@ -1,9 +1,8 @@
 package org.galaxio.gatling.kafka.actions
 
+import org.apache.kafka.common.errors.TimeoutException
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol.{KafkaKeyMatcher, KafkaMessageMatcher, KafkaValueMatcher}
 import org.scalatest.funsuite.AnyFunSuite
-
-import java.util.concurrent.TimeoutException
 
 class KafkaRequestFailureMessagesSpec extends AnyFunSuite {
 
@@ -27,12 +26,41 @@ class KafkaRequestFailureMessagesSpec extends AnyFunSuite {
     assert(message == "Failed to send request to Kafka broker: RuntimeException")
   }
 
-  test("sendFailure with exception uses exception message when present") {
+  test("sendFailure names the kind too, so produce-only and request-reply agree") {
     val exception = new RuntimeException("broker unavailable")
 
     val message = KafkaRequestFailureMessages.sendFailure(exception)
 
-    assert(message == "Failed to send request to Kafka broker: broker unavailable")
+    assert(message == "Failed to send request to Kafka broker: RuntimeException: broker unavailable")
+  }
+
+  test("failureCause appends the cause, because the failures worth naming arrive wrapped") {
+    // The tracker pool reports every consumer fault as IllegalStateException("Kafka consumer failed; …",
+    // cause); reading only the outer message reports one constant string for every broker fault.
+    val wrapped = new IllegalStateException("Kafka consumer failed", new TimeoutException("Timed out waiting for node"))
+
+    val message = KafkaRequestFailureMessages.failureCause(wrapped)
+
+    assert(
+      message == "IllegalStateException: Kafka consumer failed (caused by TimeoutException: Timed out waiting for node)",
+      s"unexpected message: $message",
+    )
+  }
+
+  test("failureCause strips the trailing $ a Scala object reports") {
+    // getSimpleName is "ProducerClosed$" for a case object, the same quirk matcherName strips.
+    val message = KafkaRequestFailureMessages.failureCause(KafkaRequestFailureMessagesSpec.ProducerClosed)
+
+    assert(message == "ProducerClosed: producer closed", s"unexpected message: $message")
+  }
+
+  test("failureCause treats a Unicode-blank message as absent") {
+    // `trim` only strips code points <= U+0020, so an ideographic space used to pass as text and produce
+    // a message ending in a bare colon. `isBlank` asks Character.isWhitespace instead, which covers it.
+    // (It does not cover the non-breaking spaces U+00A0/U+202F, which Java deliberately excludes.)
+    val ideographicSpace = Character.toString(0x3000)
+
+    assert(KafkaRequestFailureMessages.failureCause(new RuntimeException(ideographicSpace)) == "RuntimeException")
   }
 
   test("a failure is reported by its kind as well as by its text") {
@@ -87,4 +115,10 @@ class KafkaRequestFailureMessagesSpec extends AnyFunSuite {
 
     assert(!message.contains("reused"))
   }
+}
+
+private object KafkaRequestFailureMessagesSpec {
+
+  /** A Scala `object` exception, reachable from a user-supplied serde. `getSimpleName` reports it as `ProducerClosed$`. */
+  case object ProducerClosed extends RuntimeException("producer closed")
 }
