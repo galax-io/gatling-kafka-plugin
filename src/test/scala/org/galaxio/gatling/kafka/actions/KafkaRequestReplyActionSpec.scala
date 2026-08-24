@@ -82,6 +82,7 @@ class KafkaRequestReplyActionSpec extends munit.FunSuite {
 
   private def withAction(
       matcher: org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaMatcher,
+      shutDownPoolFirst: Boolean = false,
   )(
       body: (KafkaRequestReplyAction[Array[Byte], Array[Byte]], RecordingSender, RecordingStatsEngine, RecordingAction) => Unit,
   ): Unit = {
@@ -107,6 +108,11 @@ class KafkaRequestReplyActionSpec extends munit.FunSuite {
         next,
         None,
       )
+      // Closing the ActorSystem runs the pool's termination hook on this thread, which shuts down the
+      // executors acquisition needs; from then on `acquireTracker` reports failure on the calling
+      // thread, which is what makes the acquisition-failure path observable here without a broker.
+      // `close` is idempotent, so the `finally` below stays correct.
+      if (shutDownPoolFirst) actorSystem.close()
       body(action, sender, statsEngine, next)
     } finally actorSystem.close()
   }
@@ -114,6 +120,15 @@ class KafkaRequestReplyActionSpec extends munit.FunSuite {
   private def keylessMessage: KafkaProtocolMessage =
     KafkaProtocolMessage(
       key = null,
+      value = "body".getBytes,
+      producerTopic = "request-topic",
+      consumerTopic = "reply-topic",
+    )
+
+  /** Correlatable under the default matcher, so it reaches the acquisition step instead of the guard above it. */
+  private def keyedMessage: KafkaProtocolMessage =
+    KafkaProtocolMessage(
+      key = "id".getBytes,
       value = "body".getBytes,
       producerTopic = "request-topic",
       consumerTopic = "reply-topic",
@@ -150,6 +165,27 @@ class KafkaRequestReplyActionSpec extends munit.FunSuite {
       assert(message.contains("matchByValue"), s"unexpected message: $message")
       // Not the reused-id wording: the scenario never reused anything, it supplied nothing.
       assert(!message.contains("reused"), s"unexpected message: $message")
+    }
+  }
+
+  test("a failure to acquire the reply channel is reported by its kind as well as its text") {
+    // Issue #254: the kind used to travel in logResponse's response-code argument, which Gatling OSS
+    // discards before writing simulation.log — so it reached no report at all. It belongs in the
+    // message, which is what the errors table and the console summary actually show.
+    withAction(KafkaKeyMatcher, shutDownPoolFirst = true) { (action, sender, statsEngine, next) =>
+      action.sendKafkaMessage("request-reply", keyedMessage, Session("scenario", 1L, null))
+
+      val responses = statsEngine.responses.get()
+      assertEquals(responses.size, 1, "a request whose reply channel cannot be acquired must still get an outcome")
+      assertEquals(responses.head.status, (KO: Status))
+
+      val message = responses.head.message.getOrElse("")
+      val kind    = "IllegalStateException: "
+      assert(message.startsWith(kind), s"the failure must name its kind, not just its text: $message")
+      assert(message.length > kind.length, s"and must keep the original text alongside it: $message")
+
+      assertEquals(sender.sends.get(), 0, "nothing was published, so nothing must reach the producer")
+      assert(next.lastSession.get().isFailed, "and the virtual user must be advanced as failed")
     }
   }
 

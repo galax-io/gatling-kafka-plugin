@@ -9,6 +9,23 @@ private[actions] object KafkaRequestFailureMessages {
   def sendFailure(exception: Throwable): String =
     sendFailure(Option(exception.getMessage).getOrElse(exception.getClass.getSimpleName))
 
+  /** A failure described by the kind of thing it is as well as by its text: `TimeoutException: Expiring 1 record(s)`.
+    *
+    * The kind is what separates "the broker rejected this record" from "the client was misconfigured" when reading a run
+    * afterwards, and the message is the only place it can go. Gatling takes a response code alongside the message on
+    * `logResponse` and then discards it: its file serializer writes groups, name, timestamps, status and message and nothing
+    * else, its console writer keys the error histogram by message, and the record the report reads back has no field for it at
+    * all — so a kind kept out of the message reaches no report (issue #254).
+    *
+    * A null or blank message leaves the kind standing on its own rather than reporting `TimeoutException: null`, and an
+    * anonymous `Throwable` subclass — whose `getSimpleName` is empty — is named by its full class name.
+    */
+  def failureCause(exception: Throwable): String = {
+    val kind =
+      if (exception.getClass.getSimpleName.nonEmpty) exception.getClass.getSimpleName else exception.getClass.getName
+    Option(exception.getMessage).filter(_.trim.nonEmpty).fold(kind)(message => s"$kind: $message")
+  }
+
   /** Reported when a request-reply supplies nothing the configured matcher can correlate a reply on — in practice a request
     * with no key under the default `matchByKey`.
     *
