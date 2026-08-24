@@ -179,13 +179,22 @@ class KafkaRequestReplyActionSpec extends munit.FunSuite {
       assertEquals(responses.size, 1, "a request whose reply channel cannot be acquired must still get an outcome")
       assertEquals(responses.head.status, (KO: Status))
 
+      // Pinned to the whole message, not just the prefix: the pool raises IllegalStateException from two
+      // unrelated guards, so a prefix-only assertion would stay green while covering the other one, and a
+      // length check would be satisfied by a refactor that replaced the text instead of prefixing it.
       val message = responses.head.message.getOrElse("")
-      val kind    = "IllegalStateException: "
-      assert(message.startsWith(kind), s"the failure must name its kind, not just its text: $message")
-      assert(message.length > kind.length, s"and must keep the original text alongside it: $message")
+      assert(
+        message.startsWith("IllegalStateException: "),
+        s"the failure must name its kind, not just its text: $message",
+      )
+      assert(
+        message.contains("Tracker pool is shutting down"),
+        s"and must keep the original text alongside it, from the guard this test drives: $message",
+      )
 
       assertEquals(sender.sends.get(), 0, "nothing was published, so nothing must reach the producer")
-      assert(next.lastSession.get().isFailed, "and the virtual user must be advanced as failed")
+      assert(next.lastSession.get() != null, "the virtual user must be advanced rather than left hanging")
+      assert(next.lastSession.get().isFailed, "and advanced as failed")
     }
   }
 

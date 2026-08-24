@@ -49,7 +49,9 @@ specification records the disagreement rather than silently following either:
 - **C1** contradicts an issue's stated reason for a deletion. The specification keeps the code and
   says why.
 
-**On the response-code scope limit.** An early draft of FR-003 implied reports would lose their
+**On the response-code scope limit.** *(Superseded by #254 (2.1.0): the verification recorded below was
+itself wrong — Gatling OSS discards the response-code argument, so no report ever showed it.)* An early
+draft of FR-003 implied reports would lose their
 response-code column. Verified and corrected: only the always-empty field on the message is removed;
 the reporting slot is populated from a different source on failure paths and is untouched.
 

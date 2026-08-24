@@ -36,6 +36,10 @@ a diagnostic for a state that cannot occur is the same class of residue this fea
 
 ## S2 — Reply failures still name their cause
 
+> **Superseded by #254 (2.1.0).** The premise below is wrong: Gatling OSS discards `logResponse`'s
+> response-code argument before any run data is written, so the reporting slot reached no report at
+> all. The failure kind now travels in the message instead, and the slot is passed `None` everywhere.
+
 **Contract**: removing `KafkaProtocolMessage.responseCode` MUST NOT change what a report shows for a
 failed request.
 

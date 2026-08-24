@@ -6,6 +6,7 @@ import io.gatling.core.stats.StatsEngine
 import io.gatling.core.util.NameGen
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.galaxio.gatling.kafka.KafkaLogging
+import org.galaxio.gatling.kafka.actions.KafkaRequestFailureMessages
 import org.galaxio.gatling.kafka.client.KafkaMessageTracker.MessageConsumed
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaMatcher
 import org.galaxio.gatling.kafka.request.{KafkaProtocolMessage, KafkaSerdesImplicits}
@@ -158,7 +159,8 @@ final class KafkaMessageTrackerPool(
         )
         logger.debug("Consumer failure stacktrace", exception)
         if (consumerFailure.compareAndSet(null, exception)) {
-          val failure = KafkaMessageTracker.ConsumerFailure(exception.getMessage)
+          val cause   = KafkaRequestFailureMessages.failureCause(exception)
+          val failure = KafkaMessageTracker.ConsumerFailure(cause)
           trackers
             .values()
             .forEach(_.values().forEach { entry =>
@@ -167,7 +169,7 @@ final class KafkaMessageTrackerPool(
               // timeout scans would otherwise keep firing for the rest of the run against bookkeeping the
               // failure broadcast has just cleared. The mailbox is FIFO, so the failure above is processed
               // first and every pending request still gets its KO.
-              entry.actor ! KafkaMessageTracker.Stop(s"Consumer failure: ${exception.getMessage}")
+              entry.actor ! KafkaMessageTracker.Stop(s"Consumer failure: $cause")
             })
           trackers.clear()
         }
