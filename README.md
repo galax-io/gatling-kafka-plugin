@@ -560,6 +560,33 @@ Use this section as release-based upgrade notes. Start from the version you are 
 | `0.20.x` or older | `1.0.x` | Treat as full doc refresh. Older consume-only or per-action matcher APIs are not present. |
 | `1.0.x` – `1.2.x` | `1.3.x` | Build-file only. Plain users: no change. Schema Registry Avro users: declare two artifacts and the Confluent resolver — see below. |
 | `1.3.x` | `2.0.0` | Source-breaking, but only for API that could not work. Most suites need no change — see below. |
+| `2.0.x` | `2.1.0` | Reported failure messages for request-reply now name the exception type. No source change unless you construct `SendFailed` yourself — see below. |
+
+### Upgrading to `2.1.0`
+
+#### A failed request-reply now names the kind of failure in its message
+
+A request-reply that the producer fails to deliver, or whose reply channel cannot be acquired, is now
+reported as `TimeoutException: Expiring 1 record(s) for request-topic-0` rather than as
+`Expiring 1 record(s) for request-topic-0`. Nothing else changes: the status is still KO, timings are
+unchanged, successful requests are untouched, and produce-only requests are unaffected.
+
+The kind of failure was already being collected — it was handed to Gatling in the response-code slot
+that sits beside the message on `logResponse`. Gatling OSS discards that slot before writing run data:
+its file serializer writes groups, name, timestamps, status and message and nothing else, its console
+writer keys the error histogram by message, and the record the HTML report parses back has no field for
+it at all. The value therefore reached no report, no assertion and no `simulation.log` (issue #254).
+Putting it in the message is what makes it visible.
+
+**What to check.** If you assert on, grep for, or group by the exact text of a request-reply failure
+message, the `<ExceptionType>: ` prefix is new. In the HTML report's errors table, failures that used to
+share one row because they shared a message now split by exception type.
+
+#### `KafkaMessageTracker.SendFailed.errorType` is gone
+
+That field carried the failure kind to the response-code slot described above. With the kind now in
+`errorMessage`, it has no destination left, so it is removed. `SendFailed` is constructed by the
+plugin's own request-reply action; if you construct it yourself, drop the fourth argument.
 
 ### `1.3.x` → `2.0.0` — removals
 
@@ -605,8 +632,7 @@ each used by plugin code.
 #### `KafkaProtocolMessage.responseCode` is gone
 
 Nothing ever set it: every message carried `None` from the day it was added. **Your reports do not
-change.** The failure type shown for a failed request comes from a different source — the exception's
-own class name, set by the request-reply action and the timeout path — and is untouched.
+change.**
 
 If you read the field, drop the read. If you matched on it, it was always `None`.
 

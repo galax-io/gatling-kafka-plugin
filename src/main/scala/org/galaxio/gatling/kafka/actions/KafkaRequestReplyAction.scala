@@ -33,22 +33,12 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
   /** Makes each registration distinguishable from others that share its match id. */
   private val registrationToken = new AtomicLong(0L)
 
-  /** What kind of failure this was, for the response-code slot a report groups and filters by.
-    *
-    * The exception's own type: `TimeoutException`, `RecordTooLargeException`, `NotLeaderOrFollowerException`,
-    * `IllegalStateException` for a closed producer. That is the state Kafka actually reports, and it is what distinguishes "the
-    * broker rejected this record" from "the client was misconfigured" when reading a run afterwards. This slot previously
-    * carried `"500"` on the delivery-failure path — an HTTP status, meaningless here and identical for every cause.
-    */
-  private def failureType(error: Throwable): Option[String] =
-    Option(error).map(e => if (e.getClass.getSimpleName.nonEmpty) e.getClass.getSimpleName else e.getClass.getName)
-
   /** How the configured matcher is named in a failure message.
     *
-    * Two hazards, both of which [[failureType]] above already handles for exceptions: Scala objects report a trailing `$` from
-    * `getSimpleName`, which would print `KafkaKeyMatcher$`, and an anonymous `new KafkaMatcher { … }` — reachable, since the
-    * trait and `KafkaProtocol` are both public — reports the empty string, which would leave the message with empty parentheses
-    * where the diagnostic name belongs.
+    * Two hazards, the second of which `KafkaRequestFailureMessages.failureCause` handles the same way for exceptions: Scala
+    * objects report a trailing `$` from `getSimpleName`, which would print `KafkaKeyMatcher$`, and an anonymous
+    * `new KafkaMatcher { … }` — reachable, since the trait and `KafkaProtocol` are both public — reports the empty string,
+    * which would leave the message with empty parentheses where the diagnostic name belongs.
     */
   private def matcherName(matcher: KafkaMatcher): String = {
     val simple = matcher.getClass.getSimpleName.stripSuffix("$")
@@ -58,7 +48,7 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
   override def sendKafkaMessage(requestNameString: String, protocolMessage: KafkaProtocolMessage, session: Session): Unit = {
     val requestStartDate = clock.nowMillis
 
-    def reportFailure(message: String, responseCode: Option[String]): Unit = {
+    def reportFailure(message: String): Unit = {
       val requestEndDate = clock.nowMillis
       statsEngine.logResponse(
         session.scenario,
@@ -67,7 +57,9 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
         requestStartDate,
         requestEndDate,
         KO,
-        responseCode,
+        // Gatling's response-code slot, and it is discarded before any OSS report is written, so the
+        // kind of failure this was travels in the message instead (issue #254).
+        None,
         Some(message),
       )
       next ! session.logGroupRequestTimings(requestStartDate, requestEndDate).markAsFailed
@@ -93,7 +85,7 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
           val message = KafkaRequestFailureMessages
             .missingCorrelationId(matcherName(matcher), KafkaRequestFailureMessages.remedyFor(matcher))
           logger.error(message)
-          reportFailure(message, None)
+          reportFailure(message)
         } else {
           // Acquire, register, then send — in that order, and the order is the point.
           //
@@ -154,7 +146,7 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
                     },
                   e => {
                     logger.error(e.getMessage, e)
-                    tracker ! KafkaMessageTracker.SendFailed(id, e.getMessage, token, failureType(e))
+                    tracker ! KafkaMessageTracker.SendFailed(id, KafkaRequestFailureMessages.failureCause(e), token)
                   },
                 )
               catch {
@@ -164,7 +156,7 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
                 // registered.
                 case NonFatal(e) =>
                   logger.error(e.getMessage, e)
-                  tracker ! KafkaMessageTracker.SendFailed(id, e.getMessage, token, failureType(e))
+                  tracker ! KafkaMessageTracker.SendFailed(id, KafkaRequestFailureMessages.failureCause(e), token)
               }
             },
             e => {
@@ -173,7 +165,7 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
               // ordering that both registers before the send and still publishes when acquisition fails,
               // and publishing a request whose reply can never be received is the state issue #143 exists
               // to prevent from the other direction. The virtual user sees the same KO as before.
-              reportFailure(e.getMessage, failureType(e))
+              reportFailure(KafkaRequestFailureMessages.failureCause(e))
             },
           )
         }
@@ -183,7 +175,7 @@ class KafkaRequestReplyAction[K: ClassTag, V: ClassTag](
           s"Request-reply requires consumer settings (consumeSettings) in the Kafka protocol configuration, " +
             s"otherwise the virtual user will hang for ${components.kafkaProtocol.timeout} with no reply"
         logger.error(msg)
-        reportFailure(msg, None)
+        reportFailure(msg)
     }
   }
 }

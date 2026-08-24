@@ -69,15 +69,14 @@ object KafkaMessageTracker {
     * The request was registered before the send, so a delivery failure has to un-register it — otherwise the record sits until
     * its reply timeout and, worse, its channel never returns to idle because nothing releases the reference acquisition took.
     *
-    * `errorType` is the failure's own kind — `TimeoutException`, `RecordTooLargeException`, `NotLeaderOrFollowerException` —
-    * taken from the exception the producer raised. It lands in the response-code slot, which is what a report groups and
-    * filters failures by. The path used to put `"500"` there, an HTTP status with no meaning in Kafka.
+    * `errorMessage` carries the failure's own kind as well as its text — `TimeoutException: Expiring 1 record(s)`, composed by
+    * `KafkaRequestFailureMessages.failureCause`. The kind used to travel beside it in Gatling's response-code slot, which no
+    * OSS report reads (issue #254).
     */
   final case class SendFailed(
       matchId: Array[Byte],
       errorMessage: String,
       token: Long = 0L,
-      errorType: Option[String] = None,
   ) extends TrackerMessage
 
   final case class ConsumerFailure(errorMessage: String) extends TrackerMessage
@@ -195,10 +194,6 @@ class KafkaMessageTracker[K, V](
             KO,
             published.next,
             published.requestName,
-            // A reply that arrived and then failed a check has no failure type to report: the
-            // exception-derived codes come from the send and timeout paths (`failPending`), not from
-            // the record. This forwarded `message.responseCode` before 2.0.0, which was always None.
-            None,
             Some(errorMessage),
           )
         case Right((newSession, Some(Failure(m)))) =>
@@ -209,7 +204,6 @@ class KafkaMessageTracker[K, V](
             KO,
             published.next,
             published.requestName,
-            None,
             Some(m),
           )
         case Right((newSession, _))                =>
@@ -220,7 +214,6 @@ class KafkaMessageTracker[K, V](
             OK,
             published.next,
             published.requestName,
-            None,
             None,
           )
       }
@@ -238,7 +231,6 @@ class KafkaMessageTracker[K, V](
       failPending(
         messageSent,
         clock.nowMillis,
-        None,
         "Cannot correlate a reply: this request was registered with no match id",
       )
       stay
@@ -256,7 +248,6 @@ class KafkaMessageTracker[K, V](
         failPending(
           displaced,
           clock.nowMillis,
-          None,
           s"Match id reused while a request was still in flight on it (${describeBytes(messageSent.matchId)}); " +
             "give each request-reply a distinct key, or match on a field that is unique per request",
         )
@@ -267,7 +258,7 @@ class KafkaMessageTracker[K, V](
       }
       stay
 
-    case SendFailed(matchId, errorMessage, token, errorType) =>
+    case SendFailed(matchId, errorMessage, token) =>
       val key = matchKeyFor(matchId)
       // Same token check: without it a late delivery failure removes and fails whichever request now
       // holds the key, reporting it with an unrelated error while the request that actually failed is
@@ -276,7 +267,7 @@ class KafkaMessageTracker[K, V](
         case Some(pending) =>
           sentMessages.remove(key)
           logger.error("Delivery failed for {}: {}", describeBytes(matchId), errorMessage)
-          failPending(pending, clock.nowMillis, errorType, errorMessage)
+          failPending(pending, clock.nowMillis, errorMessage)
         case None          =>
           // The request is already gone — almost always because its reply timeout is shorter than the
           // producer's delivery timeout, so it was reported as unanswered long before delivery gave up.
@@ -340,7 +331,7 @@ class KafkaMessageTracker[K, V](
       logger.error("Consumer failure propagated to tracker: {}", errorMessage)
       val pending = sentMessages.values.toList
       sentMessages.clear()
-      pending.foreach(failPending(_, now, None, s"Consumer failure: $errorMessage"))
+      pending.foreach(failPending(_, now, s"Consumer failure: $errorMessage"))
       stay
 
     case TimeoutScan =>
@@ -359,7 +350,7 @@ class KafkaMessageTracker[K, V](
         for (p <- timedOutMessages) {
           logger.warn("Did not receive match for {} after {}ms", describeBytes(p.matchId), p.replyTimeout)
           sentMessages.remove(matchKeyFor(p.matchId))
-          failPending(p, now, None, s"Reply timeout after ${p.replyTimeout} ms")
+          failPending(p, now, s"Reply timeout after ${p.replyTimeout} ms")
         }
       finally timedOutMessages.clear()
       stay
@@ -375,7 +366,7 @@ class KafkaMessageTracker[K, V](
       val now     = clock.nowMillis
       val pending = sentMessages.values.toList
       sentMessages.clear()
-      pending.foreach(failPending(_, now, None, reason))
+      pending.foreach(failPending(_, now, reason))
       become(stopped(reason))
   }
 
@@ -387,7 +378,7 @@ class KafkaMessageTracker[K, V](
     */
   private def stopped(reason: String): Behavior[TrackerMessage] = {
     case messageSent: MessagePublished =>
-      failPending(messageSent, clock.nowMillis, None, reason)
+      failPending(messageSent, clock.nowMillis, reason)
       stay
 
     case other =>
@@ -403,7 +394,6 @@ class KafkaMessageTracker[K, V](
   private def failPending(
       published: MessagePublished,
       now: Long,
-      responseCode: Option[String],
       message: String,
   ): Unit =
     try
@@ -414,7 +404,6 @@ class KafkaMessageTracker[K, V](
         KO,
         published.next,
         published.requestName,
-        responseCode,
         Some(message),
       )
     finally published.onComplete()
@@ -426,7 +415,6 @@ class KafkaMessageTracker[K, V](
       status: Status,
       next: Action,
       requestName: String,
-      responseCode: Option[String],
       message: Option[String],
   ): Unit = {
     statsEngine.logResponse(
@@ -436,7 +424,11 @@ class KafkaMessageTracker[K, V](
       sentTimestamp,
       receivedTimestamp,
       status,
-      responseCode,
+      // Gatling's response-code slot. Every OSS writer drops it — the file serializer writes groups,
+      // name, timestamps, status and message and nothing more, and the record the report parses back
+      // has no field for it — so a failure's kind goes in the message, where it is actually shown
+      // (issue #254). Do not repopulate this without first checking that a report can display it.
+      None,
       message,
     )
     next ! session.logGroupRequestTimings(sentTimestamp, receivedTimestamp)

@@ -3,6 +3,8 @@ package org.galaxio.gatling.kafka.actions
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol.{KafkaKeyMatcher, KafkaMessageMatcher, KafkaValueMatcher}
 import org.scalatest.funsuite.AnyFunSuite
 
+import java.util.concurrent.TimeoutException
+
 class KafkaRequestFailureMessagesSpec extends AnyFunSuite {
 
   test("send failures use broker send wording") {
@@ -31,6 +33,27 @@ class KafkaRequestFailureMessagesSpec extends AnyFunSuite {
     val message = KafkaRequestFailureMessages.sendFailure(exception)
 
     assert(message == "Failed to send request to Kafka broker: broker unavailable")
+  }
+
+  test("a failure is reported by its kind as well as by its text") {
+    // The kind is the half a reader groups failures by, and it has nowhere else to go: Gatling takes a
+    // response code beside the message and discards it before writing any OSS report (issue #254).
+    val message = KafkaRequestFailureMessages.failureCause(new TimeoutException("Expiring 1 record(s)"))
+
+    assert(message == "TimeoutException: Expiring 1 record(s)")
+  }
+
+  test("failureCause with no message reports the kind alone rather than a trailing null") {
+    assert(KafkaRequestFailureMessages.failureCause(new RuntimeException(null: String)) == "RuntimeException")
+    assert(KafkaRequestFailureMessages.failureCause(new RuntimeException("   ")) == "RuntimeException")
+  }
+
+  test("failureCause names an anonymous exception class by its full name") {
+    // `getSimpleName` is empty for an anonymous subclass, which would report a message opening with ": ".
+    val message = KafkaRequestFailureMessages.failureCause(new RuntimeException("boom") {})
+
+    assert(message.endsWith(": boom"), s"unexpected message: $message")
+    assert(message.contains("KafkaRequestFailureMessagesSpec"), s"unexpected message: $message")
   }
 
   test("missing correlation id names the matcher that could not correlate") {
