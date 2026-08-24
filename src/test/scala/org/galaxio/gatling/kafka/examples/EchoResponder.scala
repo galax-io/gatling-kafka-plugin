@@ -29,6 +29,25 @@ import java.util.concurrent.{ConcurrentHashMap, CountDownLatch, TimeUnit}
   *   used to take the virtual user down with it: the body check NPE'd inside the tracker, which had no catch, so the user was
   *   never continued — no success, no failure, no next request (issue #168).
   */
+private[examples] object EchoResponder {
+
+  /** The header a request-reply may correlate on, echoed back onto the reply.
+    *
+    * Shared with the scenarios rather than spelled twice: a header name that matches on one side and not the other produces a
+    * reply timeout, which is exactly the symptom issue #228 is about and the last thing a test for it should reproduce by
+    * accident.
+    */
+  val CorrelationHeader = "x-correlation-id"
+
+  /** Reads the correlation header off a message, on the request side and again on the reply side.
+    *
+    * `null` when the header is absent, which is the contract `KafkaMatcher` uses to say "nothing to correlate on" — an empty
+    * array would be a present id that every such message shares (issue #167).
+    */
+  def correlationIdFromHeader(message: KafkaProtocolMessage): Array[Byte] =
+    message.headers.flatMap(hs => Option(hs.lastHeader(CorrelationHeader))).map(_.value()).orNull
+}
+
 private[examples] final class EchoResponder(
     bootstrap: String,
     groupId: String,
@@ -79,6 +98,15 @@ private[examples] final class EchoResponder(
       echoRoutes.get(record.topic()).foreach { replyTopic =>
         val headers = new RecordHeaders()
         headers.add(RespondedAtHeader, System.currentTimeMillis().toString.getBytes)
+        // Echo the request's correlation header, if it carries one.
+        //
+        // A real service answering a correlated request returns the id it was given; this responder built
+        // fresh headers and dropped the request's, so a header-correlated reply could never be matched and
+        // the shape the Migration Guide recommends for tombstone-answering services had no coverage at all
+        // (issue #228). Copied rather than regenerated: correlation is only meaningful if the value comes
+        // back unchanged.
+        Option(record.headers().lastHeader(EchoResponder.CorrelationHeader))
+          .foreach(h => headers.add(EchoResponder.CorrelationHeader, h.value()))
         // The probe has to be echoed intact or `awaitReady` never completes for this route, so only
         // non-probe records get the tombstone treatment.
         val isProbe = record.value() != null && new String(record.value()) == probeMarker

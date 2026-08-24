@@ -15,6 +15,18 @@ final case class LoggedResponse(
     message: Option[String],
 )
 
+/** Records what a Gatling run can actually show of a request, and nothing more.
+  *
+  * `LoggedResponse` keeps request name, both instants, status and message — which is exactly the set Gatling itself persists.
+  * Verified against `gatling-core-3.13.5.jar`: `ResponseMessageSerializer.serialize0` writes the group hierarchy, the name, the
+  * two timestamps, `status == OK` as a boolean and the message, and never reads `responseCode`. Dropping that argument here is
+  * therefore not a simplification — it mirrors the real writer, and a spec that asserted on it would be asserting on a value no
+  * report can display.
+  *
+  * `logRequestCrash` is a no-op for the same reason: it emits an error event carrying only a message and a timestamp, outside
+  * the failed-request total, outside the request table and outside every assertion path. A reporting site that switched to it
+  * would show up here as a missing response, which is the correct signal.
+  */
 final class RecordingStatsEngine extends StatsEngine {
   val responses: AtomicReference[Vector[LoggedResponse]] = new AtomicReference(Vector.empty)
 

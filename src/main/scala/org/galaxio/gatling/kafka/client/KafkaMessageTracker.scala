@@ -9,6 +9,7 @@ import io.gatling.core.check.Check
 import io.gatling.core.session.Session
 import io.gatling.core.stats.StatsEngine
 import org.galaxio.gatling.kafka.client.KafkaMessageTracker._
+import org.galaxio.gatling.kafka.actions.KafkaRequestFailureMessages
 import org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaMatcher
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 import org.galaxio.gatling.kafka.{KafkaCheck, KafkaLogging}
@@ -161,6 +162,36 @@ class KafkaMessageTracker[K, V](
     */
   private var periodicTimeoutScan: Option[Cancellable] = None
 
+  /** Whether this tracker has seen a reply the configured matcher could not read a correlation id from.
+    *
+    * A flag, not a count, and the scope is narrower than it looks — both deliberate, and both corrections of what this said
+    * first:
+    *
+    *   - **Not a count, because the count reached the report.** Gatling keys its error table on the exact message text, so a
+    *     growing number in the message turned one row reading `Reply timeout after N ms ×500` into five hundred rows of one,
+    *     degrading the reader-facing signal this exists to sharpen. The number is worth having in the log, where it costs
+    *     nothing, and is worth nothing in the message.
+    *   - **Not "this channel", and not "ever".** The pool delivers every record on a reply *topic* to every matcher registered
+    *     for it, so a reply another scenario correlates perfectly still lands here and sets this flag. And the flag dies with
+    *     the tracker: the idle sweep releases a channel that has been quiet for its grace period, and re-acquisition builds a
+    *     new actor starting from `false`. So this answers "has *a* reply reached this topic during this tracker's life that
+    *     *this* matcher could not read", which is why the message below says topic rather than channel and offers the finding
+    *     as a possibility rather than a diagnosis.
+    *
+    * Why it exists at all: a service answering with a tombstone under value matching produces replies with no value, so there
+    * is nothing to derive an id from. The record was dropped with a log line and the request behind it failed on its reply
+    * timeout, indistinguishable from a system under test that never answered (issue #228). The reply still cannot be attributed
+    * to any request — doing that is the cross-attribution failure issue #167 exists to prevent — so this qualifies the timeout
+    * it causes, and nothing else.
+    *
+    * Plain `var`s: actor state on a single-threaded actor, so no synchronisation. `Long` on the count because the workload this
+    * targets is exactly the one that would overflow an `Int`.
+    */
+  private var sawUncorrelatableReply: Boolean = false
+
+  /** How many, for the log only. Never reaches a report — see [[sawUncorrelatableReply]]. */
+  private var uncorrelatableReplyCount: Long = 0L
+
   private def triggerPeriodicTimeoutScan(): Unit =
     if (periodicTimeoutScan.isEmpty) {
       periodicTimeoutScan = Some(scheduler.scheduleAtFixedRate(1000.millis) {
@@ -242,6 +273,7 @@ class KafkaMessageTracker[K, V](
         messageSent,
         clock.nowMillis,
         "Cannot correlate a reply: this request was registered with no match id",
+        Some(KafkaRequestFailureMessages.RejectionKind.NoCorrelationId),
       )
       stay
 
@@ -277,7 +309,7 @@ class KafkaMessageTracker[K, V](
         case Some(pending) =>
           sentMessages.remove(key)
           logger.error("Delivery failed for {}: {}", describeBytes(matchId), errorMessage)
-          failPending(pending, clock.nowMillis, errorMessage)
+          failPending(pending, clock.nowMillis, errorMessage, Some(KafkaRequestFailureMessages.RejectionKind.NotDelivered))
         case None          =>
           // The request is already gone — almost always because its reply timeout is shorter than the
           // producer's delivery timeout, so it was reported as unanswered long before delivery gave up.
@@ -299,9 +331,28 @@ class KafkaMessageTracker[K, V](
       val message = responseTransformer.map(_(forTransformMessage)).getOrElse(forTransformMessage)
       val replyId = messageMatcher.responseMatch(message)
       if (replyId == null) {
-        // describeBytes, not the raw array: this is the one branch a keyless reply reaches, and `{}` on an
-        // Array[Byte] renders as `[B@1f2e3d`, which tells the reader nothing about why it failed to match.
-        logger.error("no messageMatcher key for read message {}", describeBytes(message.key))
+        // A reply arrived and cannot be placed. Recorded here so the timeout it causes can say so, rather
+        // than leaving the run to claim the system under test never answered (issue #228).
+        sawUncorrelatableReply = true
+        uncorrelatableReplyCount += 1L
+        // Guarded, and at WARN. For the service issue #228 targets — one answering every request with a
+        // tombstone under value matching — this is not an edge case but the whole steady state, so an
+        // unguarded line here is one ERROR and one `describeBytes` per reply on the thread that gates reply
+        // throughput: the run's own logging becomes the bottleneck it is trying to diagnose. The rule is
+        // the one this file already states for the trace and debug siblings below — SLF4J defers
+        // formatting but not argument evaluation.
+        //
+        // Reports the count and both fields. Naming only the key was misleading on the path that reaches
+        // here most: under value matching the key is present and fine, and the value is what is absent.
+        if (logger.underlying.isWarnEnabled) {
+          logger.warn(
+            "No correlation id in reply #{}: {} could not read one from key={} value={}",
+            uncorrelatableReplyCount.toString,
+            messageMatcher.getClass.getSimpleName.stripSuffix("$"),
+            describeBytes(message.key),
+            describeBytes(message.value),
+          )
+        }
       } else {
         // Only the value. An absent key stopped being suspicious when the plugin started publishing one —
         // a keyless request-reply correlating on the value or a header is a supported shape and the
@@ -360,7 +411,7 @@ class KafkaMessageTracker[K, V](
         for (p <- timedOutMessages) {
           logger.warn("Did not receive match for {} after {}ms", describeBytes(p.matchId), p.replyTimeout)
           sentMessages.remove(matchKeyFor(p.matchId))
-          failPending(p, now, s"Reply timeout after ${p.replyTimeout} ms")
+          failPending(p, now, replyTimeoutMessage(p.replyTimeout))
         }
       finally timedOutMessages.clear()
       stay
@@ -396,6 +447,34 @@ class KafkaMessageTracker[K, V](
       stay
   }
 
+  /** What a reply timeout says, qualified by whether this channel ever received a reply it could not read.
+    *
+    * With nothing uncorrelatable behind it the wording is exactly what it has always been, so a run against a genuinely
+    * unresponsive service reads as it did. With something behind it the timeout is still reported — it did happen — but the
+    * reader is told that replies arrived which the matcher could not place, because "nobody answered" and "somebody answered in
+    * a shape this configuration cannot correlate" are different findings and used to be the same line (issue #228).
+    *
+    * Only the timeout path. A request failed by a delivery failure, a consumer failure, a channel stop or a failing check
+    * already has a definite cause, and appending a second speculative one to it would make the report worse.
+    */
+  private def replyTimeoutMessage(replyTimeout: Long): String = {
+    val timedOut = s"Reply timeout after $replyTimeout ms"
+    if (!sawUncorrelatableReply) timedOut
+    else
+      // Two properties this sentence has to keep, both learned the hard way:
+      //
+      //   - It carries no number. Gatling's error table is keyed by the message text, so a per-timeout
+      //     count fragments one row into hundreds. The count is in the log instead.
+      //   - The remedy is derived from the matcher, never hardcoded. Any matcher can return null — a
+      //     keyless reply under matchByKey, a missing header under matchByMessage — so advice fixed at
+      //     "correlate on a key or a header" was handed to readers already doing exactly that. This is
+      //     the defect `KafkaRequestFailureMessages.remedyFor` was written to eliminate one layer over.
+      s"$timedOut. Replies also arrived on this reply topic that " +
+        s"${KafkaRequestFailureMessages.matcherName(messageMatcher)} could not read a correlation id from, so this request " +
+        "may have been answered in a shape this configuration cannot correlate rather than not answered at all. " +
+        KafkaRequestFailureMessages.remedyFor(messageMatcher)
+  }
+
   /** Reports one pending request as failed and releases the channel reference its acquisition took.
     *
     * `onComplete` runs in a `finally` because it is what returns the reference: skipping it on a reporting error would leave
@@ -405,6 +484,7 @@ class KafkaMessageTracker[K, V](
       published: MessagePublished,
       now: Long,
       message: String,
+      rejection: Option[KafkaRequestFailureMessages.RejectionKind] = None,
   ): Unit =
     try
       executeNext(
@@ -413,7 +493,13 @@ class KafkaMessageTracker[K, V](
         now,
         KO,
         published.next,
-        published.requestName,
+        // A rejection reports under a name of its own, for the reason the action's own rejections do: no
+        // record reached the broker, so the interval measures nothing about the system under test and must
+        // not join the declared name's response-time digest (issue #227). Delivery failure is the largest
+        // instance of that — at Kafka's default `delivery.timeout.ms` a broker outage puts a two-minute
+        // sample on every in-flight request — and it was the one left behind when the action-side twins
+        // moved.
+        rejection.fold(published.requestName)(KafkaRequestFailureMessages.rejectedRequestName(published.requestName, _)),
         Some(message),
       )
     finally published.onComplete()

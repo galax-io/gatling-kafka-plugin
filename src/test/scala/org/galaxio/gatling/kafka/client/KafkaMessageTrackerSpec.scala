@@ -9,7 +9,7 @@ import io.gatling.core.actor.{Actor, ActorSystem}
 import io.gatling.core.session.{Expression, Session}
 import io.gatling.core.stats.RecordingStatsEngine
 import org.galaxio.gatling.kafka.client.KafkaMessageTracker.{ConsumerFailure, MessageConsumed, MessagePublished, SendFailed}
-import org.galaxio.gatling.kafka.protocol.KafkaProtocol.KafkaKeyMatcher
+import org.galaxio.gatling.kafka.protocol.KafkaProtocol.{KafkaKeyMatcher, KafkaValueMatcher}
 import org.galaxio.gatling.kafka.request.KafkaProtocolMessage
 import org.galaxio.gatling.kafka.KafkaCheck
 
@@ -437,6 +437,14 @@ class KafkaMessageTrackerSpec extends munit.FunSuite {
     val responses = statsEngine.responses.get()
     assertEquals(responses.size, 1)
     assertEquals(responses.head.status, (KO: Status))
+    // Issue #227. The producer never delivered this record, so it never reached the broker and its span
+    // measures nothing about the system under test — and at Kafka's default delivery.timeout.ms that span
+    // is two minutes, which made this the largest sample the declared name's percentile was absorbing.
+    assertEquals(
+      responses.head.requestName,
+      "request-reply [rejected: not delivered]",
+      "a record the producer never delivered must not report against the request's own name",
+    )
     assertEquals(responses.head.startTimestamp, 1_000L, "a failed request spans its start to failure detection")
     assertEquals(responses.head.endTimestamp, 4_000L)
     assertEquals(responses.head.message, Some("Broker unavailable"))
@@ -445,6 +453,142 @@ class KafkaMessageTrackerSpec extends munit.FunSuite {
     // The record is gone, so a late reply for it matches nothing and stays silent.
     behavior(replyFor("match-race"))
     assertEquals(statsEngine.responses.get().size, 1, "a reply for a failed send must not be reported")
+  }
+
+  // Issue #228. A service can answer with a tombstone, and a tombstone carries no value — so under value
+  // matching there is nothing to derive a correlation id from and the reply can never reach its request.
+  // The tracker has always seen this happen and dropped the record with a log line, while the request went
+  // on to fail on its reply timeout: a run reporting "nobody answered" about a service that answered.
+  //
+  // The reply still cannot be attributed to any request — doing that would be the cross-attribution failure
+  // #167 exists to prevent — so what changes is the timeout it causes, which now says replies arrived that
+  // nothing could match.
+
+  /** A reply carrying no value at all: what a compacted topic's tombstone looks like on the wire. */
+  private def tombstoneReply(key: String): MessageConsumed =
+    MessageConsumed(
+      received = 5_000L,
+      message = KafkaProtocolMessage(
+        key = key.getBytes(StandardCharsets.UTF_8),
+        value = null,
+        producerTopic = "reply-topic",
+        consumerTopic = "reply-topic",
+      ),
+    )
+
+  test("a timeout on a channel that received uncorrelatable replies says so instead of reading as unanswered") {
+    withActorSystem { actorSystem =>
+      val statsEngine = new RecordingStatsEngine
+      val next        = new RecordingAction("next")
+      val ref         = actorSystem.actorOf(
+        KafkaMessageTracker
+          .actor[Array[Byte], Array[Byte]]("tracker", statsEngine, new StubClock(9_000L), KafkaValueMatcher, None),
+      )
+
+      ref ! published(next, replyTimeout = 5_000L, requestStart = 1_000L)
+      // Two tombstones on this channel. Value matching can derive nothing from either, so neither reaches a
+      // request — and the request below times out having been answered twice.
+      ref ! tombstoneReply("tomb-1")
+      ref ! tombstoneReply("tomb-2")
+      ref ! KafkaMessageTracker.TimeoutScan
+      Thread.sleep(500)
+
+      val responses = statsEngine.responses.get()
+      assertEquals(responses.size, 1, "the tombstones must not be reported as outcomes of their own")
+      assertEquals(responses.head.status, (KO: Status))
+
+      val message = responses.head.message.getOrElse("")
+      assert(message.startsWith("Reply timeout after 5000 ms"), s"the timeout itself must still be reported: $message")
+      assert(
+        message.contains("could not read a correlation id from"),
+        s"and the reader must be told replies arrived that could not be placed: $message",
+      )
+      // No number. Gatling keys its error table on the message text, so a per-timeout count fragments one
+      // row into hundreds — the count belongs in the log, which is where it now is.
+      assert(
+        !message.exists(_.isDigit) || message.count(_.isDigit) == "5000".length,
+        s"the message must carry no count, only the reply timeout: $message",
+      )
+      // The remedy is derived from the configured matcher, never fixed: this channel matches on the value,
+      // so the advice must be about the value.
+      assert(message.contains("KafkaValueMatcher"), s"the matcher must be named: $message")
+      assert(message.contains("matchByValue"), s"and the remedy must be the one for that matcher: $message")
+    }
+  }
+
+  test("the remedy in the timeout is the one for the configured matcher, not a fixed one") {
+    withActorSystem { actorSystem =>
+      val statsEngine = new RecordingStatsEngine
+      val next        = new RecordingAction("next")
+      val ref         = actorSystem.actorOf(
+        KafkaMessageTracker
+          .actor[Array[Byte], Array[Byte]]("tracker", statsEngine, new StubClock(9_000L), KafkaValueMatcher, None),
+      )
+
+      ref ! published(next, replyTimeout = 5_000L, requestStart = 1_000L)
+      ref ! tombstoneReply("tomb-1")
+      ref ! KafkaMessageTracker.TimeoutScan
+      Thread.sleep(500)
+
+      // Issue #254's rule, one layer over: any matcher can return null — a keyless reply under matchByKey,
+      // a missing header under matchByMessage — so advice fixed at "correlate on a key or a header" was
+      // handed to readers already doing exactly that.
+      val message = statsEngine.responses.get().head.message.getOrElse("")
+      assert(message.contains("KafkaValueMatcher"), s"the configured matcher must be named: $message")
+      assert(
+        message.contains("the payload cannot be null"),
+        s"and the remedy must be KafkaValueMatcher's own, not a hardcoded one: $message",
+      )
+      assert(
+        !message.contains("Set a key on the request"),
+        s"which is KafkaKeyMatcher's remedy and must not appear here: $message",
+      )
+    }
+  }
+
+  test("a reply the matcher can read, matching no pending request, is not counted as uncorrelatable") {
+    withActorSystem { actorSystem =>
+      val statsEngine = new RecordingStatsEngine
+      val next        = new RecordingAction("next")
+      val ref         = actorSystem.actorOf(
+        KafkaMessageTracker
+          .actor[Array[Byte], Array[Byte]]("tracker", statsEngine, new StubClock(9_000L), KafkaValueMatcher, None),
+      )
+
+      ref ! published(next, replyTimeout = 5_000L, requestStart = 1_000L)
+      // A perfectly readable correlation id that simply belongs to nobody here: a duplicate, a late reply
+      // for a request already reported, or another scenario's traffic on a shared channel. Holding reply
+      // channels for the whole run makes this ordinary, so counting it would put a diagnosis on healthy
+      // runs — the count is about replies the matcher could not *read*, not replies it could not place.
+      ref ! replyFor("somebody-else")
+      ref ! KafkaMessageTracker.TimeoutScan
+      Thread.sleep(500)
+
+      val message = statsEngine.responses.get().head.message.getOrElse("")
+      assertEquals(message, "Reply timeout after 5000 ms", "an ordinary unmatched reply must not change the diagnosis")
+    }
+  }
+
+  test("a request failed for a known reason is not given the uncorrelatable-reply diagnosis as well") {
+    val statsEngine = new RecordingStatsEngine
+    val next        = new RecordingAction("next")
+    val tracker     =
+      new KafkaMessageTracker[Array[Byte], Array[Byte]]("tracker", statsEngine, new StubClock(4_000L), KafkaValueMatcher, None)
+    val behavior    = tracker.init()
+
+    behavior(published(next, replyTimeout = 0L, requestStart = 1_000L))
+    behavior(tombstoneReply("tomb-1"))
+    behavior(SendFailed("match-race".getBytes(StandardCharsets.UTF_8), "Broker unavailable"))
+
+    // The clause belongs to the timeout, and only to the timeout. This request did not fail for want of a
+    // reply it could not correlate — the broker refused the record — and appending a second, speculative
+    // cause to a failure that already has a definite one makes the report worse, not better.
+    assertEquals(statsEngine.responses.get().head.message, Some("Broker unavailable"))
+    assertEquals(
+      statsEngine.responses.get().head.requestName,
+      "request-reply [rejected: not delivered]",
+      "and it keeps the relocated name a delivery failure now carries",
+    )
   }
 
   private final class StubClock(now: Long) extends Clock {
