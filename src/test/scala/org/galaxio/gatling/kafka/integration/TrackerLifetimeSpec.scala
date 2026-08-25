@@ -378,8 +378,13 @@ class TrackerLifetimeSpec extends munit.FunSuite with TestContainerForAll {
     }
   }
 
-  private def liveThreadNamed(prefix: String): Boolean =
-    Thread.getAllStackTraces.keySet().asScala.exists(t => t.isAlive && t.getName.startsWith(prefix))
+  /** Exact match, not a prefix. Every pool's setup thread now carries a name unique to that instance (an incrementing suffix),
+    * specifically so a bare prefix shared by every pool in the JVM cannot make this check see a sibling suite's still-live pool
+    * and read it as this run's own thread leaking — sibling suites hold live pools concurrently under this build's
+    * `Tags.limit(Tags.Test, 2)`, and nine of them construct one.
+    */
+  private def liveThreadNamed(name: String): Boolean =
+    Thread.getAllStackTraces.keySet().asScala.exists(t => t.isAlive && t.getName == name)
 
   test("(5) a run releases everything it held, and a second run in the same process is unaffected") {
     withContainers { kafka =>
@@ -388,16 +393,19 @@ class TrackerLifetimeSpec extends munit.FunSuite with TestContainerForAll {
       val reply     = "lifetime-teardown-reply"
       createTopics(bootstrap, request, reply)
 
-      val first = new Run(bootstrap, KafkaKeyMatcher)
+      val first                = new Run(bootstrap, KafkaKeyMatcher)
+      // Captured before `close()`: this pool's own setup-thread name, unique to this instance, is what lets the
+      // wait below attribute a live thread to this run rather than to any other pool live in the process.
+      val firstSetupThreadName = first.pool.setupThreadName
       try requestReply(first, "first", request, reply, "first-key")
       finally first.close()
 
       // The setup executor is the one pool-owned thread with a naming factory, so it is the only
       // one that can be attributed to a lifetime by name. Give teardown a moment to land.
       val deadline = System.currentTimeMillis() + 10000
-      while (liveThreadNamed("gatling-kafka-tracker-setup") && System.currentTimeMillis() < deadline) Thread.sleep(50)
+      while (liveThreadNamed(firstSetupThreadName) && System.currentTimeMillis() < deadline) Thread.sleep(50)
       assert(
-        !liveThreadNamed("gatling-kafka-tracker-setup"),
+        !liveThreadNamed(firstSetupThreadName),
         "a tracker setup thread outlived the run that created it",
       )
 

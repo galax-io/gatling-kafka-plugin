@@ -49,6 +49,14 @@ object KafkaMessageTrackerPool {
     * (pacing, pauses, ramp) and nothing else.
     */
   private[kafka] val defaultIdleGraceMillis: Long = 30000L
+
+  /** One counter shared by every pool in the JVM, so each instance's threads carry a name nothing else can produce.
+    *
+    * Sibling simulations, or sibling test suites sharing one JVM, can hold live pools at the same time. A thread name that does
+    * not vary per instance cannot be attributed to one pool's lifetime — a check for "has this name's thread exited" after
+    * closing pool A can observe pool B's thread instead, and read a leak that is not there.
+    */
+  private val instanceCounter = new AtomicLong(0)
 }
 
 final class KafkaMessageTrackerPool(
@@ -101,12 +109,23 @@ final class KafkaMessageTrackerPool(
   // Per-instance executor so shutdown of one pool doesn't affect other pools or subsequent simulations.
   private val consumerExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
+  /** Distinguishes this pool's threads from any other pool's in the same JVM. See `instanceCounter`. */
+  private val instanceId: Long = KafkaMessageTrackerPool.instanceCounter.incrementAndGet()
+
   private def daemonThreads(name: String): ThreadFactory =
     (runnable: Runnable) => {
-      val thread = new Thread(runnable, name)
+      val thread = new Thread(runnable, s"$name-$instanceId")
       thread.setDaemon(true)
       thread
     }
+
+  /** This pool's own setup-executor thread name, unique per instance.
+    *
+    * Exists for a test (or an operator reading a thread dump) to attribute a live thread to the pool that created it, rather
+    * than to "some tracker pool, somewhere" — the ambiguity that made a shared name unusable as a lifetime check once more than
+    * one pool could be live in a process at once.
+    */
+  private[kafka] def setupThreadName: String = s"gatling-kafka-tracker-setup-$instanceId"
 
   /** Owns only scheduled work: the per-acquisition timeouts and the idle sweep. Nothing that can block runs here.
     *
