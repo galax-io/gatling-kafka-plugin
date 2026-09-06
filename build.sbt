@@ -6,7 +6,7 @@ import Dependencies.*
 // worktrees too. (sbt-git helper; sets ThisBuild / useConsoleForROGit := true.)
 useReadableConsoleGit
 
-val scalaV = "2.13.18"
+val scalaV = "3.9.0"
 
 lazy val root = (project in file("."))
   .enablePlugins(GitVersioning, GatlingPlugin)
