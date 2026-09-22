@@ -136,6 +136,9 @@ jobs:
       - name: Compile
         run: sbt clean compile
 
+      - name: Binary compatibility (MiMa)
+        run: sbt mimaReportBinaryIssues
+
       # Needs no broker: it checks that every example on disk has recorded coverage, and that the
       # topics they use are disjoint and created by both broker definitions. A topic clash has to be
       # caught before the simulations run — afterwards it looks like a plugin correlation bug.
