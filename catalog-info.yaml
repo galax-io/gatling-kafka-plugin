@@ -1,0 +1,11 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: gatling-kafka-plugin
+  description: Kafka protocol plugin for Gatling load testing, supporting produce-only and request-reply flows with plain and Avro serialization
+  annotations:
+    github.com/project-slug: galax-io/gatling-kafka-plugin
+spec:
+  type: library
+  lifecycle: production
+  owner: galaxio
