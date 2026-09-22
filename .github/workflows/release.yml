@@ -73,9 +73,11 @@ jobs:
       # need the full Kafka/Schema Registry stack and already gate `main` in ci.yml,
       # so the tag (cut from `main`) has been through them.
       - name: Compile & test
+        timeout-minutes: 15
         run: sbt clean compile test
 
       - name: Publish to Sonatype via sbt-ci-release
+        timeout-minutes: 10
         env:
           PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
           PGP_SECRET: ${{ secrets.PGP_SECRET }}
@@ -99,3 +101,35 @@ jobs:
           body: ${{ steps.changelog.outputs.content }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  verify-release:
+    name: Verify Maven Central / GitHub Release parity
+    # needs + if:always() (not a step in the release job) so this still runs, and can
+    # still fail loudly, even if `release` itself failed or was cancelled after
+    # `sbt ci-release` had already published -- v2.1.0 did exactly this: the publish
+    # step succeeded but a later step didn't, leaving Maven Central ahead of GitHub
+    # Releases with nothing surfacing the gap until someone noticed weeks later.
+    needs: release
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Compare Maven Central against the GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          POM_URL="https://repo1.maven.org/maven2/org/galaxio/gatling-kafka-plugin_2.13/${VERSION}/gatling-kafka-plugin_2.13-${VERSION}.pom"
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$POM_URL")
+          if [ "$STATUS" != "200" ]; then
+            echo "::notice::${TAG} isn't visible on Maven Central yet (HTTP ${STATUS}); Central sync can lag well past this job. Nothing to verify."
+            exit 0
+          fi
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "${TAG} is on Maven Central and has a matching GitHub Release."
+          else
+            echo "::error::${TAG} is published on Maven Central but has no matching GitHub Release. The release job likely failed or was cancelled after the Sonatype publish step succeeded -- investigate the run and create the release manually."
+            exit 1
+          fi
