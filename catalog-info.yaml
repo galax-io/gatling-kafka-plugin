@@ -9,3 +9,5 @@ spec:
   type: library
   lifecycle: production
   owner: galaxio
+  dependsOn:
+    - component:default/sbt-schema-registry-plugin
