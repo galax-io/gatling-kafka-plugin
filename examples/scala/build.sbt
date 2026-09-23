@@ -35,24 +35,24 @@ resolvers ++= Seq(
 )
 
 libraryDependencies ++= Seq(
-  "org.galaxio"           % "gatling-kafka-plugin_2.13"  % "0.0.0-EXAMPLES-SNAPSHOT" % Test,
-  "io.gatling.highcharts" % "gatling-charts-highcharts"  % "3.13.5"                  % Test,
-  "io.gatling"            % "gatling-test-framework"     % "3.13.5"                  % Test,
+  "org.galaxio"           % "gatling-kafka-plugin_2.13" % "0.0.0-EXAMPLES-SNAPSHOT" % Test,
+  "io.gatling.highcharts" % "gatling-charts-highcharts" % "3.13.5"                  % Test,
+  "io.gatling"            % "gatling-test-framework"    % "3.13.5"                  % Test,
   // Avro: avro4s for the derived-serde example, the Confluent serializers for the custom-serde one.
-  "com.sksamuel.avro4s"  %% "avro4s-core"                % "4.1.2"                   % Test,
-  "io.confluent"          % "kafka-avro-serializer"      % "7.9.9"                   % Test,
-  "io.confluent"          % "kafka-streams-avro-serde"   % "7.9.9"                   % Test,
+  "com.sksamuel.avro4s"  %% "avro4s-core"               % "4.1.2"                   % Test,
+  "io.confluent"          % "kafka-avro-serializer"     % "7.9.10"                  % Test,
+  "io.confluent"          % "kafka-streams-avro-serde"  % "7.9.10"                  % Test,
 ).map(_.exclude("org.apache.kafka", "kafka-clients")) ++ Seq(
-  "org.apache.kafka"      % "kafka-clients"              % "3.9.2"                   % Test,
+  "org.apache.kafka" % "kafka-clients" % "3.9.2" % Test,
 )
 
 // One forked JVM per simulation, and never two at once: they share one broker.
 Gatling / parallelExecution := false
-Gatling / javaOptions := overrideDefaultJavaOptions(
+Gatling / javaOptions       := overrideDefaultJavaOptions(
   "--add-opens=java.base/java.util=ALL-UNNAMED",
   "--add-opens=java.base/java.lang=ALL-UNNAMED",
 )
-Gatling / testGrouping := (Gatling / definedTests).value.map { test =>
+Gatling / testGrouping      := (Gatling / definedTests).value.map { test =>
   Tests.Group(
     name = test.name,
     tests = Seq(test),
