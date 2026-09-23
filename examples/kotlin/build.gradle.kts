@@ -35,7 +35,7 @@ dependencies {
     // root. Point this at a released version to run the examples against a release instead.
     gatling("org.galaxio:gatling-kafka-plugin_2.13:0.0.0-EXAMPLES-SNAPSHOT")
 
-    gatling("io.confluent:kafka-avro-serializer:7.9.9") {
+    gatling("io.confluent:kafka-avro-serializer:7.9.10") {
         exclude(group = "org.apache.kafka", module = "kafka-clients")
     }
     gatling("org.apache.kafka:kafka-clients:3.9.2")
