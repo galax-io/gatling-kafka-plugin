@@ -26,6 +26,8 @@ lazy val root = (project in file("."))
     // Do not publish artifacts for Gatling-configured scopes (this is a library)
     Gatling / publishArtifact              := false,
     GatlingIt / publishArtifact            := false,
+    // Binary-compatibility check against the latest published release.
+    mimaPreviousArtifacts                  := Set(organization.value %% name.value % "2.1.0"),
     scalacOptions ++= Seq(
       "-encoding",
       "UTF-8",            // Option and arguments on same line

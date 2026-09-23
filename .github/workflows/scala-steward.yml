@@ -3,11 +3,12 @@ name: Launch Scala Steward
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 0 * * 0'
+    - cron: '0 0 * * 5'
 
 permissions:
   contents: write
   pull-requests: write
+  issues: write # milestone assignment goes through the issues API
 
 jobs:
   scala-steward:
@@ -32,6 +33,29 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
         env:
           JAVA_OPTS: -Xms512m -Xmx2g -XX:+UseG1GC
+
+      # Every PR must carry a milestone (repo linkage rule). Bot PRs join the current
+      # ACTIVE milestone — the lowest-numbered open one, same definition as
+      # scripts/check-linkage.sh. Steward branches are `update/*`.
+      - name: Assign active milestone to Steward PRs
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          active=$(gh api "repos/$GITHUB_REPOSITORY/milestones?state=open&per_page=100" \
+            --jq 'sort_by(.number) | .[0].title // ""')
+          if [ -z "$active" ]; then
+            # Degrade gracefully: no open milestone must not fail the whole
+            # (already successful) Steward run — surface it as a warning instead.
+            echo "::warning title=Steward milestone::no open milestone — Steward PRs left unassigned"
+            exit 0
+          fi
+          gh pr list -R "$GITHUB_REPOSITORY" --state open --json number,headRefName,milestone \
+            --jq '.[] | select(.headRefName | startswith("update/")) | select(.milestone == null) | .number' |
+          while read -r pr; do
+            gh pr edit "$pr" -R "$GITHUB_REPOSITORY" --milestone "$active" \
+              || echo "::warning title=Steward milestone::could not assign '$active' to PR #$pr"
+          done
 
       - name: Show run summary
         if: always()
