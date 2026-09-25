@@ -71,7 +71,7 @@ is prepared (plan.md, "Delivery order").
   AC: `mimaReportBinaryIssues` against 2.1.0 stays blocking under the sbt 2 MiMa plugin, and the Maven and Gradle examples and the service-container tests run as before.
   AC: `.github/workflows/ci.yml` calls `galax-io/gatling-picatinny/.github/workflows/sbt-upgrade-parity.yml@{{head:galax-io/gatling-picatinny}}` in `library` mode.
   AC: The repository's own verification passes on sbt 2.0.9.
-- [ ] T-009 [repo:galax-io/gatling-kafka-plugin] [US2] Move to the first sbt-schema-registry-plugin release built by its sbt 2 launcher (`project/plugins.sbt`)
+- [x] T-009 [repo:galax-io/gatling-kafka-plugin] [US2] Move to the first sbt-schema-registry-plugin release built by its sbt 2 launcher (`project/plugins.sbt`)
   AC: `project/plugins.sbt` pins sbt-schema-registry-plugin {{release:galax-io/sbt-schema-registry-plugin}} instead of 1.8.0.
   AC: The build loads that release's `_sbt2_3` artifact on sbt 2.0.9, and the parity gate shows the published POMs and jars unchanged.
   AC: The repository's own verification passes.
