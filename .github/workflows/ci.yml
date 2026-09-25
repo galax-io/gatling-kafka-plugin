@@ -131,10 +131,10 @@ jobs:
       # check is enough here — a failure means the hook was bypassed or never
       # installed (scripts/install-hooks.sh).
       - name: Check Formatting
-        run: sbt ";scalafmtCheckAll;scalafmtSbtCheck"
+        run: sbt scalafmtCheckAll scalafmtSbtCheck
 
       - name: Compile
-        run: sbt ";clean;compile"
+        run: sbt clean compile
 
       - name: Binary compatibility (MiMa)
         run: sbt mimaReportBinaryIssues
@@ -162,7 +162,7 @@ jobs:
       #
       # Dropping any of them from the suite would be a real loss of coverage, not a tidy-up.
       - name: Test (Gatling + unit, under coverage)
-        run: sbt ";coverage;Gatling / test;test;coverageOff;coverageReport"
+        run: sbt coverage "Gatling / test" test coverageOff coverageReport
 
       # The examples live in three consumer projects, one per language, each on the build tool its
       # users actually use and each depending on the published artifact — the same shape Gatling ships
@@ -172,7 +172,7 @@ jobs:
       # The sentinel version keeps the coordinate stable: dynver's real version changes every commit
       # and gains a timestamp on a dirty tree.
       - name: Publish the plugin for the example projects
-        run: sbt ";set ThisBuild / version := \"0.0.0-EXAMPLES-SNAPSHOT\";publishM2"
+        run: sbt 'set ThisBuild / version := "0.0.0-EXAMPLES-SNAPSHOT"' publishM2
 
       - name: Run Scala examples
         run: sbt "Gatling / test"
@@ -203,6 +203,7 @@ jobs:
 
   sbt-upgrade-parity:
     name: sbt 2 upgrade parity gate
+    if: github.event_name == 'pull_request'
     permissions:
       contents: read
     uses: galax-io/gatling-picatinny/.github/workflows/sbt-upgrade-parity.yml@4a4d8413b0a593927efc560198da3452fecee8cd

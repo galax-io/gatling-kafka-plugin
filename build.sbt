@@ -1,5 +1,4 @@
 import Dependencies.*
-import sbt.complete.DefaultParsers.*
 
 // sbt-git's default JGit reader throws NoWorkTreeException in linked git worktrees
 // (where `.git` is a file, not a directory), which breaks project loading there.
@@ -283,21 +282,3 @@ Gatling / testGrouping := Def.uncached {
     )
   }
 }
-
-// sbt 2's CLI joins every argument on the command line into a single line before parsing it, rather
-// than treating each shell-level argument as its own command the way sbt 1 did — so `sbt scalafmtAll
-// scalafmtSbt` (bare, unquoted, no `;`) is now one unparseable line instead of two commands run in
-// sequence. `.github/workflows/ci.yml` was rewritten to join its own multi-task steps with `;`, but
-// this repository's release verification invokes sbt that same bare, unquoted, un-`;`-joined way from
-// outside this repository, so the build has to accept it too. This command whitelists the handful of
-// nullary tasks actually invoked bare and space-separated, splitting only a recognized run of them
-// back into the `;`-chained form sbt 2 requires. It never touches anything else — no scoped key,
-// `show`, `set` or quoted command reaches this parser — because the alternatives below are the only
-// tokens it knows.
-lazy val bareNullaryTaskNames =
-  Seq("scalafmtAll", "scalafmtSbt", "scalafmtCheckAll", "scalafmtSbtCheck", "compile", "test", "clean")
-
-Global / commands += Command.arb(_ => {
-  val name = bareNullaryTaskNames.map(n => token(n)).reduceLeft(_ | _)
-  (name ~ (token(Space) ~> name).+).map { case (h, t) => h +: t.toList }
-})((s, toks: List[String]) => toks.foldRight(s)((cmd, st) => cmd :: st))
