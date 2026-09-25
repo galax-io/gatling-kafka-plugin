@@ -46,16 +46,16 @@ libraryDependencies ++= Seq(
   "org.apache.kafka" % "kafka-clients" % "3.9.2" % Test,
 )
 
-// One forked JVM per simulation, and never two at once: they share one broker.
+// Never two at once: the examples share one broker. Unlike the plugin's own build, this one also has
+// to load on the sbt 1.13.0 launcher (CI checks both), and a per-simulation `testGrouping` override
+// returns `Seq[Tests.Group]` — a type sbt 2's task cache has no JsonFormat for, and `TestDefinition`
+// underneath it isn't Java-serializable either, so there is no override here that both opts out of
+// sbt 2 caching (`Def.uncached`, sbt-2-only syntax) and still compiles on sbt 1. The examples are a
+// handful of lightweight demo simulations, not the plugin's own sustained-load suite, so running them
+// sequentially in one forked JVM — sbt's default grouping — is an acceptable trade for staying
+// buildable on both launchers.
 Gatling / parallelExecution := false
 Gatling / javaOptions       := overrideDefaultJavaOptions(
   "--add-opens=java.base/java.util=ALL-UNNAMED",
   "--add-opens=java.base/java.lang=ALL-UNNAMED",
 )
-Gatling / testGrouping      := (Gatling / definedTests).value.map { test =>
-  Tests.Group(
-    name = test.name,
-    tests = Seq(test),
-    runPolicy = Tests.SubProcess((Gatling / forkOptions).value.withRunJVMOptions((Gatling / javaOptions).value.toVector)),
-  )
-}
