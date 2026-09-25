@@ -1,0 +1,3 @@
+# sbt 2 starts the thin client (sbtn) by default, which reads `sbt a b c` as one command line.
+# Run the server in the foreground so each argument stays its own command, as on sbt 1.
+--server
