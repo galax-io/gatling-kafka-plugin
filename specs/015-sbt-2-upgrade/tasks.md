@@ -60,7 +60,7 @@ is prepared (plan.md, "Delivery order").
 
 ## gatling-kafka-plugin
 
-- [ ] T-007 [repo:galax-io/gatling-kafka-plugin] [US1] Remove the unused sbt-avro plugin (`project/plugins.sbt`)
+- [x] T-007 [repo:galax-io/gatling-kafka-plugin] [US1] Remove the unused sbt-avro plugin (`project/plugins.sbt`)
   AC: `project/plugins.sbt` no longer declares sbt-avro 4.0.2, which is not enabled, has no Avro sources to compile, and is published only for sbt 2.0.0 milestones.
   AC: The avro-compiler meta-build dependency goes too, unless something under `project/` still uses it.
   AC: A comment in `project/build.properties` records that sbt-avro was removed as unused rather than kept as an sbt 2 blocker.
