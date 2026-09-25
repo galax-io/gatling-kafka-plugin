@@ -65,7 +65,7 @@ is prepared (plan.md, "Delivery order").
   AC: The avro-compiler meta-build dependency goes too, unless something under `project/` still uses it.
   AC: A comment in `project/build.properties` records that sbt-avro was removed as unused rather than kept as an sbt 2 blocker.
   AC: The repository's own verification passes.
-- [ ] T-008 [repo:galax-io/gatling-kafka-plugin] [US1] Move the build and its Scala example to sbt 2.0.9 and call the parity gate (`project/build.properties`, `examples/scala/project/build.properties`, `build.sbt`, `.github/workflows/ci.yml`)
+- [x] T-008 [repo:galax-io/gatling-kafka-plugin] [US1] Move the build and its Scala example to sbt 2.0.9 and call the parity gate (`project/build.properties`, `examples/scala/project/build.properties`, `build.sbt`, `.github/workflows/ci.yml`)
   AC: The root `project/build.properties` and `examples/scala/project/build.properties` pin exactly `sbt.version=2.0.9`, and `.github/workflows/ci.yml` also runs `examples/scala` with `-Dsbt.version=1.13.0` against the `publishM2` output when its build loads on both launchers.
   AC: `build.sbt` loads on sbt 2, while Scala 2.13.18 and every other plugin stay as they are.
   AC: `mimaReportBinaryIssues` against 2.1.0 stays blocking under the sbt 2 MiMa plugin, and the Maven and Gradle examples and the service-container tests run as before.

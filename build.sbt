@@ -1,4 +1,5 @@
 import Dependencies.*
+import sbt.complete.DefaultParsers.*
 
 // sbt-git's default JGit reader throws NoWorkTreeException in linked git worktrees
 // (where `.git` is a file, not a directory), which breaks project loading there.
@@ -92,10 +93,12 @@ lazy val checkPublishedPom =
   taskKey[Unit]("Assert the published POM declares only Maven Central-resolvable dependencies in scopes consumers inherit")
 
 checkPublishedPom := {
-  val log    = streams.value.log
-  val pom    = (root / makePom).value
-  val xml    = scala.xml.XML.loadFile(pom)
-  val report = (root / update).value
+  val log     = streams.value.log
+  // `makePom` returns a virtual-file reference since sbt 2, not a `java.io.File`.
+  val pomRef  = (root / makePom).value
+  val pomFile = fileConverter.value.toPath(pomRef).toFile
+  val xml     = scala.xml.XML.loadFile(pomFile)
+  val report  = (root / update).value
 
   // sbt-scoverage adds its instrumentation artifacts as compile-scope dependencies while `coverage` is
   // on, so the POM generated during a coverage run declares four org.scoverage entries that a released
@@ -187,7 +190,7 @@ checkPublishedPom := {
   if (problems.nonEmpty) {
     problems.foreach(p => log.error(p))
     sys.error(
-      s"${problems.size} published-POM contract violation(s) in ${pom.getName}. " +
+      s"${problems.size} published-POM contract violation(s) in ${pomFile.getName}. " +
         "See specs/005-classpath-dependency-shedding/contracts/published-pom.md",
     )
   }
@@ -199,7 +202,12 @@ checkPublishedPom := {
 
 // Run on every `sbt test`, not only in CI: this defect was introduced by a dependency bump, and a
 // dependency bump is exactly the change whose author will not think to run a bespoke check.
-Test / test := (Test / test).dependsOn(checkPublishedPom).value
+// `test` is an input task since sbt 2 (it now runs through `testQuick`), so this reassigns it with
+// `.evaluated` rather than `dependsOn(...).value`.
+Test / test := {
+  checkPublishedPom.value
+  (Test / test).evaluated
+}
 
 // And gate the tasks that actually produce the artifact. Relying on `test` running first is a property
 // of one workflow file, not of the build: `publishSigned` from a laptop, or a workflow edit that
@@ -261,10 +269,35 @@ Gatling / parallelExecution := false
 // Derived from `(Gatling / forkOptions).value`, not a fresh `ForkOptions()`: the default carries the
 // working directory and the other fork settings, and building one from scratch would silently drop them
 // — including anything a later `Gatling / envVars` or scoped `javaHome` adds.
-Gatling / testGrouping := (Gatling / definedTests).value.map { test =>
-  Tests.Group(
-    name = test.name,
-    tests = Seq(test),
-    runPolicy = Tests.SubProcess((Gatling / forkOptions).value.withRunJVMOptions((Gatling / javaOptions).value.toVector)),
-  )
+//
+// `Def.uncached`: sbt 2's task cache needs a JsonFormat for a task's result type to persist it, and
+// `Tests.Group` (its `TestDefinition`s carry a `Fingerprint`) has none and cannot honestly be given
+// one. Opting out is correct here regardless — this task's result is only ever consumed within the
+// same build reload, never worth persisting across runs.
+Gatling / testGrouping := Def.uncached {
+  (Gatling / definedTests).value.map { test =>
+    Tests.Group(
+      name = test.name,
+      tests = Seq(test),
+      runPolicy = Tests.SubProcess((Gatling / forkOptions).value.withRunJVMOptions((Gatling / javaOptions).value.toVector)),
+    )
+  }
 }
+
+// sbt 2's CLI joins every argument on the command line into a single line before parsing it, rather
+// than treating each shell-level argument as its own command the way sbt 1 did — so `sbt scalafmtAll
+// scalafmtSbt` (bare, unquoted, no `;`) is now one unparseable line instead of two commands run in
+// sequence. `.github/workflows/ci.yml` was rewritten to join its own multi-task steps with `;`, but
+// this repository's release verification invokes sbt that same bare, unquoted, un-`;`-joined way from
+// outside this repository, so the build has to accept it too. This command whitelists the handful of
+// nullary tasks actually invoked bare and space-separated, splitting only a recognized run of them
+// back into the `;`-chained form sbt 2 requires. It never touches anything else — no scoped key,
+// `show`, `set` or quoted command reaches this parser — because the alternatives below are the only
+// tokens it knows.
+lazy val bareNullaryTaskNames =
+  Seq("scalafmtAll", "scalafmtSbt", "scalafmtCheckAll", "scalafmtSbtCheck", "compile", "test", "clean")
+
+Global / commands += Command.arb(_ => {
+  val name = bareNullaryTaskNames.map(n => token(n)).reduceLeft(_ | _)
+  (name ~ (token(Space) ~> name).+).map { case (h, t) => h +: t.toList }
+})((s, toks: List[String]) => toks.foldRight(s)((cmd, st) => cmd :: st))

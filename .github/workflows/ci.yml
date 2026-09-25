@@ -131,10 +131,10 @@ jobs:
       # check is enough here — a failure means the hook was bypassed or never
       # installed (scripts/install-hooks.sh).
       - name: Check Formatting
-        run: sbt scalafmtCheckAll scalafmtSbtCheck
+        run: sbt ";scalafmtCheckAll;scalafmtSbtCheck"
 
       - name: Compile
-        run: sbt clean compile
+        run: sbt ";clean;compile"
 
       - name: Binary compatibility (MiMa)
         run: sbt mimaReportBinaryIssues
@@ -162,7 +162,7 @@ jobs:
       #
       # Dropping any of them from the suite would be a real loss of coverage, not a tidy-up.
       - name: Test (Gatling + unit, under coverage)
-        run: sbt coverage "Gatling / test" test coverageOff coverageReport
+        run: sbt ";coverage;Gatling / test;test;coverageOff;coverageReport"
 
       # The examples live in three consumer projects, one per language, each on the build tool its
       # users actually use and each depending on the published artifact — the same shape Gatling ships
@@ -172,10 +172,17 @@ jobs:
       # The sentinel version keeps the coordinate stable: dynver's real version changes every commit
       # and gains a timestamp on a dirty tree.
       - name: Publish the plugin for the example projects
-        run: sbt 'set ThisBuild / version := "0.0.0-EXAMPLES-SNAPSHOT"' publishM2
+        run: sbt ";set ThisBuild / version := \"0.0.0-EXAMPLES-SNAPSHOT\";publishM2"
 
       - name: Run Scala examples
         run: sbt "Gatling / test"
+        working-directory: examples/scala
+
+      # examples/scala pins sbt 2.0.9, but its build still has to load on the sbt 1 launcher the
+      # plugin itself supported before this upgrade — proving the sbt-2-published artifact this job
+      # just installed with publishM2 is still consumable from an sbt 1 build.
+      - name: Run Scala examples on sbt 1.13.0
+        run: sbt -Dsbt.version=1.13.0 compile
         working-directory: examples/scala
 
       - name: Run Java examples
@@ -193,3 +200,11 @@ jobs:
         continue-on-error: true
         with:
           fail_ci_if_error: false
+
+  sbt-upgrade-parity:
+    name: sbt 2 upgrade parity gate
+    permissions:
+      contents: read
+    uses: galax-io/gatling-picatinny/.github/workflows/sbt-upgrade-parity.yml@4a4d8413b0a593927efc560198da3452fecee8cd
+    with:
+      mode: library
