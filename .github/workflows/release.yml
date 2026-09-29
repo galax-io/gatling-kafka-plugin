@@ -57,6 +57,8 @@ jobs:
           java-version: '17'
           cache: sbt
       - uses: sbt/setup-sbt@v1
+        with:
+          disk-cache: false # FR-007: never restore the sbt 2 task cache
       - name: Cache Coursier
         uses: coursier/cache-action@v8
       - name: Cache Ivy/SBT
