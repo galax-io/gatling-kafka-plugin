@@ -9,7 +9,7 @@ object Dependencies {
     // only core client API (clients.consumer, clients.producer, common.header, common.serialization,
     // TopicPartition, WakeupException), so nothing here depends on the vendor build.
     val kafka          = "3.9.2"
-    val gatling        = "3.13.5"
+    val gatling        = "3.16.0"
     val avro4s         = "4.1.2"
     val avro           = "1.12.2"
     val kafkaAvroSerde = "7.9.10"

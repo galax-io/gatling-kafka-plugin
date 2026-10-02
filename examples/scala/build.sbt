@@ -37,7 +37,7 @@ resolvers ++= Seq(
 libraryDependencies ++= Seq(
   "org.galaxio"           % "gatling-kafka-plugin_2.13" % "0.0.0-EXAMPLES-SNAPSHOT" % Test,
   "io.gatling.highcharts" % "gatling-charts-highcharts" % "3.13.5"                  % Test,
-  "io.gatling"            % "gatling-test-framework"    % "3.13.5"                  % Test,
+  "io.gatling"            % "gatling-test-framework"    % "3.16.0"                  % Test,
   // Avro: avro4s for the derived-serde example, the Confluent serializers for the custom-serde one.
   "com.sksamuel.avro4s"  %% "avro4s-core"               % "4.1.2"                   % Test,
   "io.confluent"          % "kafka-avro-serializer"     % "7.9.10"                  % Test,
