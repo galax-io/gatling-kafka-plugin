@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+#
+# pre-push — refuse to publish a release tag whose milestone is not ready.
+#
+# git hands this hook the refs it is about to push, one line per ref:
+#
+#     <local ref> <local sha1> <remote ref> <remote sha1>
+#
+# so there is nothing to parse and nothing to guess. That is the whole reason
+# the gate lives here. It used to live in a Claude Code PreToolUse hook that
+# read the raw text of every Bash command and tried to work out whether it was
+# a release; eleven shapes walked straight through it — a wrapper like `xargs`
+# or `sudo`, a `bash -c` body, a subshell, a line continuation, a heredoc
+# anywhere in the command — and two ordinary `git commit` messages were blocked
+# for quoting the word push. None of that is expressible here: git says which
+# refs are moving, whoever asked it to.
+#
+# It also covers pushes that hook never sees at all — from a terminal, from an
+# IDE, from a script — because git runs this for every client.
+#
+# It is not a guarantee. A local hook is opt-in (core.hooksPath) and can be
+# skipped with --no-verify, and nothing server-side repeats the check unless
+# the project's own release workflow runs `scripts/check-linkage.sh --for-tag`.
+# Even then the workflow starts after the tag is public, so it can hold back the
+# release but not the tag. This is the fast failure that saves you from finding
+# out after the tag is public and cannot be taken back.
+
+set -uo pipefail
+
+# Bypass a deliberate release: LINKAGE_OFF=1 git push ...
+[ "${LINKAGE_OFF:-}" = "1" ] && exit 0
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+checker="$root/scripts/check-linkage.sh"
+
+status=0
+
+while read -r _local_ref local_sha remote_ref _remote_sha; do
+  # Only a tag publishes a release. A branch push moves no version.
+  case "$remote_ref" in
+    refs/tags/v[0-9]*) ;;
+    *) continue ;;
+  esac
+
+  # A deletion carries the all-zero object id on the local side. Deleting a tag
+  # publishes nothing, and the rule against deleting a released tag is a matter
+  # for review, not for this hook — refusing here would only teach --no-verify.
+  case "$local_sha" in
+    *[!0]*) ;;
+    *) continue ;;
+  esac
+
+  version=${remote_ref#refs/tags/}
+
+  if [ ! -x "$checker" ]; then
+    printf 'pre-push: %s is missing, so %s cannot be verified\n' "$checker" "$version" >&2
+    status=1
+    continue
+  fi
+
+  if ! out=$("$checker" --for-tag "$version" 2>&1); then
+    printf '%s\n' "$out" >&2
+    printf 'pre-push: refusing to publish %s — its milestone is not ready\n' "$version" >&2
+    status=1
+  fi
+done
+
+exit "$status"
