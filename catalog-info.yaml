@@ -5,9 +5,13 @@ metadata:
   description: Kafka protocol plugin for Gatling load testing, supporting produce-only and request-reply flows with plain and Avro serialization
   annotations:
     github.com/project-slug: galax-io/gatling-kafka-plugin
+    galaxio.io/uses.sbt-schema-registry-plugin: "api: sbt plugin in the build; Avro schemas for Schema Registry"
+    galaxio.io/plans.docker-images: "runtime: CI runs the example simulations in the Gatling runtime image"
+    galaxio.io/uses.spec-kit-galaxio-bootstrap: "process: created from the template, takes process updates via copier update"
 spec:
   type: library
   lifecycle: production
   owner: galaxio
   dependsOn:
     - component:default/sbt-schema-registry-plugin
+    - component:default/spec-kit-galaxio-bootstrap
