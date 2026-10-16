@@ -208,6 +208,6 @@ jobs:
     if: github.event_name == 'pull_request'
     permissions:
       contents: read
-    uses: galax-io/gatling-picatinny/.github/workflows/sbt-upgrade-parity.yml@6dd65d6e10858be93115d61ec0385ba4eab0867f
+    uses: galax-io/gatling-picatinny/.github/workflows/sbt-upgrade-parity.yml@4dac2b9309c49f5b54da0000cbcac0eb07143515
     with:
       mode: library
