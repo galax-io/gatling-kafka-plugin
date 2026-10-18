@@ -33,6 +33,10 @@ cat > "$bin/gh" <<'STUB'
 fx="${FIXTURES:?}"
 unexpected() { echo "gh $*" >> "$fx/unexpected.log"; echo "stub gh: unexpected call: gh $*" >&2; exit 99; }
 all="$*"
+echo "GH_TOKEN=${GH_TOKEN:-} gh $all" >> "$fx/ghcalls.log"
+# a private backlog: only its own token reads it (fixture file backlog-hidden)
+backlog_denied() { [ -e "$fx/backlog-hidden" ] && [ "${GH_TOKEN:-}" != "backlog-secret" ]; }
+not_found() { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
 cmd="${1:-}"; [ $# -gt 0 ] && shift
 expr=""; repo=""; positional=()
 while [ $# -gt 0 ]; do
@@ -50,6 +54,7 @@ case "$cmd" in
   api)
     case "${positional[0]:-}" in
       "repos/$REPO/milestones?state=open&per_page=100") echo '[{"number":8,"title":"v0.8.0"}]' | jq -r "${expr:-.}" ;;
+      "repos/$BACKLOG_REPO") backlog_denied && not_found; echo '{"private":true}' ;;
       "repos/$REPO/milestones/8") echo '{"title":"v0.8.0","state":"open"}' ;;
       "repos/$REPO/issues?milestone=8&state=all&per_page=100") jq -sc '[.]' "$fx/items.ndjson" ;;
       *) unexpected "$all" ;;
@@ -58,6 +63,7 @@ case "$cmd" in
     [ "${positional[0]:-}" = view ] && [ "$repo" = "$REPO" ] && [ -f "$fx/pr-${positional[1]:-}.json" ] || unexpected "$all"
     reply "$fx/pr-${positional[1]}.json" ;;
   issue)
+    [ "$repo" = "$BACKLOG_REPO" ] && backlog_denied && not_found
     f="$fx/issue-${repo//\//_}-${positional[1]:-}.json"
     [ "${positional[0]:-}" = view ] && [ -f "$f" ] || unexpected "$all"
     reply "$f" ;;
@@ -297,6 +303,35 @@ run --pr 3
 check "optional: FEATURE_LINK=optional lets a PR without a feature pass" $([ "$rc" -eq 0 ] && echo 0 || echo 1) "rc=$rc out=$out"
 out="$(PATH="$bin:$PATH" REPO="$REPO" BACKLOG_REPO="$BACKLOG" FEATURE_LINK=nonsense FIXTURES="$fx" bash "$script" --pr 3 2>&1)"; rc=$?
 check "optional: an unknown FEATURE_LINK value is refused" $([ "$rc" -eq 2 ] && echo 0 || echo 1) "rc=$rc out=$out"
+
+# 22. a private backlog the job's token cannot read is said so, not mistaken for "no feature"
+new_case strict-hidden
+pr_json 3 OPEN "" "Part of $BACKLOG#30" v0.8.0
+issue_in "$BACKLOG" 30 'M1 — first run' "$BUSINESS"
+: > "$fx/backlog-hidden"
+run_strict --pr 3
+check "hidden: a backlog the token cannot read fails the gate" $([ "$rc" -eq 1 ] && echo 0 || echo 1) "rc=$rc out=$out"
+check "hidden: it names the missing token" $(has "cannot read the backlog $BACKLOG" && has 'BACKLOG_READ_TOKEN' && echo 0 || echo 1) "out=$out"
+check "hidden: it does not claim the PR links no feature" $(! has 'links no feature of the backlog' && echo 0 || echo 1) "out=$out"
+check "hidden: it does not call the milestone \"none\"" $(! has 'milestone is "none"' && echo 0 || echo 1) "out=$out"
+
+# 23. with BACKLOG_READ_TOKEN the backlog is read with that token, and only the backlog
+new_case strict-token
+pr_json 3 OPEN "" "Part of $BACKLOG#30" v0.8.0
+issue_in "$BACKLOG" 30 'M1 — first run' "$BUSINESS"
+: > "$fx/backlog-hidden"
+out="$(PATH="$bin:$PATH" REPO="$REPO" BACKLOG_REPO="$BACKLOG" GH_TOKEN=job-token BACKLOG_READ_TOKEN=backlog-secret FIXTURES="$fx" bash "$script" --pr 3 2>&1)"; rc=$?
+check "token: with BACKLOG_READ_TOKEN the feature is seen and the gate passes" $([ "$rc" -eq 0 ] && has "✓ links $BACKLOG#30 (feature of business milestone" && echo 0 || echo 1) "rc=$rc out=$out"
+check "token: the backlog token is used for calls about the backlog" $(grep -q "GH_TOKEN=backlog-secret gh .*$BACKLOG" "$fx/ghcalls.log" && echo 0 || echo 1) "$(cat "$fx/ghcalls.log")"
+check "token: the backlog token never reaches a call about this repository" $(! grep "GH_TOKEN=backlog-secret" "$fx/ghcalls.log" | grep -v "$BACKLOG" | grep -q . && echo 0 || echo 1) "$(grep backlog-secret "$fx/ghcalls.log")"
+check "token: the job's own token still reads the pull request" $(grep -q "GH_TOKEN=job-token gh pr view" "$fx/ghcalls.log" && echo 0 || echo 1) "$(cat "$fx/ghcalls.log")"
+
+# 24. an unset BACKLOG_READ_TOKEN changes nothing for a readable backlog
+new_case strict-readable
+pr_json 3 OPEN "" "Part of $BACKLOG#30" v0.8.0
+issue_in "$BACKLOG" 30 'M1 — first run' "$BUSINESS"
+run_strict --pr 3
+check "readable: without BACKLOG_READ_TOKEN a readable backlog is read with the job's token" $([ "$rc" -eq 0 ] && echo 0 || echo 1) "rc=$rc out=$out"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

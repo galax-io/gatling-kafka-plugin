@@ -38,6 +38,9 @@ Env:
   REPO=owner/name          # override repo (default: gh repo view of the current checkout)
   BACKLOG_REPO=owner/name  # the repository whose business milestones hold features
                            # (default: galax-io/galaxio-sdlc-backlog)
+  BACKLOG_READ_TOKEN=token # a read-only token for the backlog repository (Issues and Metadata). The
+                           # backlog is private, so the job's own token cannot read it; this one is used
+                           # for calls about the backlog and for nothing else.
   FEATURE_LINK=required|optional   # required (default): a PR without a feature of the backlog fails
                            # the gate. optional only for a repository not yet on the rule.
 
@@ -56,10 +59,25 @@ BACKLOG_REPO="${BACKLOG_REPO:-galax-io/galaxio-sdlc-backlog}"
 FEATURE_LINK="${FEATURE_LINK:-required}"
 case "$FEATURE_LINK" in required|optional) ;; *) echo "error: FEATURE_LINK must be required or optional, not '$FEATURE_LINK'" >&2; exit 2 ;; esac
 
+gh_for() { # owner/repo, gh arguments: gh, with BACKLOG_READ_TOKEN when the repository is the backlog
+  local repo="$1"; shift
+  if [ "$repo" = "$BACKLOG_REPO" ] && [ -n "${BACKLOG_READ_TOKEN:-}" ]; then GH_TOKEN="$BACKLOG_READ_TOKEN" gh "$@"; else gh "$@"; fi
+}
+BACKLOG_SEEN=""
+backlog_readable() { # whether this job can read the backlog repository (asked once)
+  if [ -z "$BACKLOG_SEEN" ]; then
+    if gh_for "$BACKLOG_REPO" api "repos/$BACKLOG_REPO" --silent >/dev/null 2>&1; then BACKLOG_SEEN=yes; else BACKLOG_SEEN=no; fi
+  fi
+  [ "$BACKLOG_SEEN" = yes ]
+}
+cannot_read_backlog() { # text of the failure that names what is missing
+  printf 'cannot read the backlog %s with this job'"'"'s token, so a feature link cannot be checked: give the job BACKLOG_READ_TOKEN, a read-only token for %s (Issues and Metadata)' "$BACKLOG_REPO" "$BACKLOG_REPO"
+}
+
 # A feature is an issue of the backlog repository whose milestone description has the
 # line "Release: business". Prints that milestone's title for a feature, nothing otherwise.
 feature_ms() { # N (an issue of $BACKLOG_REPO) -> the business milestone's title
-  gh issue view "$1" --repo "$BACKLOG_REPO" --json milestone -q '
+  gh_for "$BACKLOG_REPO" issue view "$1" --repo "$BACKLOG_REPO" --json milestone -q '
     select(.milestone != null and ((.milestone.description // "")
       | test("(^|\n)[ \t]*Release:[ \t]*business[ \t]*\r?(\n|$)"; "i"))) | .milestone.title' 2>/dev/null || true
 }
@@ -120,7 +138,8 @@ if [ -n "$PR_NUM" ]; then
   for n in $p_parts; do
     f_ms=$(feature_ms "$n")
     if [ -n "$f_ms" ]; then printf '  ✓ links %s#%s (feature of business milestone "%s")\n' "$BACKLOG_REPO" "$n" "$f_ms"; continue; fi
-    n_ms=$(gh issue view "$n" --repo "$BACKLOG_REPO" --json milestone -q '.milestone.title // ""' 2>/dev/null || echo "")
+    if ! backlog_readable; then printf '  ✗ links %s#%s, but %s\n' "$BACKLOG_REPO" "$n" "$(cannot_read_backlog)"; e=1; continue; fi
+    n_ms=$(gh_for "$BACKLOG_REPO" issue view "$n" --repo "$BACKLOG_REPO" --json milestone -q '.milestone.title // ""' 2>/dev/null || echo "")
     if [ -n "$p_ms" ] && [ "$n_ms" = "$p_ms" ]; then printf '  ✓ links %s#%s (same milestone)\n' "$BACKLOG_REPO" "$n"
     else printf '  ✗ links %s#%s but its milestone is "%s", not "%s"\n' "$BACKLOG_REPO" "$n" "${n_ms:-none}" "$p_ms"; e=1; fi
   done
@@ -139,7 +158,9 @@ if [ -n "$PR_NUM" ]; then
       printf '  ✓ a bot'"'"'s PR needs no feature of the backlog\n'
     else
       feats=$(feature_refs "$pj")
-      if [ -z "$feats" ]; then
+      if [ -z "$feats" ] && [ -n "$p_parts" ] && ! backlog_readable; then
+        :   # said above, link by link
+      elif [ -z "$feats" ]; then
         printf '  ✗ links no feature of the backlog — add "Part of %s#<feature>" (maintenance with no feature of its own: the standing feature of the active business milestone, the issue with the label standing)\n' "$BACKLOG_REPO"; e=1
       else
         for f in $feats; do
@@ -231,7 +252,7 @@ for pr in $pr_numbers; do
   for n in $(backlog_part_of "$(jq -r '.body // ""' <<<"$pr_json")"); do
     part_refs="${part_refs:+$part_refs,}$BACKLOG_REPO#$n"
     [ -z "$(feature_ms "$n")" ] || continue
-    pn_ms=$(gh issue view "$n" --repo "$BACKLOG_REPO" --json milestone -q '.milestone.title // ""' 2>/dev/null || echo "")
+    pn_ms=$(gh_for "$BACKLOG_REPO" issue view "$n" --repo "$BACKLOG_REPO" --json milestone -q '.milestone.title // ""' 2>/dev/null || echo "")
     [ "$pn_ms" = "$ms_title" ] || err "PR #$pr links $BACKLOG_REPO#$n but that issue's milestone is '${pn_ms:-none}', not '$ms_title'"
   done
 

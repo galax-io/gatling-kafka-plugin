@@ -1,0 +1,42 @@
+name: linkage
+
+# Every pull request: it has a milestone, links an issue only when it does an important task, and
+# belongs to a feature of the backlog (scripts/check-linkage.sh --pr, AGENTS.md "Feature milestones").
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review, milestoned, demilestoned]
+
+concurrency:
+  group: linkage-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # In a workflow of its own: the token that reads the private backlog must never meet third-party
+  # build code. Always a fresh GitHub-hosted VM; nothing is installed, gh and jq come with it.
+  linkage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: check-linkage
+        run: bash scripts/check-linkage.sh --pr "$PR_NUMBER"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # BACKLOG_READ_TOKEN: read-only (Issues, Metadata) on galaxio-sdlc-backlog and nothing else.
+          # The backlog is private, so the job token cannot read it; this one is used for the calls
+          # about the backlog only. Not set (a fork, a Dependabot run): the gate says it cannot read
+          # the backlog instead of guessing. An expired or revoked token is still set, so the job
+          # fails on it: replace the secret.
+          BACKLOG_READ_TOKEN: ${{ secrets.BACKLOG_READ_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
