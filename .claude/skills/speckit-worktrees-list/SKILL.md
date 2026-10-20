@@ -3,8 +3,9 @@ name: speckit-worktrees-list
 description: Dashboard of all active worktrees with spec-artifact and task progress
 compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
-  author: github-spec-kit
+  author: dango85
   source: worktrees:commands/speckit.worktrees.list.md
+model: sonnet
 ---
 
 # List Worktrees

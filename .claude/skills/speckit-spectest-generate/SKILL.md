@@ -3,7 +3,7 @@ name: speckit-spectest-generate
 description: Generate test scaffolds from spec acceptance criteria and user scenarios
 compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
-  author: github-spec-kit
+  author: Quratulain-bilal
   source: spectest:commands/speckit.spectest.generate.md
 ---
 

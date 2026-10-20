@@ -1,11 +1,11 @@
 ---
 name: speckit-worktrees-create
-description: Spawn an isolated git worktree for a feature branch (default-on, configurable
-  layout)
+description: Spawn an isolated git worktree for a feature branch (default-on, configurable layout)
 compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
-  author: github-spec-kit
+  author: dango85
   source: worktrees:commands/speckit.worktrees.create.md
+model: sonnet
 ---
 
 # Create Worktree

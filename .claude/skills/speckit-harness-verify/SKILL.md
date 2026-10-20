@@ -1,11 +1,11 @@
 ---
 name: speckit-harness-verify
-description: Adversarially verify claims in spec/plan artifacts against primary sources
-  and record verdicts
+description: Adversarially verify claims in spec/plan artifacts against primary sources and record verdicts
 compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
-  author: github-spec-kit
+  author: formin
   source: harness:commands/speckit.harness.verify.md
+model: opus
 ---
 
 # Claim Verification

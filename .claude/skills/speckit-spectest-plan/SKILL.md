@@ -1,11 +1,11 @@
 ---
 name: speckit-spectest-plan
-description: Generate a structured test plan document from spec scenarios and success
-  criteria
+description: Generate a structured test plan document from spec scenarios and success criteria
 compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
-  author: github-spec-kit
+  author: Quratulain-bilal
   source: spectest:commands/speckit.spectest.plan.md
+model: opus
 ---
 
 # Generate Test Plan

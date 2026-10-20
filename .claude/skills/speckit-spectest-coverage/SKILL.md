@@ -3,8 +3,9 @@ name: speckit-spectest-coverage
 description: Map spec requirements to test files and calculate requirement-level coverage
 compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
-  author: github-spec-kit
+  author: Quratulain-bilal
   source: spectest:commands/speckit.spectest.coverage.md
+model: sonnet
 ---
 
 # Spec Requirement Coverage
