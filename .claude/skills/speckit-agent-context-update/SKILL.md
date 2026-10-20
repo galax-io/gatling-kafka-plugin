@@ -3,8 +3,9 @@ name: speckit-agent-context-update
 description: Refresh the managed Spec Kit section in coding agent context file(s)
 compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
-  author: github-spec-kit
+  author: spec-kit-core
   source: agent-context:commands/speckit.agent-context.update.md
+model: sonnet
 ---
 
 # Update Coding Agent Context

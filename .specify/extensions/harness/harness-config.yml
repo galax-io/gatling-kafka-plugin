@@ -1,0 +1,36 @@
+# Research Harness configuration
+# Copy to .specify/extensions/harness/harness-config.yml and customize.
+# Every value here is optional — missing keys fall back to extension defaults.
+# Environment variable overrides use the SPECKIT_HARNESS_* prefix
+# (e.g. SPECKIT_HARNESS_BUDGET_SEARCHES=50).
+
+# Budgets are per exploration/verification session. They are the hard
+# resource ceiling the agent must respect ("budget-aware" in Harness-1 terms).
+budget:
+  searches: 30        # max search actions (grep/glob/web/code search queries)
+  inspections: 40     # max source inspections (file/document/URL reads)
+  verifications: 20   # max claim verification checks
+  context_tokens: 4000 # soft cap for harness state rendered into context per iteration
+
+# Curation rules for the importance-tagged curated set.
+curation:
+  max_curated: 25     # hard cap of curated.md entries
+  importance_levels: [critical, high, medium, low]
+  evict_policy: lowest-importance-first  # applied when max_curated is exceeded
+
+# How much of each state file is rendered by /speckit.harness.status and at
+# the start of each exploration iteration. Slices, never full files.
+rendering:
+  candidates_slice: 10    # open (non-curated, non-discarded) candidates shown
+  curated_slice: 15       # top curated entries shown, ordered by importance
+  observations_slice: 8   # most recent compressed observations shown
+
+# Where harness state lives.
+state:
+  directory: harness                      # subdirectory of the active feature dir (specs/NNN-name/harness/)
+  fallback_directory: .specify/harness/global  # used when no feature directory exists
+
+# When the exploration loop must stop, even with budget remaining.
+stop_conditions:
+  marginal_gain_window: 3        # stop after N consecutive actions adding no curated evidence
+  require_critical_verified: true # refuse to declare research "done" while critical claims are unverified

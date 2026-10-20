@@ -41,6 +41,16 @@ if ($Help) {
     exit 0
 }
 
+# -Number is [long], so PowerShell binds "-5" as -5 rather than rejecting it
+# the way the bash/Python twins do (`^[0-9]+$`). A negative value would format
+# via '{0:000}' to e.g. "-005" and produce a branch name starting with "-",
+# which git refuses (refs cannot begin with a dash). Reject it here, before the
+# description check, matching the bash twin's parse-time validation order.
+if ($Number -lt 0) {
+    Write-Error 'Error: --number must be a non-negative integer'
+    exit 1
+}
+
 if (-not $FeatureDescription -or $FeatureDescription.Count -eq 0) {
     Write-Error "Usage: ./create-new-feature-branch.ps1 [-Json] [-DryRun] [-AllowExistingBranch] [-ShortName <name>] [-Number N] [-Timestamp] <feature description>"
     exit 1
@@ -410,11 +420,13 @@ function Get-BranchName {
         if ($stopWords -contains $word) { continue }
         if ($word.Length -ge 3) {
             $meaningfulWords += $word
-        } elseif ($Description -cmatch "\b$($word.ToUpper())\b") {
+        } elseif ($Description -cmatch "(?<![0-9A-Za-z_])$($word.ToUpper())(?![0-9A-Za-z_])") {
             # Case-sensitive (-cmatch) to mirror the bash twin's case-sensitive
             # whole-word acronym match: keep a short word only when its UPPERCASE
             # form appears in the original (an acronym). -match is case-insensitive
-            # and would keep every short word.
+            # and would keep every short word. ASCII boundaries rather than \b,
+            # which is Unicode-aware in .NET and would miss an acronym sitting
+            # next to an accented letter that bash's LC_ALL=C grep still splits on.
             $meaningfulWords += $word
         }
     }
@@ -555,6 +567,12 @@ if (-not $DryRun) {
     $env:SPECIFY_FEATURE = $branchName
 }
 
+# Build the PowerShell-idiomatic persist hint, mirroring the core
+# create-new-feature.ps1 twin (and the bash/python twins of this script), which
+# all emit "# To persist in your shell: ...".
+$quotedBranchName = "'" + $branchName.Replace("'", "''") + "'"
+$featureAssignment = '$env:SPECIFY_FEATURE = ' + $quotedBranchName
+
 if ($Json) {
     $obj = [PSCustomObject]@{
         BRANCH_NAME = $branchName
@@ -571,6 +589,6 @@ if ($Json) {
     Write-Output "BRANCH_NAME: $branchName"
     Write-Output "FEATURE_NUM: $featureNum"
     if (-not $DryRun) {
-        Write-Output "SPECIFY_FEATURE environment variable set to: $branchName"
+        Write-Output "# To persist in your shell: $featureAssignment"
     }
 }

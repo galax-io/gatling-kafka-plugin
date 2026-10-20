@@ -1,11 +1,11 @@
 ---
 name: speckit-changelog-diff
-description: Generate a human-readable diff between two spec versions showing exactly
-  what changed
+description: Generate a human-readable diff between two spec versions showing exactly what changed
 compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
-  author: github-spec-kit
+  author: Quratulain-bilal
   source: changelog:commands/speckit.changelog.diff.md
+model: sonnet
 ---
 
 # Changelog Diff

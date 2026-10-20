@@ -1,11 +1,11 @@
 ---
 name: speckit-harness-status
-description: Render a compact, budget-aware slice of the harness state with a recommended
-  next action
+description: Render a compact, budget-aware slice of the harness state with a recommended next action
 compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
-  author: github-spec-kit
+  author: formin
   source: harness:commands/speckit.harness.status.md
+model: sonnet
 ---
 
 # Harness Status — Budget-Aware Context Rendering

@@ -1,0 +1,27 @@
+name: speckit
+
+# Every pull request: the Spec Kit kit (the skills of Claude Code and Codex, and .specify/) is the
+# template's, byte for byte (scripts/check-speckit.sh). The kit is changed in spec-kit-galaxio-bootstrap
+# and arrives with `copier update`; a pull request that edits it by hand fails here.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: speckit-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  speckit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: check-speckit
+        run: bash scripts/check-speckit.sh

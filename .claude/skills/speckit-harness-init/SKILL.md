@@ -1,11 +1,11 @@
 ---
 name: speckit-harness-init
-description: Initialize externalized harness state (budget, candidates, curated set,
-  evidence, verification, observations) for the active feature
+description: Initialize externalized harness state (budget, candidates, curated set, evidence, verification, observations) for the active feature
 compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
-  author: github-spec-kit
+  author: formin
   source: harness:commands/speckit.harness.init.md
+model: sonnet
 ---
 
 # Initialize Research Harness

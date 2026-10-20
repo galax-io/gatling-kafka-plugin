@@ -1,11 +1,11 @@
 ---
 name: speckit-harness-report
-description: Synthesize curated evidence and verification records into the feature's
-  research.md with a coverage table
+description: Synthesize curated evidence and verification records into the feature's research.md with a coverage table
 compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
-  author: github-spec-kit
+  author: formin
   source: harness:commands/speckit.harness.report.md
+model: sonnet
 ---
 
 # Research Report — Harness → Spec Kit Artifacts

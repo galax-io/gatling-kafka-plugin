@@ -3,8 +3,9 @@ name: speckit-spectest-gaps
 description: Find spec requirements with no matching tests and suggest what to test
 compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
-  author: github-spec-kit
+  author: Quratulain-bilal
   source: spectest:commands/speckit.spectest.gaps.md
+model: opus
 ---
 
 # Find Untested Requirements

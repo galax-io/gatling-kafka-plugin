@@ -1,11 +1,11 @@
 ---
 name: speckit-harness-explore
-description: Run a budget-aware exploration loop that externalizes every finding into
-  the harness state files
+description: Run a budget-aware exploration loop that externalizes every finding into the harness state files
 compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
-  author: github-spec-kit
+  author: formin
   source: harness:commands/speckit.harness.explore.md
+model: opus
 ---
 
 # Budget-Aware Exploration Loop

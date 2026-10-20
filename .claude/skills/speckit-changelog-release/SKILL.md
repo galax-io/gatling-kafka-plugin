@@ -3,8 +3,9 @@ name: speckit-changelog-release
 description: Generate release notes for a specific version or tag from spec changes
 compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
-  author: github-spec-kit
+  author: Quratulain-bilal
   source: changelog:commands/speckit.changelog.release.md
+model: sonnet
 ---
 
 # Changelog Release
