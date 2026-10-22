@@ -101,7 +101,7 @@ Every piece of work is tied to a milestone. No exceptions unless explicitly told
 
 - **Every PR** is assigned to the active milestone before merging. No milestone = do not merge.
 - **Every issue** fixed by a PR is closed when that PR lands on `main`. Don't leave completed issues open.
-- **Spec work** (`specs/NNN-*/`) belongs to the milestone that owns the spec; link the spec PR to that milestone when you open it.
+- **Spec work** (`specs/BCKLG-<N>-*/`) belongs to the milestone that owns the spec; link the spec PR to that milestone when you open it.
 - **Active milestone** = the lowest-numbered open milestone matching the current spec/plan. Check `gh api repos/galax-io/gatling-kafka-plugin/milestones` if unsure.
 
 Enforced by [`scripts/check-linkage.sh`](scripts/check-linkage.sh) plus two PreToolUse(Bash) hooks wired in [`.claude/settings.json`](.claude/settings.json) — [`linkage-guard.sh`](.claude/hooks/linkage-guard.sh) (gates release tagging only; normal push/PR/merge untouched) and [`milestone-guard.sh`](.claude/hooks/milestone-guard.sh) (blocks assigning an issue/PR to anything but the current release milestone):
@@ -139,6 +139,16 @@ One label scheme for every repository of the organization: `scripts/labels.json`
 - **Not labels.** The order of work is the milestone: no `priority:*`. The feature is the `Part of` link: no `feature:*`. A rejected or duplicate issue is closed with that reason and a comment: no `wontfix`, `invalid`, `duplicate`.
 - **The engine's labels** `sdlc:*` live in the backlog: the maintainer sets `sdlc:run`; only the engine sets `sdlc:gate`, `sdlc:done` and `sdlc:failed`.
 - **A new label is a change to the scheme**, a PR to `scripts/labels.json`, not a label made in one repository. `scripts/sync-labels.sh` applies the scheme; `--check` lists what breaks it.
+
+## Task number (ALWAYS)
+
+A task of the backlog has one number across the organization: `BCKLG-<N>`, where `<N>` is its issue number in `galax-io/galaxio-sdlc-backlog`. It is the only number a spec gets, and it names the task wherever `#N` alone would be read as an issue or PR of another repository.
+
+- **Spec.** Its directory is `specs/BCKLG-<N>-<name>/`, `<N>` its main task. Its `spec.md`, `plan.md` and `tasks.md` carry the line `**Задачи**: BCKLG-<N>[, BCKLG-<M>…]` under the title, or `**Tasks**: …` in a repository whose files are English only, read alike: every task it carries, the main one first. A task has one spec: before writing one, find the spec whose tasks line names the task, check it against the task as its issue says now, and update it rather than write another. A spec directory from before the number keeps its name.
+- **Branch.** A spec branch made by hand is `spec/BCKLG-<N>-<name>`; the engine's run is `BCKLG-<N>-<time>`, on the branch `sdlc/BCKLG-<N>-<time>`.
+- **Commit.** A commit that does a task's work carries the trailer `Refs: BCKLG-<N>`; its subject stays a Conventional Commit.
+- **PR.** Its body carries the line `Refs: BCKLG-<N>` beside `Part of galax-io/galaxio-sdlc-backlog#<N>`.
+- **Checked.** `scripts/check-linkage.sh --pr` fails a PR of a feature without its number, a spec directory it adds that is not named by a task, and a spec, plan or tasks without the tasks line; `--specs` checks every spec of a checkout.
 
 ## Commits & PRs
 
