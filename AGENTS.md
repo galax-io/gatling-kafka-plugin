@@ -101,7 +101,7 @@ Every piece of work is tied to a milestone. No exceptions unless explicitly told
 
 - **Every PR** is assigned to the active milestone before merging. No milestone = do not merge.
 - **Every issue** fixed by a PR is closed when that PR lands on `main`. Don't leave completed issues open.
-- **Spec work** (`specs/BCKLG-<N>-*/`) belongs to the milestone that owns the spec; link the spec PR to that milestone when you open it.
+- **Spec work** (`specs/BCKLG-<N>-*/`) belongs to the milestone that owns the spec and travels in the feature's backlog PR together with its work, never in a PR of its own. Link that PR to the milestone immediately when creating it.
 - **Active milestone** = the lowest-numbered open milestone matching the current spec/plan. Check `gh api repos/galax-io/gatling-kafka-plugin/milestones` if unsure.
 
 Enforced by [`scripts/check-linkage.sh`](scripts/check-linkage.sh) plus two PreToolUse(Bash) hooks wired in [`.claude/settings.json`](.claude/settings.json) — [`linkage-guard.sh`](.claude/hooks/linkage-guard.sh) (gates release tagging only; normal push/PR/merge untouched) and [`milestone-guard.sh`](.claude/hooks/milestone-guard.sh) (blocks assigning an issue/PR to anything but the current release milestone):
@@ -152,7 +152,7 @@ A task of the backlog has one number across the organization: `BCKLG-<N>`, where
 
 ## Commits & PRs
 
-- **Spec-first.** `specs/NNN-*/` artifacts land as a `docs(speckit): add NNN-<feature> spec/plan/tasks` commit BEFORE any `feat`/`fix`. Never fold spec artifacts into implementation commits.
+- **Spec-first.** `specs/BCKLG-<N>-<feature>/` artifacts → `docs(speckit): add BCKLG-<N>-<feature> spec/plan/tasks` as the first commit of the backlog PR that carries the feature's work, BEFORE any `feat`/`fix`. Never folded into an implementation commit, never a spec-only PR; that PR merges together with the feature's PRs in the other repositories (backlog constitution, Principle II).
 - **1 issue = 1 commit.** Each tracked GitHub issue maps to one semantic commit (`feat(scope): … (#NNN)`), green on its own (`sbt scalafmtCheckAll scalafmtSbtCheck compile test`). Docs and out-of-scope improvements go in separate PRs — never mixed with issue commits.
 - **Conventional Commits drive the changelog & version.** git-cliff groups release notes by type (`feat`/`fix`/`perf`/`docs`/deps/…); the subjects since the last tag also guide the version you pick (`feat` → minor, `!:`/`BREAKING CHANGE` → major, else patch). Write accurate subjects.
 - **Intent, not path.** No add-then-remove within a PR. Squash churn before review.
