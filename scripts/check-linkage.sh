@@ -19,8 +19,9 @@ What each entity owes (this script enforces it):
   Feature    every PR of a product repository links a feature of the backlog: "Part of
              <backlog>#N" (or a closing link) to an issue whose milestone says "Release: business".
              A bot's PR (a bot author, or a dependabot/ or update/ branch) and the backlog's own
-             PRs are exempt. Maintenance with no feature of its own links the standing feature
-             (the issue with the label "type:standing") of the active business milestone.
+             PRs are exempt. A technical PR agreed with the maintainer may skip the feature: a
+             line "No feature: <why, and who agreed>" of its own in the description (a reason of
+             at least ten characters); the log prints it.
   Task       a PR of a feature names its task number, BCKLG-<N> for issue N of the backlog,
              in its body ("Refs: BCKLG-<N>"). A spec directory a PR adds is
              specs/BCKLG-<N>-<name>, and the spec.md, plan.md and tasks.md of one carry the
@@ -166,6 +167,11 @@ feature_ms() { # owner/repo#N -> the business milestone's title when the issue i
     select(.milestone != null and ((.milestone.description // "")
       | test("(^|\n)[ \t]*Release:[ \t]*business[ \t]*\r?(\n|$)"; "i"))) | .milestone.title' 2>/dev/null || true
 }
+no_feature_reason() { # pr-json -> the reason of a "No feature: <reason>" line of its own, when it is one (ten characters or more)
+  jq -r '.body // ""' <<<"$1" | tr -d '\r' \
+    | sed -n -E 's/^[[:space:]]*[Nn][Oo] [Ff][Ee][Aa][Tt][Uu][Rr][Ee]:[[:space:]]*(.*[^[:space:]])[[:space:]]*$/\1/p' \
+    | awk 'length($0) >= 10 { print; exit }'
+}
 is_bot_pr() { # pr-json -> succeeds when a bot opened it: a bot author, or Dependabot's or Scala Steward's branch
   jq -e '(.author.is_bot == true) or ((.author.login // "") | test("\\[bot\\]$|^app/")) or ((.headRefName // "") | test("^(dependabot|update)/"))' <<<"$1" >/dev/null 2>&1
 }
@@ -242,8 +248,10 @@ if [ -n "$PR_NUM" ]; then
       feats=$(feature_refs "$pj")
       if [ -z "$feats" ] && [ -n "$(feature_candidates "$pj")" ] && ! backlog_readable; then
         :   # said above, link by link
+      elif [ -z "$feats" ] && [ -n "$(no_feature_reason "$pj")" ]; then
+        printf '  ✓ no feature of the backlog, by agreement: %s\n' "$(no_feature_reason "$pj")"
       elif [ -z "$feats" ]; then
-        printf '  ✗ links no feature of the backlog — add "Part of %s#<feature>" (maintenance with no feature of its own: the standing feature of the active business milestone, the issue with the label type:standing)\n' "$BACKLOG_REPO"; e=1
+        printf '  ✗ links no feature of the backlog — add "Part of %s#<feature>", or for a technical PR agreed with the maintainer a line "No feature: <why, and who agreed>"\n' "$BACKLOG_REPO"; e=1
       else
         shown=" $(printf '%s ' $p_links)"
         for f in $feats; do
