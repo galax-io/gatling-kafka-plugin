@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+#
+# post-checkout — what a new worktree gets of AGENTS.md and CLAUDE.md.
+#
+# git runs it after every checkout; it acts only when a worktree or a clone is created (the previous HEAD is
+# the null id), never on a branch switch and never in the main checkout.
+#
+#   - A file the new worktree's branch tracks is left as checked out: overwriting it would leave a change that
+#     slips into the branch's next commit. When origin/main (fetched first) changed it after the branch forked,
+#     the hook says so: the branch is behind main on that file, and a rebase brings it up to date.
+#   - A file the branch does not track (a personal CLAUDE.md, say) is copied from the main checkout.
+#   - SDLC_WORKTREE_REF, or `git config hooks.worktreeRef`, names a ref whose files are written instead,
+#     tracked or not: the branch under test.
+#
+# It never fails the checkout.
+
+set -uo pipefail
+
+[ "${3:-}" = 1 ] || exit 0
+case "${1:-}" in *[!0]*) exit 0 ;; esac
+
+main_root="$(cd "$(git rev-parse --git-common-dir)/.." && pwd)"
+here="$(git rev-parse --show-toplevel)"
+[ "$main_root" = "$here" ] && exit 0
+
+files=(AGENTS.md CLAUDE.md)
+say() { echo "post-checkout: $*" >&2; }
+tracked() { git cat-file -e "HEAD:$1" 2>/dev/null; }
+
+ref="${SDLC_WORKTREE_REF:-$(git config --get hooks.worktreeRef || true)}"
+if [ -n "$ref" ]; then
+  if git rev-parse --verify --quiet "$ref^{commit}" >/dev/null; then
+    for f in "${files[@]}"; do
+      if git cat-file -e "$ref:$f" 2>/dev/null; then
+        git show "$ref:$f" > "$here/$f"
+      elif ! tracked "$f" && [ -f "$main_root/$f" ]; then
+        cp "$main_root/$f" "$here/$f"
+      fi
+    done
+    exit 0
+  fi
+  say "no commit $ref; AGENTS.md and CLAUDE.md stay as checked out"
+fi
+
+git fetch --quiet origin main 2>/dev/null || say "could not fetch origin main; comparing with the last fetched one"
+base="$(git merge-base HEAD origin/main 2>/dev/null || true)"
+
+for f in "${files[@]}"; do
+  if tracked "$f"; then
+    main_blob="$(git rev-parse --verify --quiet "origin/main:$f" 2>/dev/null)" || continue
+    [ "$(git rev-parse "HEAD:$f")" = "$main_blob" ] && continue
+    # origin/main's file is the one at the fork: the branch changed it, main did not.
+    [ -n "$base" ] && [ "$(git rev-parse --verify --quiet "$base:$f" 2>/dev/null)" = "$main_blob" ] && continue
+    say "$f is behind origin/main: main changed it after this branch forked; rebase on origin/main to bring it up to date (SDLC_WORKTREE_REF=origin/main writes main's file instead)"
+  elif [ -f "$main_root/$f" ]; then
+    cp "$main_root/$f" "$here/$f"
+  fi
+done
+exit 0
