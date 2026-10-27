@@ -37,6 +37,7 @@ What each entity owes (this script enforces it):
 Usage:
   scripts/check-linkage.sh --pr <N>          # GATE one PR: milestone + any linked issue in the same milestone
   scripts/check-linkage.sh --for-tag vX.Y.Z  # GATE a release: tag-readiness of that version's milestone
+                                             # (a patch with no milestone of its own: its minor's, vX.Y.0)
   scripts/check-linkage.sh [milestone]       # audit a milestone (default: lowest-numbered open)
   scripts/check-linkage.sh --tag [ms]        # also assert tag-readiness (issues closed, linked PRs merged, none open)
   scripts/check-linkage.sh --specs [dir]     # every spec of a checkout (default specs/): named by its task,
@@ -292,13 +293,17 @@ if [ -n "$PR_NUM" ]; then
   printf 'FAIL: PR #%s is malformed — fix the above before merge.\n' "$PR_NUM"; exit 1
 fi
 
-# Map a release version (vX.Y.Z) to its milestone, then assert tag-readiness on it.
-# Patch versions map to the vX.Y.0 milestone (e.g. v1.23.1 -> "v1.23.0 …").
+# Map a release version (vX.Y.Z) to its milestone, then assert tag-readiness on it. A milestone of the
+# version itself ("v1.23.1", or "v1.23.1 — title") is the one; a patch with none falls back to its minor's
+# (v1.23.0 -> "v1.23.0 …"). A tag without the leading v ("2.2.2") finds milestones with or without it.
 if [ -n "$FOR_TAG" ]; then
-  v="${FOR_TAG#v}"; minor="v${v%.*}.0"
+  v="${FOR_TAG#v}"; minor="${v%.*}.0"
   MS=$(gh api "repos/$REPO/milestones?state=all&per_page=100" \
-        | jq -r --arg t "$minor" 'map(select(.title | startswith($t))) | .[0].number // empty')
-  [ -n "$MS" ] || { echo "error: no milestone whose title starts with '$minor' for tag $FOR_TAG" >&2; exit 2; }
+        | jq -r --arg v "$v" --arg minor "$minor" '
+            map(. + {t: (.title | ltrimstr("v"))}) as $all
+            | (($all | map(select(.t == $v or (.t | startswith($v + " "))))[0])
+               // ($all | map(select(.t | startswith($minor)))[0])).number // empty')
+  [ -n "$MS" ] || { echo "error: no milestone '$FOR_TAG' or '${FOR_TAG%%[0-9]*}${minor}…' (title starting with it) for tag $FOR_TAG" >&2; exit 2; }
   TAG_MODE=1
 fi
 
