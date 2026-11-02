@@ -119,8 +119,8 @@ Enforced by [`scripts/check-linkage.sh`](scripts/check-linkage.sh) plus two PreT
 
 A feature is an issue in `galax-io/galaxio-sdlc-backlog`. It belongs to exactly one backlog milestone whose description has the line `Release: business`. Backlog milestones without that line (the backlog's own tooling and documents) are not releases and follow "Milestones" above.
 
-- **Feature issue.** Lists the work in every repository it touches as a checklist, one line per issue or PR: `- [ ] galax-io/<repo>#<N> → <repo milestone>`. A line is checked when that work is merged and the repository milestone it names has been released, so its tag exists.
-- **Repository work.** Every issue and PR of a feature carries the version milestone of its own repository and writes `Part of galax-io/galaxio-sdlc-backlog#<feature>`. A repository ships its own version when its milestone is complete, as under "Release Process". `scripts/check-linkage.sh` skips the same-milestone rule for a link to a feature; the PR still needs its own milestone.
+- **Feature issue.** Lists the work in every repository it touches as a checklist, one line per issue or PR: `- [ ] galax-io/<repo>#<N> → <theme milestone>`. A line is checked when that work is merged; the release of the business milestone checks that the repository has shipped that theme, so its tag exists.
+- **Repository work.** Every issue and PR of a feature carries its repository's theme milestone and writes `Part of galax-io/galaxio-sdlc-backlog#<feature>`. A theme milestone has the title of the feature's business milestone (`M1 — first run`) and is created in the repository when the theme's first work reaches it. It is not a version: no milestone is named after a version. The version is a tag, chosen when the repository ships the theme, as under "Release Process". `scripts/check-linkage.sh` skips the same-milestone rule for a link to a feature; the PR still needs its own milestone.
 - **Every PR links a feature.** No PR of a product repository merges without `Part of galax-io/galaxio-sdlc-backlog#<feature>` (or a closing link to a feature); `scripts/check-linkage.sh --pr` fails it. A bot's PR (a bot author, or a `dependabot/` or `update/` branch) and the backlog's own PRs are exempt. The backlog is private, so the CI job reads it with `BACKLOG_READ_TOKEN`, a read-only token for that repository (Issues and Metadata) set as an organization secret; without it the gate fails and says it cannot read the backlog. A technical PR with no feature of its own may skip this check with the maintainer's agreement: a line `No feature: <why, and who agreed>` of its own in its description, at least ten characters long, which the gate prints in its log. A milestone gets no standing feature of its own any more; the ones that exist stay until their release.
 - **Work enters through the backlog.** A bug, an audit finding or a request is not worked on until it belongs to a feature: grouped into one or given one. An issue from outside stays in its repository, which is public, and carries the label `status:needs-feature` until it is linked to a feature in the backlog.
 - **Feature done.** A feature issue is closed only when every line of its checklist is checked.
@@ -169,6 +169,8 @@ Pushing a `vX.Y.Z` tag on `main` or a `release/*` branch:
 2. `sbt clean compile test` runs as a release sanity gate.
 3. `sbt ci-release` publishes to Sonatype (sbt-ci-release / dynver, PGP-signed).
 4. Release notes are generated from Conventional Commits by git-cliff ([`cliff.toml`](cliff.toml), `orhun/git-cliff-action`), and a GitHub Release is created (`softprops/action-gh-release`).
+
+Work goes in the theme milestone. When the theme's work in this repository is done, choose the next version by what it contains, tag it as below, write the line `Released: vX.Y.Z` in the milestone's description and close the milestone.
 
 ### Minor/major release (e.g. 1.2.0, 2.0.0)
 
