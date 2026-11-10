@@ -16,6 +16,8 @@ What each entity owes (this script enforces it):
              issue with a real closing link (Closes owner/repo#N); one PR of several
              writes "Part of owner/repo#N". A linked issue sits in the PR's milestone.
              A technical PR (sync, pins, docs, CI) links no issue: its commit is the record.
+             A bot's PR may wait without one: the dependency conveyor gives it the active
+             milestone right before it merges it.
   Feature    every PR of a product repository links a feature of the backlog: "Part of
              <backlog>#N" (or a closing link) to an issue whose milestone says "Release: business".
              A bot's PR (a bot author, or a dependabot/ or update/ branch) and the backlog's own
@@ -214,8 +216,12 @@ if [ -n "$PR_NUM" ]; then
   p_links=$(pr_links "$pj")
   e=0
   printf 'PR #%s  %s\n' "$PR_NUM" "$p_title"
-  if [ -z "$p_ms" ]; then printf '  ✗ no milestone — assign one (gh pr edit %s --milestone "…")\n' "$PR_NUM"; e=1
-  else printf '  ✓ milestone: %s\n' "$p_ms"; fi
+  # A bot's PR opens before anything can give it a milestone, and a milestone set with a job's token
+  # starts no workflow to check it again: the dependency conveyor gives it the active milestone right
+  # before it merges it (backlog BCKLG-831).
+  if [ -n "$p_ms" ]; then printf '  ✓ milestone: %s\n' "$p_ms"
+  elif is_bot_pr "$pj"; then printf '  - no milestone yet: the dependency conveyor gives a bot'"'"'s PR the active milestone when it merges it\n'
+  else printf '  ✗ no milestone — assign one (gh pr edit %s --milestone "…")\n' "$PR_NUM"; e=1; fi
   if [ -z "$p_links" ]; then
     p_text=$(body_refs "$pj" "$CLOSES")
     p_base=$(jq -r '.baseRefName' <<<"$pj")
