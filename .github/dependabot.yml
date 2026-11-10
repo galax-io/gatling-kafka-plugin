@@ -3,8 +3,10 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "friday"
+      interval: weekly
+      day: tuesday
+      time: "01:00"
+      timezone: Etc/UTC
     commit-message:
       prefix: "chore"
     groups:
@@ -15,7 +17,9 @@ updates:
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "friday"
+      interval: weekly
+      day: tuesday
+      time: "01:20"
+      timezone: Etc/UTC
     commit-message:
       prefix: "chore"
