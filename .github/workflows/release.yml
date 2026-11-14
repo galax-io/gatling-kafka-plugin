@@ -60,7 +60,7 @@ jobs:
         with:
           disk-cache: false # FR-007: never restore the sbt 2 task cache
       - name: Cache Coursier
-        uses: coursier/cache-action@v8
+        uses: coursier/cache-action@v9
       - name: Cache Ivy/SBT
         uses: actions/cache@v6
         with:
@@ -98,7 +98,7 @@ jobs:
           GITHUB_REPO: ${{ github.repository }}
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           body: ${{ steps.changelog.outputs.content }}
         env:
