@@ -18,7 +18,6 @@ Kafka protocol plugin for [Gatling](https://gatling.io/) load testing framework.
 - [Producing Messages](#producing-messages)
 - [Request-Reply](#request-reply)
 - [Runtime Semantics & Troubleshooting](#runtime-semantics--troubleshooting)
-- [Consume-Only Tracking](#consume-only-tracking)
 - [Avro Support](#avro-support)
 - [Architecture](#architecture)
 - [Migration Guide](#migration-guide)
@@ -77,7 +76,7 @@ gatling("org.galaxio:gatling-kafka-plugin_2.13:<version>")
 ```
 
 Everything above resolves from Maven Central. No additional repository is required for plain
-serialization — which covers producing, request-reply, checks, and consume-only tracking.
+serialization — which covers producing, request-reply, and checks.
 
 ### Optional: Avro via Confluent Schema Registry
 
@@ -261,29 +260,6 @@ scenario("Producer")
   )
 ```
 
-### Partition and Timestamp Control
-
-Target a specific partition or set an explicit timestamp on produced records:
-
-```scala
-kafka("send to partition")
-  .topic("test-topic")
-  .send[String, String]("key", "payload")
-  .partition(3)
-  .timestamp(System.currentTimeMillis())
-```
-
-Both `.partition()` and `.timestamp()` accept Gatling `Expression` values for dynamic resolution from the session.
-
-### Silent Requests
-
-```scala
-kafka("silent request")
-  .topic("test-topic")
-  .send[String]("foo")
-  .silent
-```
-
 Set the topic on each request builder with `kafka("name").topic("...")`.
 
 ---
@@ -450,26 +426,6 @@ Two important consequences follow from those defaults:
 
 ---
 
-## Consume-Only Tracking
-
-```scala
-kafka("consume event")
-  .consumeFrom("events")
-  .keyForTracking("#{eventKey}")
-  .check(bodyString.exists)
-  .saveAs("eventBody")(msg => new String(msg.value))
-```
-
-Consume first available (no correlation):
-
-```scala
-kafka("consume any")
-  .consumeAny("events")
-  .saveAs("payload")(msg => new String(msg.value))
-```
-
----
-
 ## Avro Support
 
 ### Avro4s (Scala case classes)
@@ -537,11 +493,10 @@ KafkaRequestBuilderBase           (DSL: .topic.send, .requestReply)
     |
     +-- KafkaRequestAction              (produce-only action)
     +-- KafkaRequestReplyAction         (produce + correlated reply tracking)
-    +-- KafkaConsumeAction              (consume-only tracking)
     |
-KafkaMessageTrackerActor               (Akka actor for correlation)
-TrackersPool                            (shared consumer per bootstrap servers, tracker per reply topic)
-KafkaSender / KafkaSenderPool           (producer pool)
+KafkaMessageTracker                     (Gatling actor for correlation)
+KafkaMessageTrackerPool                 (shared consumer per bootstrap servers, tracker per reply topic)
+KafkaSender                             (Kafka producer, shared per producer settings)
 ```
 
 ---
