@@ -26,6 +26,8 @@ serialization and Avro helpers.
 ## Commands
 
 ```bash
+# install   sbt update Test/compile scalafmtCheckAll scalafmtSbtCheck mimaReportBinaryIssues coverage update coverageOff
+# test      sbt test
 sbt scalafmtAll scalafmtSbt                       # format — run before every push
 sbt scalafmtCheckAll scalafmtSbtCheck             # format gate — must pass before push
 sbt clean compile                                 # compile
