@@ -23,7 +23,7 @@ jobs:
   release:
     name: Release (tag-driven)
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -79,7 +79,8 @@ jobs:
         run: sbt clean compile test
 
       - name: Publish to Sonatype via sbt-ci-release
-        timeout-minutes: 10
+        # Central's publishing took over 10 minutes for v2.1.4 (2026-11-19); the deployment went through after the step was cut.
+        timeout-minutes: 20
         env:
           PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
           PGP_SECRET: ${{ secrets.PGP_SECRET }}
