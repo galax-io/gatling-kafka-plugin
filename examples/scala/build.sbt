@@ -40,8 +40,8 @@ libraryDependencies ++= Seq(
   "io.gatling"            % "gatling-test-framework"    % "3.13.5"                  % Test,
   // Avro: avro4s for the derived-serde example, the Confluent serializers for the custom-serde one.
   "com.sksamuel.avro4s"  %% "avro4s-core"               % "4.1.2"                   % Test,
-  "io.confluent"          % "kafka-avro-serializer"     % "7.9.10"                  % Test,
-  "io.confluent"          % "kafka-streams-avro-serde"  % "7.9.10"                  % Test,
+  "io.confluent"          % "kafka-avro-serializer"     % "7.9.11"                  % Test,
+  "io.confluent"          % "kafka-streams-avro-serde"  % "7.9.11"                  % Test,
 ).map(_.exclude("org.apache.kafka", "kafka-clients")) ++ Seq(
   "org.apache.kafka" % "kafka-clients" % "3.9.2" % Test,
 )
