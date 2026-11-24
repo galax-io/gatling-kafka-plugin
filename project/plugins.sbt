@@ -4,7 +4,7 @@ resolvers ++= Seq(
 )
 
 addSbtPlugin("com.github.sbt" % "sbt-ci-release"             % "1.12.1")
-addSbtPlugin("com.github.sbt" % "sbt-git"                    % "2.2.0")
+addSbtPlugin("com.github.sbt" % "sbt-git"                    % "3.0.0")
 addSbtPlugin("io.gatling"     % "gatling-sbt"                % "4.19.2")
 addSbtPlugin("org.scalameta"  % "sbt-scalafmt"               % "2.6.2")
 addSbtPlugin("org.galaxio"    % "sbt-schema-registry-plugin" % "1.10.3")
