@@ -5,6 +5,9 @@ compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
   author: dango85
   source: worktrees:commands/speckit.worktrees.create.md
+  version: 1.3.2
+user-invocable: true
+disable-model-invocation: false
 model: sonnet
 ---
 
@@ -55,7 +58,7 @@ Environment variable `SPECIFY_WORKTREE_PATH` overrides the computed path entirel
    Run the deterministic bash script shipped with this extension:
 
    ```bash
-   bash "$(dirname "$0")/../scripts/bash/create-worktree.sh" \
+   bash .specify/extensions/worktrees/scripts/bash/create-worktree.sh \
      --json \
      [--layout sibling|nested] \
      [--base-ref HEAD|main|origin/main|…] \

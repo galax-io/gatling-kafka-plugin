@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+if [ "${SPECKIT_HOOKS:-}" = off ]; then echo 'skipped: SPECKIT_HOOKS=off, the automated run keeps its own branch, commits and working copy'; exit 0; fi
 # Git extension: initialize-repo.sh
 # Initialize a Git repository with an initial commit.
 # Customizable — replace this script to add .gitignore templates,

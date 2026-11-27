@@ -5,6 +5,7 @@ compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
   author: formin
   source: harness:commands/speckit.harness.status.md
+  version: 1.0.0
 ---
 
 # Harness Status — Budget-Aware Context Rendering

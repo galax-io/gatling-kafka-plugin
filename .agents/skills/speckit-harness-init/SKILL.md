@@ -5,6 +5,7 @@ compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
   author: formin
   source: harness:commands/speckit.harness.init.md
+  version: 1.0.0
 ---
 
 # Initialize Research Harness

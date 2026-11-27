@@ -5,6 +5,7 @@ compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
   author: Quratulain-bilal
   source: spectest:commands/speckit.spectest.gaps.md
+  version: 1.0.0
 ---
 
 # Find Untested Requirements

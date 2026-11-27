@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+if [ "${SPECKIT_HOOKS:-}" = off ]; then echo 'skipped: SPECKIT_HOOKS=off, the automated run keeps its own branch, commits and working copy'; exit 0; fi
 # Git extension: create-new-feature-branch.sh
 # Creates a git feature branch only. The feature directory and spec file
 # are created by the core create-new-feature.sh script.
@@ -100,7 +101,7 @@ if [ -z "$FEATURE_DESCRIPTION" ]; then
 fi
 
 # Trim whitespace and validate description is not empty
-FEATURE_DESCRIPTION=$(echo "$FEATURE_DESCRIPTION" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')
+FEATURE_DESCRIPTION=$(printf '%s\n' "$FEATURE_DESCRIPTION" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')
 if [ -z "$FEATURE_DESCRIPTION" ]; then
     echo "Error: Feature description cannot be empty or contain only whitespace" >&2
     exit 1
@@ -191,7 +192,7 @@ check_existing_branches() {
             highest_branch=$highest_remote
         fi
     else
-        git fetch --all --prune >/dev/null 2>&1 || true
+        GIT_TERMINAL_PROMPT=0 git fetch --all --prune >/dev/null 2>&1 || true
         local highest_branch=$(get_highest_from_branches "$scope_prefix")
     fi
 

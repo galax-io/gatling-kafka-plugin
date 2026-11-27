@@ -5,6 +5,7 @@ compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
   author: Quratulain-bilal
   source: changelog:commands/speckit.changelog.generate.md
+  version: 1.0.0
 ---
 
 # Changelog Generate
