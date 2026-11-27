@@ -1,19 +1,9 @@
 {
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/linkage-guard.sh"
-          },
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/milestone-guard.sh"
-          }
-        ]
-      }
-    ]
+  "env": {
+    "ANTHROPIC_DEFAULT_FABLE_MODEL": "claude-fable-5-2",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5-5",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-5-5",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-5-5",
+    "ANTHROPIC_SMALL_FAST_MODEL": "claude-haiku-5-5"
   }
 }
