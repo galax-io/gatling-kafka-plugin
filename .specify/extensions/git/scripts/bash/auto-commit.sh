@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+if [ "${SPECKIT_HOOKS:-}" = off ]; then echo 'skipped: SPECKIT_HOOKS=off, the automated run keeps its own branch, commits and working copy'; exit 0; fi
 # Git extension: auto-commit.sh
 # Automatically commit changes after a Spec Kit command completes.
 # Checks per-command config keys in git-config.yml before committing.

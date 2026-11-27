@@ -49,7 +49,7 @@ Environment variable `SPECIFY_WORKTREE_PATH` overrides the computed path entirel
    Run the deterministic bash script shipped with this extension:
 
    ```bash
-   bash "$(dirname "$0")/../scripts/bash/create-worktree.sh" \
+   bash .specify/extensions/worktrees/scripts/bash/create-worktree.sh \
      --json \
      [--layout sibling|nested] \
      [--base-ref HEAD|main|origin/main|…] \

@@ -5,6 +5,9 @@ compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
   author: spec-kit-core
   source: agent-context:commands/speckit.agent-context.update.md
+  version: 1.0.3
+user-invocable: true
+disable-model-invocation: false
 model: sonnet
 ---
 

@@ -106,6 +106,53 @@ mkdir -p "$d/src/deep"; ( cd "$d" && git init -q . )
 out="$( cd "$d/src/deep" && bash "$script" 2>&1 )"; rc=$?
 check "it runs from a subdirectory of the repository" "$rc" "rc=$rc: $out"
 
+new_overlay() { # name — a repository whose plan skills are a layer's: the overlay manifest holds their hashes
+  local d; d="$(new_repo "$1")"
+  printf 'plan skill with a layer\n' > "$d/.claude/skills/speckit-plan/SKILL.md"
+  printf 'plan skill for codex with a layer\n' > "$d/.agents/skills/speckit-plan/SKILL.md"
+  ( cd "$d" && sha256 .agents/skills/speckit-plan/SKILL.md .claude/skills/speckit-plan/SKILL.md > .specify/speckit-overlay.sha256 )
+  echo "$d"
+}
+
+d="$(new_overlay overlay-same)"
+out="$(run "$d")"; rc=$?
+check "a file the overlay lists is checked against the overlay's hash" "$rc" "rc=$rc: $out"
+
+d="$(new_overlay overlay-edited)"
+printf 'edited by hand\n' > "$d/.claude/skills/speckit-plan/SKILL.md"
+out="$(run "$d")"; rc=$?
+check "an edit of a layer file fails" "$([ "$rc" = 1 ] && echo 0 || echo 1)" "rc=$rc: $out"
+check "  and is named MODIFIED" "$(grep -q 'MODIFIED .claude/skills/speckit-plan/SKILL.md' <<<"$out" && echo 0 || echo 1)" "$out"
+
+d="$(new_overlay overlay-reverted)"
+printf 'plan skill\n' > "$d/.claude/skills/speckit-plan/SKILL.md"
+out="$(run "$d")"; rc=$?
+check "a layer file reverted to the kit's fails" "$([ "$rc" = 1 ] && echo 0 || echo 1)" "rc=$rc: $out"
+
+d="$(new_overlay overlay-other-edit)"
+printf 'edited by hand\n' > "$d/.specify/scripts/bash/common.sh"
+out="$(run "$d")"; rc=$?
+check "a file the overlay does not list is still the kit's" "$([ "$rc" = 1 ] && echo 0 || echo 1)" "rc=$rc: $out"
+
+d="$(new_overlay overlay-unknown)"
+printf 'x\n' > "$d/.claude/skills/speckit-plan/other.md"
+( cd "$d" && sha256 .claude/skills/speckit-plan/other.md >> .specify/speckit-overlay.sha256 )
+out="$(run "$d")"; rc=$?
+check "an overlay path the kit does not list fails" "$([ "$rc" = 1 ] && echo 0 || echo 1)" "rc=$rc: $out"
+check "  and is named OVERLAY" "$(grep -q 'OVERLAY .claude/skills/speckit-plan/other.md' <<<"$out" && echo 0 || echo 1)" "$out"
+
+d="$(new_repo overlay-regex-path)"
+mkdir -p "$d/.claude/skills/speckit-c++"; printf 'c\n' > "$d/.claude/skills/speckit-c++/SKILL.md"
+( cd "$d" && sha256 .claude/skills/speckit-c++/SKILL.md >> .specify/speckit-kit.sha256 && cp .specify/speckit-kit.sha256 /dev/null
+  printf 'layered\n' > .claude/skills/speckit-c++/SKILL.md; sha256 .claude/skills/speckit-c++/SKILL.md > .specify/speckit-overlay.sha256 )
+out="$(run "$d")"; rc=$?
+check "an overlay path with regex characters in it is matched literally" "$rc" "rc=$rc: $out"
+
+d="$(new_repo no-overlay-edit)"
+printf 'plan skill with a layer\n' > "$d/.claude/skills/speckit-plan/SKILL.md"
+out="$(run "$d")"; rc=$?
+check "without an overlay manifest a changed skill still fails" "$([ "$rc" = 1 ] && echo 0 || echo 1)" "rc=$rc: $out"
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" = 0 ]

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+if [ "${SPECKIT_HOOKS:-}" = off ]; then echo 'skipped: SPECKIT_HOOKS=off, the automated run keeps its own branch, commits and working copy'; exit 0; fi
 # spec-kit-worktree-parallel: create-worktree.sh
 # Deterministic worktree creation for parallel agents/features.
 # Called by the speckit.worktrees.create command or after_specify hook.

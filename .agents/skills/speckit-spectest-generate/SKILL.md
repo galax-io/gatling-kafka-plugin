@@ -5,6 +5,7 @@ compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
   author: Quratulain-bilal
   source: spectest:commands/speckit.spectest.generate.md
+  version: 1.0.0
 ---
 
 # Generate Test Scaffolds from Spec

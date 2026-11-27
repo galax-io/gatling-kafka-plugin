@@ -5,6 +5,9 @@ compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
   author: spec-kit-core
   source: git:commands/speckit.git.commit.md
+  version: 1.0.9
+user-invocable: true
+disable-model-invocation: false
 model: sonnet
 ---
 
